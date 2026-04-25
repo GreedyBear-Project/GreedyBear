@@ -1,6 +1,10 @@
+import logging
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+logger = logging.getLogger(__name__)
 
 
 class HttpClient:
@@ -18,6 +22,7 @@ class HttpClient:
             total=retries,
             status_forcelist=[429, 500, 502, 503, 504],
             backoff_factor=backoff_factor,
+            allowed_methods=frozenset(["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]),
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
@@ -31,13 +36,19 @@ class HttpClient:
         # Apply default timeout if not specified
         kwargs.setdefault("timeout", self.default_timeout)
 
-        # Execute the request
-        response = self.session.request(method, url, **kwargs)
+        logger.debug(f"Sending {method} request to {url}")
 
-        # Always raise for status to ensure consistent error handling
-        response.raise_for_status()
+        try:
+            # Execute the request
+            response = self.session.request(method, url, **kwargs)
 
-        return response
+            # Always raise for status to ensure consistent error handling
+            response.raise_for_status()
+
+            return response
+        except requests.RequestException as e:
+            logger.error(f"HTTP Request failed for {method} {url}: {e}")
+            raise
 
     def get(self, url, **kwargs):
         """Sends a GET request."""
