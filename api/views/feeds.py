@@ -99,8 +99,8 @@ def _build_trending_response(
     }
 
 
-def _trending_cache_key(request, version: int, current_window_end) -> str:
-    sorted_params = sorted(request.query_params.lists())
+def _trending_cache_key(validated_data: dict, version: int, current_window_end) -> str:
+    sorted_params = sorted(validated_data.items())
     params_string = urllib.parse.urlencode(sorted_params, doseq=True)
     param_hash = hashlib.sha256(params_string.encode("utf-8")).hexdigest()
     return f"trending_feeds_v{version}_{current_window_end.isoformat()}_{param_hash}"
