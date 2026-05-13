@@ -1,6 +1,10 @@
+from unittest.mock import patch
+
 from django.conf import settings
+from django.core.cache import cache
 from django.test import override_settings
 
+from api.throttles import FeedsThrottle
 from tests import CustomTestCase
 
 
@@ -177,3 +181,28 @@ class FeedsViewTestCase(CustomTestCase):
 
         values = [ioc["value"] for ioc in response.json()["results"]["iocs"]]
         self.assertEqual(values, sorted(values))
+
+    def test_feeds_endpoint_uses_feeds_throttle(self):
+        cache.clear()
+        try:
+            with patch.object(FeedsThrottle, "THROTTLE_RATES", {"feeds": "1/minute"}):
+                first = self.client.get("/api/feeds/all/all/recent.json")
+                second = self.client.get("/api/feeds/all/all/recent.json")
+        finally:
+            cache.clear()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)
+
+    def test_feeds_pagination_endpoint_uses_feeds_throttle(self):
+        url = "/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent"
+        cache.clear()
+        try:
+            with patch.object(FeedsThrottle, "THROTTLE_RATES", {"feeds": "1/minute"}):
+                first = self.client.get(url)
+                second = self.client.get(url)
+        finally:
+            cache.clear()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)
