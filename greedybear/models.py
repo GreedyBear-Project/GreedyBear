@@ -118,6 +118,9 @@ class IOC(models.Model):
             models.Index(fields=["attacker_country"]),
             models.Index(fields=["attacker_country_code"]),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["name", "type"], name="unique_ioc_identity"),
+        ]
 
     def __str__(self):
         return self.name
