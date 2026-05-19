@@ -18,6 +18,7 @@ dependencies = [
     # Server Gateway Interface
     "gunicorn~=26.0",
     # Data stores
+    # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
     "elasticsearch==9.4.0",
     "psycopg[c]~=3.3",
     # ML / data science
