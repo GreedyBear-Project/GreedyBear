@@ -56,9 +56,9 @@ class TrainModels(Cronjob):
                 TRAINING_DATA_FILENAME,
                 ContentFile(json.dumps(self.current_data, default=str)),
             )
-        except Exception as exc:
-            self.log.error(f"error saving training data: {exc}")
-            raise exc
+        except Exception:
+            self.log.exception("error saving training data")
+            raise
 
     def load_training_data(self) -> list[dict]:
         """
@@ -71,8 +71,8 @@ class TrainModels(Cronjob):
         try:
             with self.storage.open(TRAINING_DATA_FILENAME, "r") as file:
                 return json.load(file)
-        except Exception as exc:
-            self.log.error(f"error loading training data: {exc}")
+        except Exception:
+            self.log.exception("error loading training data")
             return []
 
     def run(self):

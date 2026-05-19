@@ -30,12 +30,13 @@ class BucketUpdater:
 
         try:
             update_count = TrendingBucketRepository().upsert_bucket_counts(self.counters)
+        except Exception:
+            logger.exception("Failed to update activity buckets from hits for current chunk")
+            return 0
+        else:
             logger.debug(f"Updated {update_count} buckets")
             self.total_update_count += update_count
             return update_count
-        except Exception as exc:
-            logger.exception("Failed to update activity buckets from hits for current chunk: %s", exc)
-            return 0
         finally:
             self.counters = Counter()
 

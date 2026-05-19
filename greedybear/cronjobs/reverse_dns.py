@@ -160,9 +160,10 @@ class ReverseDNSCron(Cronjob):
         """
         try:
             hostname, _, _ = socket.gethostbyaddr(ip)
-            return hostname
         except (socket.herror, socket.gaierror, TimeoutError, OSError):
             return ""
+        else:
+            return hostname
 
     @staticmethod
     def _matches_scanner_domain(hostname: str) -> bool:

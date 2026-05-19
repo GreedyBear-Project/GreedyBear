@@ -47,9 +47,9 @@ class MLModel(Scorer):
         try:
             with storage.open(self.file_name, "rb") as file:
                 result = joblib.load(file)
-        except Exception as exc:
-            self.log.error(f"failed to load model for {self.name}")
-            raise exc
+        except Exception:
+            self.log.exception(f"failed to load model for {self.name}")
+            raise
         return result
 
     def save(self) -> None:
@@ -68,9 +68,9 @@ class MLModel(Scorer):
                 if storage.exists(self.file_name):
                     storage.delete(self.file_name)
                 storage.save(self.file_name, ContentFile(model_buffer.getvalue()))
-            except Exception as exc:
-                self.log.error(f"failed to save model for {self.name}")
-                raise exc
+            except Exception:
+                self.log.exception(f"failed to save model for {self.name}")
+                raise
 
     def add_missing_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """

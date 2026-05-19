@@ -106,7 +106,7 @@ class EmailVerificationSerializer(rest_email_auth.serializers.EmailVerificationS
                 exc.detail = "The provided verification key is invalid or your email address is already verified."
             if "expired" in err_str:
                 exc.detail = "The provided verification key has expired or your email address is already verified."
-            raise exc
+            raise
 
     def save(self):
         """
@@ -135,8 +135,8 @@ class EmailVerificationSerializer(rest_email_auth.serializers.EmailVerificationS
                     ),
                     channel=certego_apps_settings.DEFAULT_SLACK_CHANNEL,
                 )
-            except SlackApiError as exc:
-                slack.log.error(f"Slack message failed for user(#{user.pk}) with error: {exc}")
+            except SlackApiError:
+                slack.log.exception(f"Slack message failed for user(#{user.pk}) with error")
 
 
 class LoginSerializer(AuthTokenSerializer):

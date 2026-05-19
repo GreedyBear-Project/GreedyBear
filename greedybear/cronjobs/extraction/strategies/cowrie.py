@@ -34,9 +34,10 @@ def parse_url_hostname(url: str) -> str | None:
     """
     try:
         parsed = urlparse(url)
-        return parsed.hostname
     except (ValueError, AttributeError):
         return None
+    else:
+        return parsed.hostname
 
 
 def normalize_command(message: str) -> str:

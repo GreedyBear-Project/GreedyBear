@@ -14,14 +14,14 @@ class WhatsMyIPCron(Cronjob):
                 timeout=10,
             )
             r.raise_for_status()
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch whats-my-ip list: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch whats-my-ip list")
             raise
 
         try:
             json_file = r.json()
-        except ValueError as e:
-            self.log.error(f"Failed to parse whats-my-ip response as JSON: {e}")
+        except ValueError:
+            self.log.exception("Failed to parse whats-my-ip response as JSON")
             raise
 
         if "list" not in json_file:

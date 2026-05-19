@@ -249,7 +249,7 @@ def threatfox_submission(ioc_record: IOC, related_urls: list, log: Logger) -> No
             json=json_data,
             timeout=5,
         )
-    except requests.RequestException as e:
-        log.exception(f"Threatfox push error: {e}")
+    except requests.RequestException:
+        log.exception("Threatfox push error")
     else:
         log.info(f"Threatfox submission successful. Received response: {r.text}")

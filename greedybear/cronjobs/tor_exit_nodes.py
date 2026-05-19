@@ -45,6 +45,6 @@ class TorExitNodesCron(Cronjob):
 
             self.log.info("Completed download of Tor exit node list")
 
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch Tor exit nodes: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch Tor exit nodes")
             raise

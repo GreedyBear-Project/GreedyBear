@@ -48,8 +48,8 @@ class MassScannersCron(Cronjob):
                 timeout=10,
             )
             r.raise_for_status()
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch mass scanner list: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch mass scanner list")
             raise
 
         for line_bytes in r.iter_lines():

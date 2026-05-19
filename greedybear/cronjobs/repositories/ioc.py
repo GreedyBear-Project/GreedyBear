@@ -74,11 +74,11 @@ class IocRepository:
                 name=honeypot_name,
                 active=True,
             )
-        except IntegrityError as e:
-            self.log.error(f"IntegrityError creating honeypot '{honeypot_name}': {e}")
+        except IntegrityError:
+            self.log.exception(f"IntegrityError creating honeypot '{honeypot_name}'")
             honeypot = self.get_hp_by_name(honeypot_name)
             if honeypot is None:
-                raise e
+                raise
 
         self._honeypot_cache[normalized] = honeypot
         return honeypot
@@ -273,12 +273,13 @@ class IocRepository:
         """
         try:
             ioc = IOC.objects.get(name=ip_address)
+        except IOC.DoesNotExist:
+            return False
+        else:
             ioc.ip_reputation = reputation
             ioc.save()
             self.log.info(f"Updated IOC {ip_address} reputation to '{reputation}'")
             return True
-        except IOC.DoesNotExist:
-            return False
 
     def bulk_update_ioc_reputation(self, ip_addresses: list[str], reputation: str) -> int:
         """

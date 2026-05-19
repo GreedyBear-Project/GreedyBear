@@ -104,8 +104,8 @@ class ExtractionPipeline:
                 try:
                     strategy.extract_from_hits(hits)
                     ioc_records += strategy.ioc_records
-                except Exception as exc:
-                    self.log.error(f"Extraction failed for honeypot {honeypot}: {exc}")
+                except Exception:
+                    self.log.exception(f"Extraction failed for honeypot {honeypot}")
 
             # 4. Update scores
             self.log.info("Updating scores")

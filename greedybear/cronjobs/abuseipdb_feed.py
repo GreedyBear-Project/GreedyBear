@@ -100,8 +100,8 @@ class AbuseIPDBCron(Cronjob):
             created_count = self.tag_repo.replace_tags_for_source(SOURCE_NAME, tag_entries)
             self.log.info(f"AbuseIPDB enrichment completed. Matched {matched_count} IOCs, created {created_count} tags.")
 
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch AbuseIPDB blocklist: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch AbuseIPDB blocklist")
             raise
 
     def _parse_feed(self, blocklist_data: list) -> dict[str, int]:
