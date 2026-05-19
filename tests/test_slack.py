@@ -46,4 +46,4 @@ class SendSlackMessageTests(CustomTestCase):
 
         send_slack_message("test alert")
 
-        mock_logger.exception.assert_called_once_with(error)
+        mock_logger.exception.assert_called_once_with("Failed to send Slack message")

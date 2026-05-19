@@ -73,7 +73,7 @@ class SendNtfyMessageTests(CustomTestCase):
 
         send_ntfy_message("msg")
 
-        mock_logger.exception.assert_called_once_with(error)
+        mock_logger.exception.assert_called_once_with("Failed to send ntfy message")
 
     @override_settings(NTFY_URL="https://ntfy.sh/greedybear")
     @patch("greedybear.ntfy.requests.post")
@@ -84,4 +84,4 @@ class SendNtfyMessageTests(CustomTestCase):
 
         send_ntfy_message("msg")
 
-        mock_logger.exception.assert_called_once_with(error)
+        mock_logger.exception.assert_called_once_with("Failed to send ntfy message")

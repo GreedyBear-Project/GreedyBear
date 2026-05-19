@@ -56,7 +56,7 @@ class TestEdgeCases(E2ETestCase):
         # Should return 1 (one success)
         self.assertEqual(result, 1)
         # Should log 1 error
-        self.assertEqual(pipeline.log.error.call_count, 1)
+        self.assertEqual(pipeline.log.exception.call_count, 1)
         # Scoring should be called with successful IOCs
         mock_scores.return_value.score_only.assert_called_once()
 
