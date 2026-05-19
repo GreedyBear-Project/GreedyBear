@@ -120,6 +120,7 @@ ignore = [
     "G004",   # allow use of f-strings in log messages for better readability
     "RUF012", # allow mutable-class-defaults (Django convention)
     "SIM108", # do not enforce use of ternary operator instead of if-else-block
+    "TRY003", # allow exception messages that are not defined in the exception class itself
 ]
 
 [tool.ruff.lint.per-file-ignores]
