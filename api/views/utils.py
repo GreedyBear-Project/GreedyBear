@@ -247,14 +247,13 @@ def get_queryset(
 
     # credential count filtering is only available on the advanced feed
     if include_credential_count:
+        iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
         min_credential_count = serializer.validated_data.get("min_credential_count")
         max_credential_count = serializer.validated_data.get("max_credential_count")
-        if min_credential_count is not None or max_credential_count is not None:
-            iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
-            if min_credential_count is not None:
-                iocs = iocs.filter(credential_count__gte=min_credential_count)
-            if max_credential_count is not None:
-                iocs = iocs.filter(credential_count__lte=max_credential_count)
+        if min_credential_count is not None:
+            iocs = iocs.filter(credential_count__gte=min_credential_count)
+        if max_credential_count is not None:
+            iocs = iocs.filter(credential_count__lte=max_credential_count)
 
     # apply feed type filter as union;
     if "all" not in feed_params.feed_types:

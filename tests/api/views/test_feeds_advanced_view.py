@@ -115,6 +115,11 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertIsNotNone(target_ioc)
         self.assertEqual(target_ioc["attacker_country_code"], "NP")
 
+    def test_400_invalid_credential_count_range(self):
+        """min_credential_count greater than max_credential_count returns 400."""
+        response = self.client.get("/api/feeds/advanced/?min_credential_count=10&max_credential_count=5")
+        self.assertEqual(response.status_code, 400)
+
     def test_feeds_advanced_includes_sensors(self):
         """Sensors field appears in feeds_advanced response for authenticated users."""
         sensor = Sensor.objects.create(address="10.0.0.1", label="test-sensor")
@@ -170,7 +175,7 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         """credential_count field is present in JSON response when filtering by credential count."""
         cred1 = Credential.objects.create(username="admin", password="admin")
         self.ioc.credentials.add(cred1)
-        response = self.client.get("/api/feeds/advanced/?min_credential_count=1")
+        response = self.client.get("/api/feeds/advanced/")
         self.assertEqual(response.status_code, 200)
         iocs = response.json()["iocs"]
         target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
