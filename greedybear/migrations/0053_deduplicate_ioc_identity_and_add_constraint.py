@@ -28,6 +28,7 @@ def deduplicate_ioc_identity(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
 
     dependencies = [
         ("greedybear", "0052_ioc_attacker_country_code_idx"),
