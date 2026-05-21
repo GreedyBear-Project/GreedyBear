@@ -1,7 +1,7 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from greedybear.consts import DOMAIN, IP
+from greedybear.consts import IP
 from greedybear.cronjobs.extraction.utils import (
     correct_ip_reputation,
     iocs_from_hits,
@@ -10,7 +10,6 @@ from greedybear.cronjobs.extraction.utils import (
 )
 from greedybear.enums import IpReputation
 from greedybear.models import FireHolList, MassScanner
-
 
 from . import CustomTestCase, ExtractionTestCase
 

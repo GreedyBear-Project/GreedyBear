@@ -1,12 +1,10 @@
-# This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
+# Copyright (C) 2021-2022 CSIRT Gadgets Foundation
 # See the file 'LICENSE' for copying permission.
 
 from ipaddress import ip_address
 
 from django.test import SimpleTestCase
-from tests.base import CustomTestCase
 
-from greedybear.utils import is_ip_address, is_non_global_ip, is_sha256hash, is_valid_domain
 from greedybear.consts import DOMAIN, IP
 from greedybear.utils import (
     get_ioc_type,
@@ -17,6 +15,8 @@ from greedybear.utils import (
     is_valid_domain,
     is_valid_ipv4,
 )
+
+from .base import CustomTestCase
 
 
 class TestGetIocType(CustomTestCase):
