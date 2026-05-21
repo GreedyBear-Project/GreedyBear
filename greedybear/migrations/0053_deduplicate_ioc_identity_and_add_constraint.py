@@ -1,28 +1,17 @@
 from django.db import migrations, models
+from django.db.models import Subquery
 
 
 def deduplicate_ioc_identity(apps, schema_editor):
     IOC = apps.get_model("greedybear", "IOC")
 
-    duplicate_ids = []
-    seen_pairs = set()
-
-    queryset = (
-        IOC.objects.order_by("name", "type", "-attack_count", "-id")
-        .values_list("id", "name", "type")
-        .iterator(chunk_size=1000)
+    keepers = (
+        IOC.objects.order_by("name", "-attack_count", "-id")
+        .distinct("name")
+        .values("id")
     )
 
-    for ioc_id, name, ioc_type in queryset:
-        key = (name, ioc_type)
-        if key in seen_pairs:
-            duplicate_ids.append(ioc_id)
-            continue
-        seen_pairs.add(key)
-
-    batch_size = 1000
-    for start in range(0, len(duplicate_ids), batch_size):
-        IOC.objects.filter(id__in=duplicate_ids[start : start + batch_size]).delete()
+    IOC.objects.exclude(id__in=Subquery(keepers)).delete()
 
 
 class Migration(migrations.Migration):
@@ -36,6 +25,6 @@ class Migration(migrations.Migration):
         migrations.RunPython(deduplicate_ioc_identity, migrations.RunPython.noop),
         migrations.AddConstraint(
             model_name="ioc",
-            constraint=models.UniqueConstraint(fields=("name", "type"), name="unique_ioc_identity"),
+            constraint=models.UniqueConstraint(fields=("name",), name="unique_ioc_name"),
         ),
     ]

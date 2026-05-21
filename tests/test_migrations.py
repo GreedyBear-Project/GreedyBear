@@ -280,7 +280,7 @@ class TestIocIdentityDeduplication(MigrationTestCase):
         new_state = self.apply_tested_migration()
         ioc_new = new_state.apps.get_model(self.app_name, "IOC")
 
-        remaining = list(ioc_new.objects.filter(name="1.2.3.4", type="ip"))
+        remaining = list(ioc_new.objects.filter(name="1.2.3.4"))
         self.assertEqual(len(remaining), 1)
         self.assertEqual(remaining[0].id, kept_candidate.id)
         self.assertEqual(remaining[0].attack_count, 9)
@@ -294,24 +294,25 @@ class TestIocIdentityDeduplication(MigrationTestCase):
         new_state = self.apply_tested_migration()
         ioc_new = new_state.apps.get_model(self.app_name, "IOC")
 
-        remaining = list(ioc_new.objects.filter(name="dup.example", type="domain"))
+        remaining = list(ioc_new.objects.filter(name="dup.example"))
         self.assertEqual(len(remaining), 1)
         self.assertEqual(remaining[0].id, newer.id)
         self.assertNotEqual(remaining[0].id, older.id)
 
-    def test_only_deduplicates_within_same_name_and_type_pair(self):
+    def test_deduplicates_across_types_when_name_matches(self):
         IOC = self.old_state.apps.get_model(self.app_name, "IOC")
 
-        IOC.objects.create(name="shared-value", type="ip", attack_count=5)
+        kept = IOC.objects.create(name="shared-value", type="ip", attack_count=5)
         IOC.objects.create(name="shared-value", type="ip", attack_count=2)
-        other_type = IOC.objects.create(name="shared-value", type="domain", attack_count=4)
+        IOC.objects.create(name="shared-value", type="domain", attack_count=4)
 
         new_state = self.apply_tested_migration()
         ioc_new = new_state.apps.get_model(self.app_name, "IOC")
 
-        self.assertEqual(ioc_new.objects.filter(name="shared-value", type="ip").count(), 1)
-        self.assertEqual(ioc_new.objects.filter(name="shared-value", type="domain").count(), 1)
-        self.assertTrue(ioc_new.objects.filter(id=other_type.id).exists())
+        remaining = list(ioc_new.objects.filter(name="shared-value"))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].id, kept.id)
+        self.assertEqual(remaining[0].type, "ip")
 
     def test_unique_constraint_is_enforced_after_migration(self):
         IOC = self.old_state.apps.get_model(self.app_name, "IOC")
@@ -323,5 +324,18 @@ class TestIocIdentityDeduplication(MigrationTestCase):
         with self.assertRaises(IntegrityError):
             ioc_new.objects.create(name="constraint-check", type="url", attack_count=1)
 
-        ioc_new.objects.create(name="constraint-check", type="domain", attack_count=1)
-        self.assertEqual(ioc_new.objects.filter(name="constraint-check").count(), 2)
+        with self.assertRaises(IntegrityError):
+            ioc_new.objects.create(name="constraint-check", type="domain", attack_count=1)
+
+    def test_keeps_distinct_names(self):
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        first = IOC.objects.create(name="1.2.3.4", type="ip", attack_count=9)
+        second = IOC.objects.create(name="example.com", type="domain", attack_count=3)
+
+        new_state = self.apply_tested_migration()
+        ioc_new = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertTrue(ioc_new.objects.filter(id=first.id).exists())
+        self.assertTrue(ioc_new.objects.filter(id=second.id).exists())
+        self.assertEqual(ioc_new.objects.count(), 2)
