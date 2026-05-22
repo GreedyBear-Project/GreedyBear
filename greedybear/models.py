@@ -5,6 +5,7 @@ from django.db import models
 from django.db.models.functions import Lower, Now
 
 from greedybear.enums import IpReputation
+from greedybear.settings import AUTH_USER_MODEL
 
 
 class ViewType(models.TextChoices):
@@ -17,6 +18,32 @@ class ViewType(models.TextChoices):
 class IocType(models.TextChoices):
     IP = "ip"
     DOMAIN = "domain"
+
+
+class SourceType(models.TextChoices):
+    TPOT = "tpot", "T-Pot Internal"
+    EXTERNAL = "external", "External API"
+
+
+class APISource(models.Model):
+    user = models.OneToOneField(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="apisource")
+    name = models.CharField(max_length=128, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    invalid_event_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_activity = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} {'Active' if self.is_active else 'Locked'}"
+
+
+class AutonomousSystem(models.Model):
+    asn = models.IntegerField(primary_key=True)
+    name = models.CharField(max_length=256, blank=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.asn})" if self.name else str(self.asn)
 
 
 class Sensor(models.Model):
@@ -32,6 +59,22 @@ class Sensor(models.Model):
         default="",
         help_text="Optional human-readable label to identify this sensor (e.g. 'home-pi', 'cloud-aws-eu').",
     )
+    honeypot_type = models.CharField(max_length=100, blank=True, default="")
+    honeypot_software = models.CharField(max_length=100, blank=True, default="")
+    honeypot_description = models.TextField(blank=True, default="")
+    group_label = models.CharField(max_length=128, blank=True, default="")
+
+    autonomous_system = models.ForeignKey(AutonomousSystem, on_delete=models.SET_NULL, related_name="sensors", null=True, blank=True)
+
+    apisource = models.ForeignKey(APISource, on_delete=models.CASCADE, related_name="sensors", null=True, blank=True)
+
+    source_type = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        default=SourceType.TPOT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.address} ({self.label})" if self.label else self.address
@@ -60,14 +103,6 @@ class FireHolList(models.Model):
 
     def __str__(self):
         return f"{self.ip_address} ({self.source or 'unknown'})"
-
-
-class AutonomousSystem(models.Model):
-    asn = models.IntegerField(primary_key=True)
-    name = models.CharField(max_length=256, blank=True)
-
-    def __str__(self):
-        return f"{self.name} ({self.asn})" if self.name else str(self.asn)
 
 
 class IOC(models.Model):
