@@ -14,7 +14,7 @@ class RetryHandler(BaseHTTPRequestHandler):
         self.send_response(500)
         self.end_headers()
 
-    def log_message(self, format, *args):
+    def log_message(self, format_str, *args):
         pass
 
 
