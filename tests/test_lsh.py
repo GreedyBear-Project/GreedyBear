@@ -31,6 +31,42 @@ class UnionFindTestCase(SimpleTestCase):
         self.assertEqual(u.find_representative(0), 0)
         self.assertEqual(u.find_representative(2), 2)
 
+    def test_union_by_rank_increments_rank_on_equal_rank_merge(self):
+        u = UnionFind(4)
+
+        u.union(0, 1)
+        left_root = u.find_representative(0)
+        self.assertEqual(u.ranks[left_root], 1)
+
+        u.union(2, 3)
+        right_root = u.find_representative(2)
+        self.assertEqual(u.ranks[right_root], 1)
+
+        u.union(left_root, right_root)
+
+        final_root = u.find_representative(0)
+        self.assertEqual(final_root, u.find_representative(1))
+        self.assertEqual(final_root, u.find_representative(2))
+        self.assertEqual(final_root, u.find_representative(3))
+        self.assertEqual(u.ranks[final_root], 2)
+
+    def test_union_by_rank_attaches_lower_rank_under_higher_rank(self):
+        u = UnionFind(3)
+
+        u.union(0, 1)
+        higher_rank_root = u.find_representative(0)
+        self.assertEqual(u.ranks[higher_rank_root], 1)
+
+        lower_rank_root = u.find_representative(2)
+        self.assertEqual(u.ranks[lower_rank_root], 0)
+
+        u.union(lower_rank_root, higher_rank_root)
+
+        self.assertEqual(u.find_representative(2), higher_rank_root)
+        self.assertEqual(u.find_representative(0), higher_rank_root)
+        self.assertEqual(u.find_representative(1), higher_rank_root)
+        self.assertEqual(u.ranks[higher_rank_root], 1)
+
 
 class LSHConnectedComponentsTestCase(SimpleTestCase):
     def test_get_min_hashes_generates_matching_signatures(self):

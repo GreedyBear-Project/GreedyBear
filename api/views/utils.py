@@ -27,6 +27,10 @@ from greedybear.utils import is_ip_address, is_valid_domain
 logger = logging.getLogger(__name__)
 
 
+class UnableToExtractSourceIPError(Exception):
+    """Raised when no valid source IP can be extracted from the request."""
+
+
 class Echo:
     """An object that implements just the write method of the file-like
     interface.
@@ -43,6 +47,25 @@ class Echo:
             str: The same value that was passed.
         """
         return value
+
+
+def get_request_source_ip(request) -> str:
+    """Extract a normalized client IP from request metadata (X-Forwarded-For header)
+
+    Raises:
+        UnableToExtractSourceIPError: When no valid IP is found
+    """
+
+    forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", ""))
+
+    candidates = [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
+
+    for candidate in candidates:
+        if is_ip_address(candidate):
+            return candidate
+
+    logger.error("Unable to extract valid source IP from request. X-Forwarded-For: %s", forwarded_for)
+    raise UnableToExtractSourceIPError("No valid source IP found in request metadata")
 
 
 class FeedRequestParams:
@@ -108,6 +131,8 @@ class FeedRequestParams:
         self.start_date = query_params.get("start_date")
         self.end_date = query_params.get("end_date")
         self.country_code = query_params.get("country_code")
+        self.min_credential_count = query_params.get("min_credential_count")
+        self.max_credential_count = query_params.get("max_credential_count")
 
     def apply_default_filters(self, query_params):
         if not query_params:
@@ -153,7 +178,17 @@ def get_valid_feed_types() -> frozenset[str]:
     return frozenset(feed_types)
 
 
-def get_queryset(request, feed_params, valid_feed_types, is_aggregated=False, serializer_class=FeedsRequestSerializer, tag_key="", tag_value=""):
+def get_queryset(
+    request,
+    feed_params,
+    valid_feed_types,
+    is_aggregated=False,
+    serializer_class=FeedsRequestSerializer,
+    tag_key="",
+    tag_value="",
+    include_sensors=False,
+    include_credential_count=False,
+):
     """
     Build a queryset to filter IOC data based on the request parameters.
 
@@ -172,7 +207,10 @@ def get_queryset(request, feed_params, valid_feed_types, is_aggregated=False, se
             - Default: `FeedsRequestSerializer`.
         tag_key (str, optional): Filter IOCs by tag key. Only passed from feeds_advanced.
         tag_value (str, optional): Filter IOCs by tag value (case-insensitive substring). Only passed from feeds_advanced.
-
+        include_sensors (bool, optional): If True, annotates sensors_json for each IOC.
+            Only passed from authenticated views like feeds_advanced. Default: False.
+        include_credential_count (bool, optional): If True, annotates credential Count for each IOC.
+            Only passed from authenticated views like feeds_advanced. Default: False.
     Returns:
         QuerySet: The filtered queryset of IOC data.
     """
@@ -206,7 +244,7 @@ def get_queryset(request, feed_params, valid_feed_types, is_aggregated=False, se
     if feed_params.port:
         query_dict["destination_ports__contains"] = [int(feed_params.port)]
     if feed_params.country_code:
-        query_dict["attacker_country_code__iexact"] = feed_params.country_code
+        query_dict["attacker_country_code"] = feed_params.country_code.upper()
 
     # Date handling
     if feed_params.start_date:
@@ -230,6 +268,16 @@ def get_queryset(request, feed_params, valid_feed_types, is_aggregated=False, se
 
     iocs = IOC.objects.filter(**query_dict).exclude(ip_reputation__in=feed_params.exclude_reputation).annotate(value=F("name")).distinct()
 
+    # credential count filtering is only available on the advanced feed
+    if include_credential_count:
+        iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
+        min_credential_count = serializer.validated_data.get("min_credential_count")
+        max_credential_count = serializer.validated_data.get("max_credential_count")
+        if min_credential_count is not None:
+            iocs = iocs.filter(credential_count__gte=min_credential_count)
+        if max_credential_count is not None:
+            iocs = iocs.filter(credential_count__lte=max_credential_count)
+
     # apply feed type filter as union;
     if "all" not in feed_params.feed_types:
         type_filter = Q()
@@ -252,13 +300,25 @@ def get_queryset(request, feed_params, valid_feed_types, is_aggregated=False, se
                     distinct=True,
                 )
             )
+            if include_sensors:
+                iocs = iocs.annotate(
+                    sensors_json=ArrayAgg(
+                        JSONObject(address=F("sensors__address"), label=F("sensors__label")),
+                        filter=Q(sensors__isnull=False),
+                        default=Value([]),
+                        distinct=True,
+                    )
+                )
         iocs = iocs.order_by(feed_params.ordering)
         iocs = iocs[: int(feed_params.feed_size)]
 
     # save request source for statistics
-    source_ip = str(request.META["REMOTE_ADDR"])
-    request_source = Statistics(source=source_ip)
-    request_source.save()
+    try:
+        source_ip = get_request_source_ip(request)
+        request_source = Statistics(source=source_ip)
+        request_source.save()
+    except UnableToExtractSourceIPError:
+        logger.warning("Skipping statistics recording due to unable to extract source IP")
     return iocs
 
 
@@ -276,7 +336,7 @@ def ioc_as_dict(ioc, fields: set) -> dict:
     return {k: v for k, v in ioc.__dict__.items() if k in fields}
 
 
-def feeds_response(request=None, iocs=None, feed_params=None, valid_feed_types=None, dict_only=False, verbose=False):
+def feeds_response(request=None, iocs=None, feed_params=None, valid_feed_types=None, dict_only=False, verbose=False, include_sensors=False):
     """
     Format the IOC data into the requested format (e.g., JSON, CSV, TXT).
 
@@ -316,6 +376,7 @@ def feeds_response(request=None, iocs=None, feed_params=None, valid_feed_types=N
                 "first_seen",
                 "last_seen",
                 "attack_count",
+                "credential_count",
                 "interaction_count",
                 "scanner",
                 "payload_request",
@@ -339,13 +400,21 @@ def feeds_response(request=None, iocs=None, feed_params=None, valid_feed_types=N
             required_fields = base_fields + verbose_only_fields if verbose else base_fields
 
             # `tags_json` is annotated in get_queryset (only for JSON format) to avoid conflicting
-            # with the `tags` reverse FK on IOC.  When the queryset comes from a repository method
+            # with the `tags` reverse FK on IOC. When the queryset comes from a repository method
             # that does not annotate `tags_json` (e.g. the ML scoring path), exclude the field.
+            # `sensors_json` follows the same pattern and is only annotated for authenticated views.
             if isinstance(iocs, list):
                 has_tags_annotation = bool(iocs) and hasattr(iocs[0], "tags_json")
+                has_sensors_annotation = include_sensors and bool(iocs) and hasattr(iocs[0], "sensors_json")
+                has_credential_count = bool(iocs) and hasattr(iocs[0], "credential_count")
             else:
                 has_tags_annotation = "tags_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
+                has_sensors_annotation = include_sensors and "sensors_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
+                has_credential_count = "credential_count" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
             required_fields = tuple(("tags_json" if f == "tags" else f) for f in required_fields if f != "tags" or has_tags_annotation)
+            required_fields = tuple(f for f in required_fields if f != "credential_count" or has_credential_count)
+            if has_sensors_annotation:
+                required_fields = (*required_fields, "sensors_json")
 
             iocs_iter: object
             if isinstance(iocs, list):
@@ -362,6 +431,7 @@ def feeds_response(request=None, iocs=None, feed_params=None, valid_feed_types=N
                     "destination_port_count": len(ioc.get("destination_ports", [])),
                     "asn": ioc.get("autonomous_system", ""),
                     "tags": ioc.pop("tags_json", []),
+                    **({"sensors": ioc.pop("sensors_json", [])} if has_sensors_annotation else {}),
                 }
 
                 if not verbose:
@@ -386,8 +456,7 @@ def feeds_response(request=None, iocs=None, feed_params=None, valid_feed_types=N
                 resp_data["license"] = settings.FEEDS_LICENSE
             if dict_only:
                 return resp_data
-            else:
-                return Response(resp_data, status=status.HTTP_200_OK)
+            return Response(resp_data, status=status.HTTP_200_OK)
         case "stix21":
             stix_fields = {
                 "value",
@@ -557,7 +626,7 @@ def get_greedybear_news() -> list[dict]:
         feed = feedparser.parse(response.content)
 
         filtered_entries = sorted(
-            [entry for entry in feed.entries if "greedybear" in entry.get("title", "").lower() and entry.get("published_parsed")],
+            [entry for entry in feed.entries if entry.get("published_parsed")],
             key=lambda e: e.published_parsed,
             reverse=True,
         )
@@ -576,18 +645,13 @@ def get_greedybear_news() -> list[dict]:
                     "subtext": subtext,
                 }
             )
-
+    except Exception:
+        logger.exception("Failed to fetch GreedyBear news from RSS feed")
+        return []
+    else:
         cache.set(
             CACHE_KEY_GREEDYBEAR_NEWS,
             news_items,
             CACHE_TIMEOUT_SECONDS,
         )
-
         return news_items
-
-    except Exception as exc:
-        logger.error(
-            "Failed to fetch GreedyBear news from RSS feed",
-            exc_info=exc,
-        )
-        return []

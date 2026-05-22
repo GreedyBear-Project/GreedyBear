@@ -5,6 +5,7 @@ from greedybear.cronjobs.repositories.firehol import *
 from greedybear.cronjobs.repositories.ioc import *
 from greedybear.cronjobs.repositories.mass_scanner import *
 from greedybear.cronjobs.repositories.sensor import *
+from greedybear.cronjobs.repositories.statistics import *
 from greedybear.cronjobs.repositories.tag import *
 from greedybear.cronjobs.repositories.tor import *
 from greedybear.cronjobs.repositories.trending_bucket import *

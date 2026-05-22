@@ -114,6 +114,12 @@ def setup_schedules():
             "func": "greedybear.tasks.extract_spamhaus_drop",
             "cron": _external_weekly_cron("extract_spamhaus_drop"),
         },
+        # 14. Credential_reuse Detection: Daily at 02:07
+        {
+            "name": "detect_credential_reuse",
+            "func": "greedybear.tasks.detect_credential_reuse",
+            "cron": "7 2 * * *",
+        },
     ]
 
     # create or update schedules

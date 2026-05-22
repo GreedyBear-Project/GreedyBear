@@ -27,5 +27,5 @@ def send_ntfy_message(message):
         )
         response.raise_for_status()
 
-    except Exception as error:
-        logger.exception(error)
+    except Exception:
+        logger.exception("Failed to send ntfy message")

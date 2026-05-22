@@ -56,14 +56,14 @@ class TestEdgeCases(E2ETestCase):
         # Should return 1 (one success)
         self.assertEqual(result, 1)
         # Should log 1 error
-        self.assertEqual(pipeline.log.error.call_count, 1)
+        self.assertEqual(pipeline.log.exception.call_count, 1)
         # Scoring should be called with successful IOCs
         mock_scores.return_value.score_only.assert_called_once()
 
-    @patch("greedybear.cronjobs.extraction.pipeline.update_activity_buckets_from_hits", return_value=0)
+    @patch("greedybear.cronjobs.extraction.pipeline.BucketUpdater")
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
-    def test_activity_bucket_update_failure_does_not_abort_extraction(self, mock_factory, mock_scores, _mock_update_activity):
+    def test_activity_bucket_update_failure_does_not_abort_extraction(self, mock_factory, mock_scores, mock_bucket_updater_cls):
         pipeline = self._create_pipeline_with_real_factory()
         pipeline.log = MagicMock()
 
@@ -74,6 +74,9 @@ class TestEdgeCases(E2ETestCase):
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
+        bucket_updater = mock_bucket_updater_cls.return_value
+        bucket_updater.total_update_count = 0
+
         mock_success = MagicMock()
         mock_success.ioc_records = [self._create_mock_ioc("2.2.2.2")]
         mock_factory.return_value.get_strategy.return_value = mock_success
@@ -83,13 +86,14 @@ class TestEdgeCases(E2ETestCase):
         self.assertEqual(result, 1)
         mock_success.extract_from_hits.assert_called_once()
         mock_scores.return_value.score_only.assert_called_once()
-        _mock_update_activity.assert_called_once()
+        bucket_updater.collect_hits.assert_called_once()
+        bucket_updater.update.assert_called_once()
 
     @patch("greedybear.cronjobs.extraction.pipeline.caches")
-    @patch("greedybear.cronjobs.extraction.pipeline.update_activity_buckets_from_hits", return_value=2)
+    @patch("greedybear.cronjobs.extraction.pipeline.BucketUpdater")
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
-    def test_bucket_updates_invalidate_trending_cache(self, mock_factory, mock_scores, _mock_update_activity, mock_caches):
+    def test_bucket_updates_invalidate_trending_cache(self, mock_factory, mock_scores, mock_bucket_updater_cls, mock_caches):
         pipeline = self._create_pipeline_with_real_factory()
         pipeline.log = MagicMock()
 
@@ -98,7 +102,14 @@ class TestEdgeCases(E2ETestCase):
         ]
         pipeline.elastic_repo.search.return_value = [hits]
         pipeline.ioc_repo.is_empty.return_value = False
-        pipeline.ioc_repo.is_ready_for_extraction.return_value = False
+        pipeline.ioc_repo.is_ready_for_extraction.return_value = True
+
+        bucket_updater = mock_bucket_updater_cls.return_value
+        bucket_updater.total_update_count = 2
+
+        mock_strategy = MagicMock()
+        mock_strategy.ioc_records = []
+        mock_factory.return_value.get_strategy.return_value = mock_strategy
 
         shared_cache = MagicMock()
         mock_caches.__getitem__.return_value = shared_cache
@@ -106,10 +117,76 @@ class TestEdgeCases(E2ETestCase):
         result = pipeline.execute()
 
         self.assertEqual(result, 0)
-        _mock_update_activity.assert_called_once()
+        bucket_updater.collect_hits.assert_called_once()
+        bucket_updater.update.assert_called_once()
         shared_cache.incr.assert_called_once_with("trending_feeds_version")
         mock_scores.return_value.score_only.assert_not_called()
+
+    @patch("greedybear.cronjobs.extraction.pipeline.caches")
+    @patch("greedybear.cronjobs.extraction.pipeline.BucketUpdater")
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_disabled_honeypot_hits_do_not_update_activity_buckets(self, mock_factory, mock_scores, mock_bucket_updater_cls, mock_caches):
+        """Hits from honeypots not ready for extraction must be excluded from bucket updates."""
+        pipeline = self._create_pipeline_with_real_factory()
+        pipeline.log = MagicMock()
+
+        hits = [
+            MockElasticHit({"src_ip": "1.1.1.1", "type": "DisabledHoneypot"}),
+            MockElasticHit({"src_ip": "1.1.1.1", "type": "DisabledHoneypot"}),
+            MockElasticHit({"src_ip": "2.2.2.2", "type": "EnabledHoneypot"}),
+        ]
+        pipeline.elastic_repo.search.return_value = [hits]
+        pipeline.ioc_repo.is_empty.return_value = False
+        pipeline.ioc_repo.is_ready_for_extraction.side_effect = lambda hp: hp == "EnabledHoneypot"
+
+        bucket_updater = mock_bucket_updater_cls.return_value
+        bucket_updater.total_update_count = 0
+
+        mock_strategy = MagicMock()
+        mock_strategy.ioc_records = []
+        mock_factory.return_value.get_strategy.return_value = mock_strategy
+
+        shared_cache = MagicMock()
+        mock_caches.__getitem__.return_value = shared_cache
+
+        pipeline.execute()
+
+        # collect_hits must be called exactly once, only with hits from the enabled honeypot.
+        bucket_updater.collect_hits.assert_called_once()
+        passed_hits = list(bucket_updater.collect_hits.call_args.args[0])
+        self.assertEqual(len(passed_hits), 1)
+        self.assertEqual(passed_hits[0]["type"], "EnabledHoneypot")
+        self.assertEqual(passed_hits[0]["src_ip"], "2.2.2.2")
+
+    @patch("greedybear.cronjobs.extraction.pipeline.caches")
+    @patch("greedybear.cronjobs.extraction.pipeline.BucketUpdater")
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_all_honeypots_disabled_skips_bucket_updates_entirely(self, mock_factory, mock_scores, mock_bucket_updater_cls, mock_caches):
+        """When every honeypot in a chunk is disabled, no hits are collected and the trending cache is not invalidated."""
+        pipeline = self._create_pipeline_with_real_factory()
+        pipeline.log = MagicMock()
+
+        hits = [
+            MockElasticHit({"src_ip": "1.1.1.1", "type": "DisabledA"}),
+            MockElasticHit({"src_ip": "2.2.2.2", "type": "DisabledB"}),
+        ]
+        pipeline.elastic_repo.search.return_value = [hits]
+        pipeline.ioc_repo.is_empty.return_value = False
+        pipeline.ioc_repo.is_ready_for_extraction.return_value = False
+
+        bucket_updater = mock_bucket_updater_cls.return_value
+        bucket_updater.total_update_count = 0
+
+        shared_cache = MagicMock()
+        mock_caches.__getitem__.return_value = shared_cache
+
+        pipeline.execute()
+
+        bucket_updater.collect_hits.assert_not_called()
         mock_factory.return_value.get_strategy.assert_not_called()
+        shared_cache.incr.assert_not_called()
 
 
 class TestLargeBatches(E2ETestCase):

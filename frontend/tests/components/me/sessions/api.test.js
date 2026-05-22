@@ -1,20 +1,81 @@
 import axios from "axios";
-import { addToast } from "@certego/certego-ui";
+import { addToast } from "@greedybear/gb-ui";
 
 import {
+  createNewToken,
+  deleteToken,
   deleteOtherSessions,
   deleteTokenById,
 } from "../../../../src/components/me/sessions/api";
-import { SESSIONS_BASE_URI } from "../../../../src/constants/api";
+import {
+  APIACCESS_BASE_URI,
+  SESSIONS_BASE_URI,
+} from "../../../../src/constants/api";
 
 vi.mock("axios");
-vi.mock("@certego/certego-ui", () => ({
+vi.mock("@greedybear/gb-ui", () => ({
   addToast: vi.fn(),
 }));
 
 describe("sessions api helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  test("createNewToken calls endpoint and shows success toast", async () => {
+    axios.post.mockResolvedValue({ status: 201 });
+
+    await createNewToken();
+
+    expect(axios.post).toHaveBeenCalledWith(APIACCESS_BASE_URI);
+    expect(addToast).toHaveBeenCalledWith(
+      "Generated new API key for you!",
+      null,
+      "success",
+      true,
+    );
+  });
+
+  test("createNewToken rejects and shows failure toast", async () => {
+    const error = { parsedMsg: "creation failed" };
+    axios.post.mockRejectedValue(error);
+
+    await expect(createNewToken()).rejects.toEqual(error);
+
+    expect(addToast).toHaveBeenCalledWith(
+      "Failed!",
+      "creation failed",
+      "danger",
+      true,
+    );
+  });
+
+  test("deleteToken calls endpoint and shows success toast", async () => {
+    axios.delete.mockResolvedValue({ status: 204 });
+
+    await deleteToken();
+
+    expect(axios.delete).toHaveBeenCalledWith(APIACCESS_BASE_URI);
+    expect(addToast).toHaveBeenCalledWith(
+      "API key was deleted!",
+      null,
+      "success",
+      true,
+    );
+  });
+
+  test("deleteToken rejects and shows failure toast", async () => {
+    const error = { message: "deletion failed" };
+    axios.delete.mockRejectedValue(error);
+
+    await expect(deleteToken()).rejects.toEqual(error);
+
+    expect(addToast).toHaveBeenCalledWith(
+      "Failed!",
+      "deletion failed",
+      "danger",
+      true,
+    );
   });
 
   test("deleteTokenById calls endpoint and shows success toast", async () => {

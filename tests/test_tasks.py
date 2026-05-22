@@ -83,11 +83,10 @@ class TestTasks(CustomTestCase):
         from greedybear import tasks
 
         for task_name, class_path in tasks_to_test:
-            with self.subTest(task=task_name):
-                with patch(f"{class_path}.execute") as mock_execute:
-                    task_func = getattr(tasks, task_name)
-                    task_func()
-                    mock_execute.assert_called_once()
+            with self.subTest(task=task_name), patch(f"{class_path}.execute") as mock_execute:
+                task_func = getattr(tasks, task_name)
+                task_func()
+                mock_execute.assert_called_once()
 
     @patch("greedybear.cronjobs.scoring.scoring_jobs.UpdateScores")
     @patch("greedybear.cronjobs.scoring.scoring_jobs.TrainModels")

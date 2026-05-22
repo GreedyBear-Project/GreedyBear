@@ -8,6 +8,7 @@ from django.utils.translation import ngettext
 
 from greedybear.models import (
     IOC,
+    AttackerActivityBucket,
     CommandSequence,
     CowrieSession,
     Credential,
@@ -16,6 +17,7 @@ from greedybear.models import (
     MassScanner,
     Sensor,
     Statistics,
+    Tag,
     TorExitNode,
     WhatsMyIPDomain,
 )
@@ -67,6 +69,14 @@ class FireHolListModelAdmin(admin.ModelAdmin):
     list_filter = ["source"]
     search_fields = ["ip_address"]
     search_help_text = "search for the IP address"
+
+
+class TagInline(admin.TabularInline):
+    model = Tag
+    fields = ["key", "value", "source", "added"]
+    readonly_fields = ["added"]
+    extra = 0
+    ordering = ["source", "key"]
 
 
 class SessionInline(admin.TabularInline):
@@ -157,7 +167,7 @@ class IOCModelAdmin(admin.ModelAdmin):
     search_help_text = "search by IOC name or related IOC name"
     raw_id_fields = ["related_ioc"]
     filter_horizontal = ["honeypots", "sensors"]
-    inlines = [SessionInline]
+    inlines = [TagInline, SessionInline]
 
     def honeypots_list(self, ioc):
         return ", ".join([str(element) for element in ioc.honeypots.all()])
@@ -181,6 +191,16 @@ class IOCModelAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         """Override to optimize queries and avoid N+1 problems."""
         return super().get_queryset(request).select_related("autonomous_system").prefetch_related("sensors", "honeypots")
+
+
+@admin.register(AttackerActivityBucket)
+class AttackerActivityBucketAdmin(admin.ModelAdmin):
+    list_display = ["attacker_ip", "feed_type", "bucket_start", "interaction_count"]
+    list_filter = ["feed_type"]
+    search_fields = ["attacker_ip"]
+    search_help_text = "search for the attacker IP address"
+    date_hierarchy = "bucket_start"
+    ordering = ["-bucket_start"]
 
 
 @admin.register(Honeypot)

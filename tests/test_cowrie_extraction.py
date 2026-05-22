@@ -453,11 +453,74 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
 
         hits = [{"src_ip": "1.2.3.4", "session": "s1", "eventid": "cowrie.session.connect"}]
 
-        with patch.object(self.strategy, "_get_sessions"):
-            with patch.object(self.strategy, "_extract_possible_payload_in_messages"):
-                self.strategy.extract_from_hits(hits)
+        with patch.object(self.strategy, "_get_sessions"), patch.object(self.strategy, "_extract_possible_payload_in_messages"):
+            self.strategy.extract_from_hits(hits)
 
         # Verify scanner was processed with Cowrie as honeypot
         self.strategy.ioc_processor.add_ioc.assert_called()
         call_args = self.strategy.ioc_processor.add_ioc.call_args
         self.assertEqual(call_args.kwargs.get("honeypot_name"), "Cowrie")
+
+    @patch("greedybear.cronjobs.extraction.strategies.cowrie.iocs_from_hits")
+    def test_get_scanners_and_sessions(self, mock_iocs_from_hits):
+        """Test _get_scanners and _get_sessions correctly group and route hits."""
+        ioc1 = Mock()
+        ioc1.name = "1.1.1.1"
+        ioc1.related_urls = []
+        ioc2 = Mock()
+        ioc2.name = "2.2.2.2"
+        ioc2.related_urls = []
+
+        mock_iocs_from_hits.return_value = [ioc1, ioc2]
+
+        hits = [
+            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
+            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"},
+            {"src_ip": "2.2.2.2", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
+        ]
+
+        mock_ioc_record1 = Mock()
+        mock_ioc_record1.name = "1.1.1.1"
+        mock_ioc_record2 = Mock()
+        mock_ioc_record2.name = "2.2.2.2"
+        self.strategy.ioc_processor.add_ioc.side_effect = [mock_ioc_record1, mock_ioc_record2]
+
+        with patch.object(self.strategy, "_get_sessions") as mock_get_sessions:
+            self.strategy._get_scanners(hits)
+
+            mock_iocs_from_hits.assert_called_once_with(hits)
+            self.assertEqual(mock_get_sessions.call_count, 2)
+            # Verify the hits passed to _get_sessions are only those containing the matching src_ip
+            calls = mock_get_sessions.call_args_list
+            args_ioc1, args_ioc2 = calls[0][0], calls[1][0]
+
+            self.assertEqual(args_ioc1[0], mock_ioc_record1)
+            self.assertEqual(len(args_ioc1[1]), 2)
+            self.assertTrue(all(h["src_ip"] == "1.1.1.1" for h in args_ioc1[1]))
+
+            self.assertEqual(args_ioc2[0], mock_ioc_record2)
+            self.assertEqual(len(args_ioc2[1]), 1)
+            self.assertTrue(all(h["src_ip"] == "2.2.2.2" for h in args_ioc2[1]))
+
+    def test_get_sessions_processes_hits(self):
+        """Test _get_sessions iterates and processes session hits."""
+        ioc = Mock()
+        ioc.name = "1.1.1.1"
+
+        hits = [
+            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
+            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"},
+            {"src_ip": "1.1.1.1", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:02"},
+        ]
+
+        session_s1 = Mock()
+        session_s1.commands = None
+        session_s2 = Mock()
+        session_s2.commands = None
+        self.mock_session_repo.get_or_create_session.side_effect = [session_s1, session_s2]
+
+        with patch.object(self.strategy, "_process_session_hit") as mock_process_hit:
+            self.strategy._get_sessions(ioc, hits)
+
+            self.assertEqual(self.mock_session_repo.get_or_create_session.call_count, 2)
+            self.assertEqual(mock_process_hit.call_count, 3)

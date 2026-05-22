@@ -8,8 +8,8 @@ import ChangePassword from "../../../../src/components/me/changepassword/ChangeP
 import { CHANGE_PASSWORD_URI } from "../../../../src/constants/api";
 
 vi.mock("axios");
-vi.mock("@certego/certego-ui", async () => {
-  const actual = await vi.importActual("@certego/certego-ui");
+vi.mock("@greedybear/gb-ui", async () => {
+  const actual = await vi.importActual("@greedybear/gb-ui");
   return {
     ...actual,
     addToast: vi.fn(),

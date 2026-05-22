@@ -34,9 +34,10 @@ def parse_url_hostname(url: str) -> str | None:
     """
     try:
         parsed = urlparse(url)
-        return parsed.hostname
     except (ValueError, AttributeError):
         return None
+    else:
+        return parsed.hostname
 
 
 def normalize_command(message: str) -> str:
@@ -92,13 +93,17 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
 
     def _get_scanners(self, hits: list[dict]) -> None:
         """Extract scanner IPs and sessions."""
+        hits_by_ip = defaultdict(list)
+        for hit in hits:
+            hits_by_ip[hit["src_ip"]].append(hit)
+
         for ioc in iocs_from_hits(hits):
             self.log.info(f"found IP {ioc.name} by honeypot cowrie")
             ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name="Cowrie")
             if ioc_record:
                 self.ioc_records.append(ioc_record)
                 threatfox_submission(ioc_record, ioc.related_urls, self.log)
-                self._get_sessions(ioc_record, hits)
+                self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
 
     def _extract_possible_payload_in_messages(self, hits: list[dict]) -> None:
         """
@@ -161,7 +166,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             scanner_ip = str(hit["src_ip"])
             download_url = str(hit["url"])
             shasum = hit.get("shasum")
-            self.log.info(f"found IP {scanner_ip} downloading from {download_url}" + (f" (SHA256: {shasum})" if shasum else ""))
+            sha_suffix = f" (SHA256: {shasum})" if shasum else ""
+            self.log.info(f"found IP {scanner_ip} downloading from {download_url}{sha_suffix}")
 
             # Extract and track download URL
             if download_url:
@@ -199,8 +205,6 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         hits_per_session = defaultdict(list)
 
         for hit in hits:
-            if hit["src_ip"] != ioc.name:
-                continue
             hits_per_session[hit["session"]].append(hit)
 
         for sid, session_hits in hits_per_session.items():

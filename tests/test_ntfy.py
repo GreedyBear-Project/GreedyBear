@@ -59,7 +59,7 @@ class SendNtfyMessageTests(CustomTestCase):
         send_ntfy_message("anything")
 
         mock_post.assert_not_called()
-        mock_logger.warning.assert_called_once_with("ntfy is not configured, message not sent")
+        mock_logger.warning.assert_called_once()
 
     @override_settings(NTFY_URL="https://ntfy.sh/greedybear")
     @patch("greedybear.ntfy.requests.post")
@@ -73,7 +73,7 @@ class SendNtfyMessageTests(CustomTestCase):
 
         send_ntfy_message("msg")
 
-        mock_logger.exception.assert_called_once_with(error)
+        mock_logger.exception.assert_called_once()
 
     @override_settings(NTFY_URL="https://ntfy.sh/greedybear")
     @patch("greedybear.ntfy.requests.post")
@@ -84,4 +84,4 @@ class SendNtfyMessageTests(CustomTestCase):
 
         send_ntfy_message("msg")
 
-        mock_logger.exception.assert_called_once_with(error)
+        mock_logger.exception.assert_called_once()

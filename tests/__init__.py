@@ -331,5 +331,4 @@ class E2ETestCase(ExtractionTestCase):
         ):
             from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
 
-            pipeline = ExtractionPipeline()
-            return pipeline
+            return ExtractionPipeline()

@@ -14,7 +14,7 @@ import {
 import { Form, Formik } from "formik";
 import { useTitle } from "react-use";
 
-import { ContentSection, Select } from "@certego/certego-ui";
+import { ContentSection, Select } from "@greedybear/gb-ui";
 
 import {
   AfterRegistrationModalAlert,

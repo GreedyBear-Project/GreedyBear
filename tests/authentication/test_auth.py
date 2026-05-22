@@ -61,6 +61,14 @@ class TestUserAuth(CustomOAuthTestCase):
 
         self.assertEqual(AuthToken.objects.count(), 1)
 
+    def test_login_does_not_set_current_site_cache(self):
+        """Login must not store the Host header in global cache."""
+        cache.clear()
+        body = {**self.creds}
+        response = self.client.post(login_uri, body)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(cache.get("current_site"))
+
     def test_logout_204(self):
         self.assertEqual(AuthToken.objects.count(), 0)
 

@@ -1,7 +1,7 @@
 import axios from "axios";
 import { create } from "zustand";
 
-import { addToast } from "@certego/certego-ui";
+import { addToast } from "@greedybear/gb-ui";
 
 import {
   USERACCESS_URI,
@@ -86,16 +86,26 @@ const useAuthStore = create((set, get) => ({
     },
     logoutUser: async () => {
       set({ isAuthenticated: AUTHENTICATION_STATUSES.PENDING });
-      const onLogoutCb = () => {
+      const onLogoutSuccessCb = () => {
         get().reset();
         addToast("Logged out!", null, "info");
+      };
+      const onLogoutErrorCb = (err) => {
+        get().reset();
+        addToast(
+          "Logout request failed. Local session cleared.",
+          err.parsedMsg,
+          "warning",
+          true,
+        );
+        return Promise.reject(err);
       };
       return axios
         .post(LOGOUT_URI, null, {
           certegoUIenableProgressBar: false,
         })
-        .then(onLogoutCb)
-        .catch(onLogoutCb);
+        .then(onLogoutSuccessCb)
+        .catch(onLogoutErrorCb);
     },
     changePassword: async (body) => {
       try {

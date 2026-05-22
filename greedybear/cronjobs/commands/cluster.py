@@ -85,8 +85,8 @@ class ClusterCommandSequences(Cronjob):
         tokenized_sequences = []
         for seq in sequences:
             commands_for_clustering = list(seq.commands)
-            for payload_url in sorted(payload_urls_by_sequence_id.get(seq.id, set())):
-                commands_for_clustering.append(f"PAYLOAD_REQUEST:{payload_url}")
+            sorted_payload_urls = sorted(payload_urls_by_sequence_id.get(seq.id, set()))
+            commands_for_clustering.extend(f"PAYLOAD_REQUEST:{payload_url}" for payload_url in sorted_payload_urls)
             tokenized_sequences.append(tokenize(commands_for_clustering))
 
         return tokenized_sequences

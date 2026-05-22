@@ -160,9 +160,10 @@ class ReverseDNSCron(Cronjob):
         """
         try:
             hostname, _, _ = socket.gethostbyaddr(ip)
-            return hostname
         except (socket.herror, socket.gaierror, TimeoutError, OSError):
             return ""
+        else:
+            return hostname
 
     @staticmethod
     def _matches_scanner_domain(hostname: str) -> bool:
@@ -176,7 +177,4 @@ class ReverseDNSCron(Cronjob):
             True if the hostname matches a mass scanner domain.
         """
         hostname_lower = hostname.lower()
-        for domain in MASS_SCANNER_DOMAINS:
-            if hostname_lower == domain or hostname_lower.endswith("." + domain):
-                return True
-        return False
+        return any(hostname_lower == domain or hostname_lower.endswith("." + domain) for domain in MASS_SCANNER_DOMAINS)

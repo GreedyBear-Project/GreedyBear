@@ -20,6 +20,7 @@ class UnionFind:
             size (int): Number of elements in the data structure
         """
         self.parents = list(range(size))
+        self.ranks = [0] * size
 
     def find_representative(self, i: int) -> int:
         """
@@ -48,7 +49,17 @@ class UnionFind:
         """
         i_representative = self.find_representative(i)
         j_representative = self.find_representative(j)
-        self.parents[i_representative] = j_representative
+        if i_representative == j_representative:
+            return
+
+        # Attach the shorter tree under the taller one to keep finds efficient (union by rank).
+        if self.ranks[i_representative] < self.ranks[j_representative]:
+            self.parents[i_representative] = j_representative
+        elif self.ranks[i_representative] > self.ranks[j_representative]:
+            self.parents[j_representative] = i_representative
+        else:
+            self.parents[j_representative] = i_representative
+            self.ranks[i_representative] += 1
 
 
 class LSHConnectedComponents:

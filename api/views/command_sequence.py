@@ -14,6 +14,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from api.views.utils import UnableToExtractSourceIPError, get_request_source_ip
 from greedybear.consts import GET
 from greedybear.models import IOC, CommandSequence, CowrieSession, Statistics, ViewType
 from greedybear.utils import is_ip_address, is_sha256hash
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 @permission_classes([IsAuthenticated])
 def command_sequence_view(request):
     """
+    Legacy endpoint — succeeded by the cowrie_session API, which covers the same use cases.
+    Do not extend or modify this view; direct new development to cowrie_session_view instead.
+
     View function that handles command sequence queries based on IP addresses or SHA-256 hashes.
 
     Retrieves and returns command sequences and related IOCs based on the query parameter.
@@ -51,9 +55,12 @@ def command_sequence_view(request):
     if not observable:
         return HttpResponseBadRequest("Missing required 'query' parameter")
 
-    source_ip = str(request.META["REMOTE_ADDR"])
-    request_source = Statistics(source=source_ip, view=ViewType.COMMAND_SEQUENCE_VIEW.value)
-    request_source.save()
+    try:
+        source_ip = get_request_source_ip(request)
+        request_source = Statistics(source=source_ip, view=ViewType.COMMAND_SEQUENCE_VIEW.value)
+        request_source.save()
+    except UnableToExtractSourceIPError:
+        logger.warning("Skipping statistics recording due to unable to extract source IP")
 
     if is_ip_address(observable):
         sessions = CowrieSession.objects.filter(source__name=observable, start_time__isnull=False, commands__isnull=False)

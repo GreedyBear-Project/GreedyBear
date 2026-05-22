@@ -4,12 +4,13 @@ import logging
 import os
 import tomllib
 from datetime import timedelta
+from pathlib import Path
 
 from django.core.management.utils import get_random_secret_key
 from elasticsearch import Elasticsearch
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BASE_STATIC_PATH = os.path.join(BASE_DIR, "static/")
+BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_STATIC_PATH = BASE_DIR / "static"
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("DJANGO_SECRET", None) or get_random_secret_key()
@@ -18,8 +19,8 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET", None) or get_random_secret_key()
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
-ML_MODEL_DIRECTORY = os.path.join(BASE_DIR, "mlmodels/")  # "/opt/deploy/greedybear/mlmodels"
-ML_CONFIG_FILE = os.path.join(BASE_DIR, "configuration/ml_config.json")
+ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
+ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"
 MOCK_CONNECTIONS = os.environ.get("MOCK_CONNECTIONS", "False") == "True"
 STAGE = os.environ.get("ENVIRONMENT", "production")
 STAGE_PRODUCTION = STAGE == "production"
@@ -53,7 +54,7 @@ SLACK_TOKEN = os.environ.get("SLACK_TOKEN", "")
 DEFAULT_SLACK_CHANNEL = os.environ.get("DEFAULT_SLACK_CHANNEL", "")
 NTFY_URL = os.environ.get("NTFY_URL", "")
 
-with open(os.path.join(BASE_DIR, "pyproject.toml"), "rb") as f:
+with (BASE_DIR / "pyproject.toml").open("rb") as f:
     VERSION = tomllib.load(f)["project"]["version"]
 
 CSRF_COOKIE_SAMESITE = "Strict"
@@ -69,10 +70,11 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 # because GreedyBear has no legitimate need to be framed.
 X_FRAME_OPTIONS = "DENY"
 
-if STAGE_PRODUCTION:
+HTTPS_ENABLED = os.environ.get("HTTPS_ENABLED", "False") == "True"
+if HTTPS_ENABLED:
     # Mark session and CSRF cookies as Secure so they are only
-    # sent over HTTPS connections. Gated to production because
-    # local/CI environments run plain HTTP.
+    # sent over HTTPS connections if HTTPS is enabled.
+    # Allows local/CI environments to run plain HTTP.
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     # NOTE: SECURE_SSL_REDIRECT is intentionally omitted. TLS is
@@ -84,13 +86,10 @@ if STAGE_PRODUCTION:
 # Falls back to ["*"] for backward compatibility.
 # For security checks, see greedybear/checks.py.
 _allowed_hosts_env = os.environ.get("DJANGO_ALLOWED_HOSTS", "")
-if _allowed_hosts_env:
-    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(",") if h.strip()]
-else:
-    ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(",") if h.strip()] if _allowed_hosts_env else ["*"]
 
 # certego_saas
-HOST_URI = "http://localhost"
+HOST_URI = os.environ.get("HOST_URI", "http://localhost")
 HOST_NAME = "GreedyBear"
 
 # Application definition
@@ -189,9 +188,7 @@ ROOT_URLCONF = "greedybear.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [
-            os.path.join(BASE_STATIC_PATH, "reactapp"),
-        ],
+        "DIRS": [BASE_STATIC_PATH / "reactapp"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -485,6 +482,7 @@ CLUSTER_COWRIE_COMMAND_SEQUENCES = os.environ.get("CLUSTER_COWRIE_COMMAND_SEQUEN
 IOC_RETENTION = int(os.environ.get("IOC_RETENTION", "3650"))
 COWRIE_SESSION_RETENTION = int(os.environ.get("COWRIE_SESSION_RETENTION", "365"))
 COMMAND_SEQUENCE_RETENTION = int(os.environ.get("COMMAND_SEQUENCE_RETENTION", "365"))
+STATISTICS_RETENTION = 730
 
 TRENDING_MAX_WINDOW_MINUTES = int(os.environ.get("TRENDING_MAX_WINDOW_MINUTES", str((24 * 31 * 60) // 2)))
 TRENDING_BUCKET_RETENTION_HOURS = int(os.environ.get("TRENDING_BUCKET_RETENTION_HOURS", str(24 * 31)))

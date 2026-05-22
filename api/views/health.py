@@ -29,10 +29,11 @@ def get_db_status():
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
-        return "up"
-    except Exception as e:
-        logger.exception(f"Database connectivity check failed: {e}")
+    except Exception:
+        logger.exception("Database connectivity check failed")
         return "down"
+    else:
+        return "up"
 
 
 def get_es_status():
@@ -49,8 +50,8 @@ def get_es_status():
             "yellow": "up",
             "red": "down",
         }.get(health.get("status"), "unknown")
-    except Exception as e:
-        logger.exception(f"Elasticsearch health check failed:  {e}")
+    except Exception:
+        logger.exception("Elasticsearch health check failed")
         return "down"
 
 
@@ -151,8 +152,8 @@ def get_status_overview():
                 "jobs": job_data,
             }
 
-        except Exception as e:
-            logger.exception(f"Status aggregation failed : {e}")
+        except Exception:
+            logger.exception("Status aggregation failed")
             db_status = "degraded"
 
     return {

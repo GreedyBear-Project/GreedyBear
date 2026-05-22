@@ -2,7 +2,7 @@ import React from "react";
 import PropTypes from "prop-types";
 import { Navigate, useLocation } from "react-router-dom";
 
-import { FallBackLoading, addToast } from "@certego/certego-ui";
+import { FallBackLoading, addToast } from "@greedybear/gb-ui";
 
 import { useAuthStore } from "../stores";
 import { AUTHENTICATION_STATUSES } from "../constants";

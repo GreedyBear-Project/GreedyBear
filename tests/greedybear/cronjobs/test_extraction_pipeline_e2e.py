@@ -205,7 +205,7 @@ class TestStrategyExceptionHandling(E2ETestCase):
 
         # Should log error and return 0
         self.assertEqual(result, 0)
-        pipeline.log.error.assert_called()
+        pipeline.log.exception.assert_called()
 
 
 class TestScoringIntegration(E2ETestCase):

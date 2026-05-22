@@ -26,5 +26,6 @@ services:
     image: intelowlproject/greedybear:test
     volumes:
       - ../:/opt/deploy/greedybear
+    command: sh -c "python manage.py setup_schedules && exec watchfiles --filter python 'python manage.py qcluster' /opt/deploy/greedybear/greedybear"
     environment:
       - DEBUG=True

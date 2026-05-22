@@ -7,6 +7,10 @@ DJANGO_SECRET=
 # Example: DJANGO_ALLOWED_HOSTS=greedybear.example.com,api.example.com
 DJANGO_ALLOWED_HOSTS=
 
+# Public URI used for email verification and password reset links. Defaults to http://localhost.
+# Example: HOST_URI=https://api.greedybear.example.com
+HOST_URI=
+
 DB_HOST=postgres
 DB_PORT=5432
 DB_USER=user

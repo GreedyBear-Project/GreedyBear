@@ -1,6 +1,6 @@
 import { UncontrolledPopover, PopoverBody } from "reactstrap";
 import { FiInfo } from "react-icons/fi";
-import { BooleanIcon, IconButton } from "@certego/certego-ui";
+import { BooleanIcon, IconButton } from "@greedybear/gb-ui";
 import { INTELOWL_URL, PUBLIC_URL } from "../../constants/environment";
 
 const formatInteger = (value) => {
@@ -19,23 +19,23 @@ const feedsTableColumns = [
   {
     Header: "Last Seen",
     accessor: "last_seen",
-    maxWidth: 80,
+    maxWidth: 100,
   },
   {
     Header: "First Seen",
     accessor: "first_seen",
-    maxWidth: 80,
+    maxWidth: 100,
   },
   {
     Header: "Value",
     accessor: "value",
-    maxWidth: 60,
+    maxWidth: 170,
   },
   {
     Header: "Feed type",
     accessor: "feed_type",
     disableSortBy: true,
-    maxWidth: 60,
+    maxWidth: 130,
     Cell: ({ value }) =>
       Array.isArray(value) ? (
         <ul className="d-flex flex-column text-left" key={value}>
@@ -53,18 +53,18 @@ const feedsTableColumns = [
     Header: "Scanner",
     accessor: "scanner",
     Cell: ({ value }) => <BooleanIcon truthy={value} withColors />,
-    maxWidth: 60,
+    maxWidth: 90,
   },
   {
     Header: "Payload Request",
     accessor: "payload_request",
     Cell: ({ value }) => <BooleanIcon truthy={value} withColors />,
-    maxWidth: 60,
+    maxWidth: 130,
   },
   {
     Header: "Attack Count",
     accessor: "attack_count",
-    maxWidth: 60,
+    maxWidth: 110,
   },
   {
     Header: "Details",
@@ -124,7 +124,7 @@ const feedsTableColumns = [
         </div>
       );
     },
-    maxWidth: 60,
+    maxWidth: 75,
   },
   ...(INTELOWL_URL
     ? [
@@ -132,7 +132,7 @@ const feedsTableColumns = [
           Header: "Analyze",
           id: "intelowl",
           disableSortBy: true,
-          maxWidth: 60,
+          maxWidth: 80,
           Cell: ({ row }) => (
             <div className="d-flex justify-content-center">
               <a

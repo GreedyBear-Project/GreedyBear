@@ -6,7 +6,6 @@ from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.throttling import POSTUserRateThrottle
 from django.conf import settings
 from django.contrib.auth import get_user_model, login
-from django.core.cache import cache
 from durin import views as durin_views
 from durin.models import AuthToken
 from rest_framework import status
@@ -142,9 +141,6 @@ class LoginView(certego_views.LoginView):
                 logger.info(f"administrator:'{uname}' was logged in.")
             except Exception:
                 logger.exception(f"administrator:'{uname}' login failed.")
-        # just a hacky way to store the current host
-        # as this is the first endpoint hit by a user.
-        cache.set("current_site", request.get_host(), timeout=60 * 60 * 24)
         return response
 
 

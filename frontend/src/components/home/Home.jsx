@@ -3,7 +3,7 @@ import "./Home.scss";
 import React from "react";
 import { Container } from "reactstrap";
 
-import { ContentSection } from "@certego/certego-ui";
+import { ContentSection } from "@greedybear/gb-ui";
 
 import { PUBLIC_URL, VERSION } from "../../constants/environment";
 import { NewsWidget } from "./NewsWidget";

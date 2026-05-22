@@ -21,8 +21,7 @@ class ExtractionPipelineTestCase(ExtractionTestCase):
         ):
             from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
 
-            pipeline = ExtractionPipeline()
-            return pipeline
+            return ExtractionPipeline()
 
 
 class TestHitFiltering(ExtractionPipelineTestCase):

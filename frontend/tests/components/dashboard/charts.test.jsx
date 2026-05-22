@@ -16,7 +16,7 @@ import {
   FEEDS_STATISTICS_TYPES_URI,
 } from "../../../src/constants/api";
 
-import { AnyChartWidget } from "@certego/certego-ui";
+import { AnyChartWidget } from "@greedybear/gb-ui";
 
 // Mock recharts
 vi.mock("recharts", () => ({
@@ -25,7 +25,7 @@ vi.mock("recharts", () => ({
 }));
 
 // Mock certego-ui
-vi.mock("@certego/certego-ui", () => ({
+vi.mock("@greedybear/gb-ui", () => ({
   AnyChartWidget: vi.fn(({ url, componentsFn }) => {
     const mockData = [{ date: "2024-01-01", feed1: 10, feed2: 20 }];
 

@@ -1,5 +1,6 @@
 import json
 from abc import abstractmethod
+from pathlib import Path
 
 import pandas as pd
 from sklearn.base import BaseEstimator
@@ -96,7 +97,7 @@ class RFClassifier(RFModel, Classifier):
             BaseEstimator: Configured but untrained scikit-learn Random Forest
                 Classifier with all hyperparameters set
         """
-        with open(ML_CONFIG_FILE) as f:
+        with Path(ML_CONFIG_FILE).open() as f:
             config = json.load(f)
 
         params = config["RFClassifier"]
@@ -128,7 +129,7 @@ class RFRegressor(RFModel, Regressor):
             BaseEstimator: Configured but untrained scikit-learn Random Forest
                 Regressor with all hyperparameters set
         """
-        with open(ML_CONFIG_FILE) as f:
+        with Path(ML_CONFIG_FILE).open() as f:
             config = json.load(f)
 
         params = config["RFRegressor"]

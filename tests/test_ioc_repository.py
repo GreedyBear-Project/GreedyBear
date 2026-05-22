@@ -193,9 +193,8 @@ class TestIocRepository(CustomTestCase):
         Honeypot.objects.create(name="TestPot123", active=True)
         self.assertEqual(Honeypot.objects.count(), initial_count + 1)
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Honeypot.objects.create(name="testpot123", active=True)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Honeypot.objects.create(name="testpot123", active=True)
 
         self.assertEqual(Honeypot.objects.count(), initial_count + 1)
         self.assertEqual(Honeypot.objects.get(name__iexact="testpot123").name, "TestPot123")
@@ -229,9 +228,8 @@ class TestIocRepository(CustomTestCase):
         hp1 = self.repo.create_honeypot("TestPot456")
         self.assertIsNotNone(hp1)
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Honeypot.objects.create(name="testpot456", active=True)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Honeypot.objects.create(name="testpot456", active=True)
 
         self.assertEqual(Honeypot.objects.filter(name__iexact="testpot456").count(), 1)
         self.assertEqual(Honeypot.objects.count(), initial_count + 1)
