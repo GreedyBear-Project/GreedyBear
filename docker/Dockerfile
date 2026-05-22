@@ -76,8 +76,8 @@ RUN mkdir -p ${LOG_PATH}/django ${LOG_PATH}/gunicorn \
 
 FROM production AS development
 
-# Install dev dependencies
-RUN uv sync --group dev --locked
+# Install dev + test dependencies (hot-reload tools + test runners)
+RUN uv sync --group dev --group test --locked
 
 
 ## ------------------------------- Default Stage ------------------------------ ##

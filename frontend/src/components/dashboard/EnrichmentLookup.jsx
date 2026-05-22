@@ -14,7 +14,7 @@ import { MdSearch } from "react-icons/md";
 import { Form, Formik } from "formik";
 import axios from "axios";
 
-import { addToast, BooleanIcon } from "@certego/certego-ui";
+import { addToast, BooleanIcon } from "@greedybear/gb-ui";
 import { ENRICHMENT_URI } from "../../constants/api";
 import { useAuthStore } from "../../stores";
 import { AUTHENTICATION_STATUSES } from "../../constants";

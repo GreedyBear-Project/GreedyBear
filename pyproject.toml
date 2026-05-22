@@ -1,47 +1,61 @@
 [project]
 name = "greedybear"
-version = "3.3.2"
-requires-python = "==3.13.*"
+version = "3.5.1"
+description = "Threat intelligence platform that extracts attack data from a T-Pot or a cluster of them and generates actionable live feeds."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.13,<3.14"
 dependencies = [
     # Django core
-    "Django==5.2.13",
-    "djangorestframework==3.17.1",
+    "Django~=5.2.13",
+    "djangorestframework~=3.17.1",
     "django-rest-email-auth==5.0.0",
-    "django-ses==4.7.2",
-    "django-q2==1.9.0",
-    "croniter==6.2.2",
+    "django-ses~=4.7",
+    "django-q2~=1.10",
+    "croniter~=6.2",
     "certego-saas==0.7.12",
     # Server Gateway Interface
-    "gunicorn==25.3.0",
+    "gunicorn~=26.0",
     # Data stores
-    "elasticsearch==9.3.0",
-    "psycopg[c]==3.3.3",
+    # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
+    "elasticsearch==9.4.0",
+    "psycopg[c]~=3.3",
     # ML / data science
-    "scikit-learn==1.8.0",
-    "pandas==3.0.2",
-    "numpy==2.4.4",
-    "joblib==1.5.3",
-    "datasketch==1.9.0",
+    "scikit-learn~=1.8.0",
+    "pandas~=3.0",
+    "numpy~=2.4",
+    "joblib~=1.5",
+    "datasketch~=1.10",
     # File Format Support
-    "feedparser==6.0.12",
-    "stix2==3.0.2",
+    "feedparser~=6.0",
+    "stix2~=3.0",
     # Utilities
-    "requests==2.33.1",
-    "slack-sdk==3.41.0",
+    "requests~=2.34",
+    "slack-sdk~=3.41",
 ]
+
+[project.urls]
+Repository = "https://github.com/GreedyBear-Project/GreedyBear"
+Documentation = "https://github.com/GreedyBear-Project/GreedyBear/wiki"
+Blog = "https://greedybear-project.github.io/"
 
 [dependency-groups]
 dev = [
-    "coverage==7.13.5",
+    "django-watchfiles~=1.4",
+]
+test = [
+    "coverage==7.14.0",
     "django-test-migrations==1.5.0",
-    "django-watchfiles==1.4.0",
 ]
 lint = [
-    "ruff==0.15.10",
+    "ruff==0.15.13",
 ]
 
 [tool.uv]
+# necessary because certego-saas transitively depends on djangorestframework-filters 1.0.0.dev2 (dev prerelease)
 prerelease = "allow"
+# necessary because certego-saas pins Markdown <3.4, but we want a current release for security fixes
 override-dependencies = ["markdown==3.10.2"]
 
 [tool.ruff]
@@ -49,6 +63,8 @@ extend-exclude = [
     ".github",
     ".idea",
     ".vscode",
+    ".venv",
+    "venv",
     "**/migrations/*",
 ]
 include = ["*.py"]
@@ -68,17 +84,67 @@ skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
+    "A",   # flake8-builtins
     "B",   # flake8-bugbear
     "C4",  # flake8-comprehensions
     "DJ",  # flake8-django
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "FA",  # flake8-future-annotations
+    "FLY", # flynt
+    "FURB",# refurb
+    "G",   # flake8-logging-format
+    "I",   # isort
+    "ICN", # flake8-import-conventions
+    "ISC", # flake8-implicit-str-concat
+    "LOG", # flake8-logging
+    "N",   # pep8-naming
+    "NPY", # NumPy-specific rules
+    "PD",  # pandas-vet
+    "PERF",# Perflint
+    "PGH", # pygrep-hooks
+    "PIE", # flake8-pie
+    "PTH", # flake8-use-pathlib
+    "RET", # flake8-return
+    "RUF", # Ruff-specific rules
+    "S",   # flake8-bandit
+    "SIM", # flake8-simplify
+    "SLOT",# flake8-slots
+    "T20", # flake8-print
+    "TC",  # flake8-type-checking
+    "TD",  # flake8-todos
+    "TID", # flake8-tidy-imports
+    "TRY", # tryceratops
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
 ]
 ignore = [
-    "F403",  # Allow wildcard imports in __init__.py files
-    "E501",  # Allow long lines in docstrings
+    "G004",   # allow use of f-strings in log messages for better readability
+    "RUF012", # allow mutable-class-defaults (Django convention)
+    "SIM108", # do not enforce use of ternary operator instead of if-else-block
+    "TRY003", # allow exception messages that are not defined in the exception class itself
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Re-exporting submodules with wildcard imports is intentional in package __init__.py files
+"**/__init__.py" = ["F403"]
+# Long parameter documentation lines in API view docstrings
+"api/views/*" = ["E501"]
+# Exclude tests from security checks
+"tests/*" = ["S"]
+# Misinterpreted regex
+"greedybear/consts.py" = ["S105"]
+# Dummy key for certego-saas compatibility and useful print statements
+"greedybear/settings.py" = ["S105", "T201"]
+# String-based query (no equvalent ORM call exists)
+"greedybear/cronjobs/repositories/trending_bucket.py" = ["S608"]
+# Print statements
+"tests/test_runner.py" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "api",
+    "authentication",
+    "configuration",
+    "greedybear",
 ]

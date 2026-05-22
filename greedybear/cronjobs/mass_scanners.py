@@ -48,8 +48,8 @@ class MassScannersCron(Cronjob):
                 timeout=10,
             )
             r.raise_for_status()
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch mass scanner list: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch mass scanner list")
             raise
 
         for line_bytes in r.iter_lines():
@@ -79,7 +79,7 @@ class MassScannersCron(Cronjob):
                     reason = comment_match.group(1)
 
                 # Add or update mass scanner entry
-                scanner, created = self.mass_scanner_repo.get_or_create(ip_address, reason)
+                _, created = self.mass_scanner_repo.get_or_create(ip_address, reason)
                 if created:
                     self.log.info(f"added new mass scanner {ip_address}")
                     self.ioc_repo.update_ioc_reputation(ip_address, IpReputation.MASS_SCANNER)

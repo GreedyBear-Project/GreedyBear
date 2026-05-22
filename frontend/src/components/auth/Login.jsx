@@ -12,7 +12,7 @@ import {
 import { MdInfoOutline } from "react-icons/md";
 import { Form, Formik } from "formik";
 
-import { ContentSection } from "@certego/certego-ui";
+import { ContentSection } from "@greedybear/gb-ui";
 
 import { useAuthStore } from "../../stores";
 import {

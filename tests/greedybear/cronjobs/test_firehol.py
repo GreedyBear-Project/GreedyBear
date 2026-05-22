@@ -116,7 +116,7 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log = MagicMock()
         cronjob.execute()
 
-        cronjob.log.error.assert_called()
+        cronjob.log.exception.assert_called()
         self.assertEqual(FireHolList.objects.count(), 0)
 
     @patch("greedybear.cronjobs.firehol.requests.get")
@@ -131,7 +131,7 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log = MagicMock()
         cronjob.execute()
 
-        cronjob.log.error.assert_called()
+        cronjob.log.exception.assert_called()
 
     @patch("greedybear.cronjobs.firehol.requests.get")
     def test_run_handles_invalid_ip(self, mock_get):

@@ -45,7 +45,6 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         Args:
             hits: List of Elasticsearch hit dictionaries to process.
         """
-        pass
 
     def _add_fks(self, scanner_ip: str, hostname: str) -> None:
         """

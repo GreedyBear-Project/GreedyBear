@@ -1,4 +1,8 @@
 services:
+  app:
+    environment:
+      - HTTPS_ENABLED=True
+
   nginx:
     volumes:
       - ../configuration/nginx/https.conf:/etc/nginx/conf.d/default.conf

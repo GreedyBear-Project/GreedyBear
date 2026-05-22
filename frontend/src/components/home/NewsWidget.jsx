@@ -1,5 +1,5 @@
 import React from "react";
-import { ContentSection } from "@certego/certego-ui";
+import { ContentSection } from "@greedybear/gb-ui";
 import { Spinner } from "reactstrap";
 import { GREEDYBEAR_NEWS_URL } from "../../constants/api";
 

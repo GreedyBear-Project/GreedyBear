@@ -4,7 +4,7 @@ import { FormGroup, Label, Col, Input, Button, Spinner } from "reactstrap";
 import { Form, Formik } from "formik";
 import { useTitle } from "react-use";
 
-import { ContentSection } from "@certego/certego-ui";
+import { ContentSection } from "@greedybear/gb-ui";
 
 import { UUID_REGEX } from "../../constants/index";
 import { resetPassword } from "./api";

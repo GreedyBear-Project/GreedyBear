@@ -14,7 +14,7 @@ import {
   AnyChartWidget,
   getRandomColorsArray,
   useTimePickerStore,
-} from "@certego/certego-ui";
+} from "@greedybear/gb-ui";
 import {
   FEEDS_STATISTICS_SOURCES_URI,
   FEEDS_STATISTICS_DOWNLOADS_URI,

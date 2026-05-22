@@ -1,7 +1,7 @@
 repos:
 # Python linting with Ruff
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.7
+    rev: v0.15.11
     hooks:
       - id: ruff
         name: ruff-lint

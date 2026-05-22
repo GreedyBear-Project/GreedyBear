@@ -13,6 +13,7 @@ GREEDYBEAR_VERSION="latest"
 PROJECT_NAME="greedybear"
 SILENT_MODE=false
 ELASTIC_ENDPOINT=""
+KEEP_DAYS=""
 
 # Admin creation defaults
 ADMIN_USERNAME="${GB_ADMIN_USERNAME:-}"
@@ -134,7 +135,7 @@ COMMANDS
     update       Update GreedyBear to latest version
     build        Build Docker images
     pull         Pull latest Docker images
-    backup       Backup database and volumes
+    backup       Backup database (PostgreSQL)
     restore      Restore from backup
     health       Health check all services
     clean        Remove all data and reset (destructive!)
@@ -155,6 +156,9 @@ INIT OPTIONS (./gbctl init)
 
 CLEAN OPTIONS (./gbctl clean)
     --force                     Required to confirm destructive operation
+
+BACKUP OPTIONS (./gbctl backup)
+    --keep-days <N>             Delete backups older than N days
 
 CREATE-ADMIN OPTIONS (./gbctl create-admin)
     --username <name>           Username (or use GB_ADMIN_USERNAME env var)
@@ -760,6 +764,11 @@ cmd_backup() {
         chmod 700 "$backup_dir"
     fi
     
+    if [ -n "$KEEP_DAYS" ]; then
+        log_info "Pruning backups older than ${KEEP_DAYS} days..."
+        find "$backup_dir" -type f \( -name "greedybear_backup_*.sql.gz" -o -name "greedybear_backup_*_volumes.txt" \) -mtime "+${KEEP_DAYS}" -delete
+    fi
+
     # Source PostgreSQL credentials from env file
     local pg_user="user"
     local pg_db="greedybear_db"
@@ -801,7 +810,7 @@ cmd_backup() {
     # Backup volumes info
     log_info "Saving volumes information..."
     ${docker_cmd} volume ls --filter name=${PROJECT_NAME} > "${backup_file}_volumes.txt"
-    
+
     log_success "Backup complete: ${backup_file}.sql.gz"
     log_info "To restore: ./gbctl restore ${backup_file}.sql.gz"
 }
@@ -1010,6 +1019,7 @@ parse_args() {
     ENABLE_ELASTIC=false
     USE_VERSION=false
     FORCE_CLEAN=false
+    KEEP_DAYS=""
     COMMAND=""
     PASSED_FLAGS=()
     
@@ -1110,6 +1120,25 @@ parse_args() {
                 PASSED_FLAGS+=("--email")
                 shift 2
                 ;;
+            --keep-days)
+                if [[ -z "${2:-}" || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                    echo -e "${RED}Error:${NC} --keep-days requires a positive integer" >&2
+                    exit 1
+                fi
+                KEEP_DAYS=$2
+                PASSED_FLAGS+=("--keep-days")
+                shift 2
+                ;;
+            --keep-days=*)
+                keep_days_value="${1#*=}"
+                if [[ -z "$keep_days_value" || ! "$keep_days_value" =~ ^[1-9][0-9]*$ ]]; then
+                    echo -e "${RED}Error:${NC} --keep-days requires a positive integer" >&2
+                    exit 1
+                fi
+                KEEP_DAYS="$keep_days_value"
+                PASSED_FLAGS+=("--keep-days")
+                shift
+                ;;
             -h|--help)
                 print_help
                 exit 0
@@ -1208,7 +1237,12 @@ main() {
             cmd_pull "${EXTRA_ARGS[@]}"
             ;;
         backup)
-            validate_flags backup --silent
+            validate_flags backup --silent --keep-days
+            if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then
+                log_error "Unknown argument(s) for backup: ${EXTRA_ARGS[*]}"
+                print_help
+                exit 1
+            fi
             cmd_backup "${EXTRA_ARGS[@]}"
             ;;
         restore)

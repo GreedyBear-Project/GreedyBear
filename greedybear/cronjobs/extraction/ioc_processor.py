@@ -31,7 +31,7 @@ class IocProcessor:
         self,
         ioc: IOC,
         attack_type: str,
-        honeypot_name: str = None,
+        honeypot_name: str | None = None,
     ) -> IOC | None:
         """
         Process an IOC record.

@@ -20,5 +20,5 @@ def send_slack_message(text):
 
         sc.chat_postMessage(channel=channel, text=text, mrkdwn=True)
 
-    except Exception as error:
-        logger.exception(error)
+    except Exception:
+        logger.exception("Failed to send Slack message")

@@ -8,7 +8,7 @@ import {
   deleteOtherSessions,
   deleteTokenById,
 } from "../../../../src/components/me/sessions/api";
-import { confirm, useAxiosComponentLoader } from "@certego/certego-ui";
+import { confirm, useAxiosComponentLoader } from "@greedybear/gb-ui";
 
 vi.mock("../../../../src/components/me/sessions/api", () => ({
   deleteOtherSessions: vi.fn(),
@@ -17,8 +17,8 @@ vi.mock("../../../../src/components/me/sessions/api", () => ({
 
 const refetchMock = vi.fn();
 
-vi.mock("@certego/certego-ui", async () => {
-  const actual = await vi.importActual("@certego/certego-ui");
+vi.mock("@greedybear/gb-ui", async () => {
+  const actual = await vi.importActual("@greedybear/gb-ui");
   return {
     ...actual,
     confirm: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock("@certego/certego-ui", async () => {
 describe("SessionsList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
 
     const unsortedSessions = [
       {
@@ -67,6 +67,14 @@ describe("SessionsList", () => {
         has_expired: false,
         is_current: false,
       },
+      {
+        id: 4,
+        client: "Old Browser",
+        created: 50,
+        expiry: 150,
+        has_expired: true,
+        is_current: false,
+      },
     ];
 
     useAxiosComponentLoader.mockImplementation((_, transformer) => {
@@ -84,11 +92,17 @@ describe("SessionsList", () => {
     render(<SessionsList />);
 
     const deviceLabels = screen
-      .getAllByText(/Current Browser|Firefox|Safari/)
+      .getAllByText(/Current Browser|Firefox|Safari|Old Browser/)
       .map((el) => el.textContent.replace(/^Device\s*/i, "").trim());
-    expect(deviceLabels).toEqual(["Current Browser", "Safari", "Firefox"]);
+    expect(deviceLabels).toEqual([
+      "Current Browser",
+      "Safari",
+      "Firefox",
+      "Old Browser",
+    ]);
 
     expect(screen.getByText("current")).toBeInTheDocument();
+    expect(screen.getByText("expired")).toBeInTheDocument();
     expect(
       screen.queryByTestId("sessionslist-1__revoke-btn"),
     ).not.toBeInTheDocument();

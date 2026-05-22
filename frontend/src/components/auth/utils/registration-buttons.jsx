@@ -2,7 +2,7 @@ import React from "react";
 // import PropTypes from "prop-types";
 import { Alert, PopoverBody } from "reactstrap";
 import { IoMail } from "react-icons/io5";
-import { PopupFormButton } from "@certego/certego-ui";
+import { PopupFormButton } from "@greedybear/gb-ui";
 import EmailForm from "./EmailForm";
 import { resendVerificationMail, requestPasswordReset } from "../api";
 

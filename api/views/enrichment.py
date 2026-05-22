@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from api.serializers import EnrichmentSerializer
+from api.views.utils import UnableToExtractSourceIPError, get_request_source_ip
 from greedybear.consts import GET
 from greedybear.models import Statistics, ViewType
 
@@ -34,12 +35,15 @@ def enrichment_view(request):
         and if so, the corresponding IOC.
     """
     observable_name = request.query_params.get("query")
-    logger.info(f"Enrichment view requested for: {str(observable_name)}")
+    logger.info(f"Enrichment view requested for: {observable_name}")
     serializer = EnrichmentSerializer(data=request.query_params, context={"request": request})
     serializer.is_valid(raise_exception=True)
 
-    source_ip = str(request.META["REMOTE_ADDR"])
-    request_source = Statistics(source=source_ip, view=ViewType.ENRICHMENT_VIEW.value)
-    request_source.save()
+    try:
+        source_ip = get_request_source_ip(request)
+        request_source = Statistics(source=source_ip, view=ViewType.ENRICHMENT_VIEW.value)
+        request_source.save()
+    except UnableToExtractSourceIPError:
+        logger.warning("Skipping statistics recording due to unable to extract source IP")
 
     return Response(serializer.data, status=status.HTTP_200_OK)

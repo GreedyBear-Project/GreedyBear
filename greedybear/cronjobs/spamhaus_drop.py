@@ -62,11 +62,11 @@ class SpamhausDropCron(Cronjob):
 
             self.log.info(f"Added {added_count} new entries from Spamhaus DROP v4")
 
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch Spamhaus DROP v4: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch Spamhaus DROP v4")
             # do not re-raise, let the cronjob continue on network issues
-        except Exception as e:
-            self.log.exception(f"Unexpected error in Spamhaus DROP: {e}")
+        except Exception:
+            self.log.exception("Unexpected error in Spamhaus DROP")
             # re-raise on some unexpected error
             raise
 

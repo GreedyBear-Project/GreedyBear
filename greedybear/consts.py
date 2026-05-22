@@ -15,23 +15,29 @@ REGEX_PASSWORD = r"^(?=.*[a-zA-Z])\S{12,}$"
 DOMAIN = "domain"
 IP = "ip"
 
-REQUIRED_FIELDS = [
+FIELDS_TO_EXTRACT = [
     "@timestamp",
-    "src_ip",
+    "body",
     "dest_port",
-    "ip_rep",
-    "geoip",
-    "url",
-    "message",
-    "eventid",
-    "session",
-    "timestamp",
     "duration",
-    "username",
-    "password",
-    "t-pot_ip_ext",
-    "shasum",
+    "eventid",
+    "geoip",
+    "geoip_ext",
+    "ip_rep",
+    "message",
     "outfile",
+    "password",
+    "path",
+    "post_data",
+    "protocol",
+    "session",
+    "shasum",
+    "src_ip",
+    "t-pot_ip_ext",
+    "timestamp",
+    "type",
+    "url",
+    "username",
 ]
 
 
@@ -53,7 +59,7 @@ MASS_SCANNER_DOMAINS = frozenset(
 
 
 # we used this const to implement news feature
-RSS_FEED_URL = "https://intelowlproject.github.io/feed.xml"
+RSS_FEED_URL = "https://greedybear-project.github.io/feed.xml"
 CACHE_KEY_GREEDYBEAR_NEWS = "greedybear_news"
 CACHE_TIMEOUT_SECONDS = 60 * 60
 

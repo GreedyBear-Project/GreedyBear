@@ -45,8 +45,8 @@ class FireHolCron(Cronjob):
                 try:
                     response = requests.get(url, timeout=60)
                     response.raise_for_status()
-                except requests.RequestException as e:
-                    self.log.error(f"Network error fetching {source}: {e}")
+                except requests.RequestException:
+                    self.log.exception(f"Network error fetching {source}")
                     continue
 
                 lines = response.text.splitlines()
@@ -64,12 +64,12 @@ class FireHolCron(Cronjob):
                     # FireHol .ipset and .netset files contain IPs or CIDRs, one per line
                     # Comments (lines starting with #) are filtered out above
 
-                    entry, created = self.firehol_repo.get_or_create(line, source)
+                    _, created = self.firehol_repo.get_or_create(line, source)
                     if created:
                         self.log.debug(f"Added new entry: {line} from {source}")
 
-            except Exception as e:
-                self.log.exception(f"Unexpected error processing {source}: {e}")
+            except Exception:
+                self.log.exception(f"Unexpected error processing {source}")
 
         # Clean up old FireHolList entries
         self._cleanup_old_entries()

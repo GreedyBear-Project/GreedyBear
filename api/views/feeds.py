@@ -127,6 +127,8 @@ def feeds_advanced(request):
         attack_type (str): Type of attack to filter. (supported: `scanner`, `payload_request`, `all`; default: `all`)
         max_age (int): Maximum number of days since last occurrence. E.g. an IOC that was last seen 4 days ago is excluded by default. (default: 3)
         min_days_seen (int): Minimum number of days on which an IOC must have been seen. (default: 1)
+        min_credential_count (int, optional): Filter IOCs with at least this many distinct credentials. (default: no filter)
+        max_credential_count (int, optional): Filter IOCs with at most this many distinct credentials. (default: no filter)
         include_reputation (str): `;`-separated list of reputation values to include, e.g. `known attacker` or `known attacker;` to include IOCs without reputation. (default: include all)
         exclude_reputation (str): `;`-separated list of reputation values to exclude, e.g. `mass scanner` or `mass scanner;bot, crawler`. (default: exclude none)
         feed_size (int): Number of IOC items to return. (default: 5000)
@@ -153,13 +155,15 @@ def feeds_advanced(request):
         valid_feed_types,
         tag_key=request.query_params.get("tag_key", "").strip(),
         tag_value=request.query_params.get("tag_value", "").strip(),
+        include_sensors=True,
+        include_credential_count=True,
     )
     if paginate:
         paginator = CustomPageNumberPagination()
         iocs = paginator.paginate_queryset(iocs_queryset, request)
-        resp_data = feeds_response(request, iocs, feed_params, valid_feed_types, dict_only=True, verbose=verbose)
+        resp_data = feeds_response(request, iocs, feed_params, valid_feed_types, dict_only=True, verbose=verbose, include_sensors=True)
         return paginator.get_paginated_response(resp_data)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types, verbose=verbose)
+    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types, verbose=verbose, include_sensors=True)
 
 
 @api_view(["GET"])

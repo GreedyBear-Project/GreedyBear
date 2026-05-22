@@ -111,3 +111,9 @@ def clean_up_trending_buckets():
     from greedybear.cronjobs.bucket_cleanup import TrendingBucketCleanupCron
 
     TrendingBucketCleanupCron().execute()
+
+
+def detect_credential_reuse():
+    from greedybear.cronjobs.credential_reuse import CredentialReuseCron
+
+    CredentialReuseCron().execute()

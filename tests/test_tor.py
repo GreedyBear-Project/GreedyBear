@@ -23,7 +23,7 @@ class TestTorRepository(CustomTestCase):
         mock_get_or_create.return_value = (mock_node, True)
 
         # Act
-        node, created = self.repo.get_or_create("1.2.3.4")
+        _, created = self.repo.get_or_create("1.2.3.4")
 
         # Assert
         self.assertTrue(created)
@@ -37,7 +37,7 @@ class TestTorRepository(CustomTestCase):
         mock_get_or_create.return_value = (mock_node, False)
 
         # Act
-        node, created = self.repo.get_or_create("1.2.3.4")
+        _, created = self.repo.get_or_create("1.2.3.4")
 
         # Assert
         self.assertFalse(created)

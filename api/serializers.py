@@ -118,7 +118,7 @@ def ordering_validation(ordering: str) -> str:
     if not ordering:
         raise serializers.ValidationError("Invalid ordering: <empty string>")
     # remove minus sign if present
-    field_name = ordering[1:] if ordering.startswith("-") else ordering
+    field_name = ordering.removeprefix("-")
     try:
         IOC._meta.get_field(field_name)
     except FieldDoesNotExist as exc:
@@ -132,6 +132,8 @@ class FeedsRequestSerializer(serializers.Serializer):
     ioc_type = serializers.ChoiceField(choices=["ip", "domain", "all"])
     max_age = serializers.IntegerField(min_value=1)
     min_days_seen = serializers.IntegerField(min_value=1)
+    min_credential_count = serializers.IntegerField(required=False, min_value=1)
+    max_credential_count = serializers.IntegerField(required=False, min_value=0)
     include_reputation = serializers.ListField(child=serializers.CharField(max_length=120))
     exclude_reputation = serializers.ListField(child=serializers.CharField(max_length=120))
     feed_size = serializers.IntegerField(min_value=1)
@@ -166,6 +168,13 @@ class FeedsRequestSerializer(serializers.Serializer):
     def validate_ordering(self, ordering):
         logger.debug(f"FeedsRequestSerializer - validation ordering: '{ordering}'")
         return ordering_validation(ordering)
+
+    def validate(self, data):
+        min_cc = data.get("min_credential_count")
+        max_cc = data.get("max_credential_count")
+        if min_cc is not None and max_cc is not None and min_cc > max_cc:
+            raise serializers.ValidationError("min_credential_count must be less than or equal to max_credential_count")
+        return data
 
 
 class ASNFeedsOrderingSerializer(FeedsRequestSerializer):
@@ -237,6 +246,7 @@ class FeedsResponseSerializer(serializers.Serializer):
     attacker_country = serializers.CharField(allow_null=True, allow_blank=True, max_length=120)
     attacker_country_code = serializers.CharField(allow_null=True, allow_blank=True, max_length=2)
     tags = TagSerializer(many=True, required=False, default=list)
+    sensors = SensorSerializer(many=True, required=False, default=list)
 
     def validate_feed_type(self, feed_type):
         logger.debug(f"FeedsResponseSerializer - validation feed_type: '{feed_type}'")

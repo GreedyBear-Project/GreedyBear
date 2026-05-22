@@ -1,10 +1,9 @@
 # GreedyBear - frontend
 
-Built with [@certego/certego-ui](https://github.com/certego/certego-ui).
+Built with [gb-ui](https://github.com/GreedyBear-Project/gb-ui).
 
 ## Design thesis
 
-- Re-usable components/hooks/stores that other projects can also benefit from should be added to [certego-ui](https://github.com/certego/certego-ui) package.
 - GreedyBear specific:
   - components should be added to `src/components`.
   - general hooks should be added to `src/hooks`.
@@ -60,7 +59,4 @@ npm start
 
 - JS app main configs are available in `package.json` and `enviroments.js`.
 
-### External Docs
 
-- [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-- [React documentation](https://reactjs.org/).

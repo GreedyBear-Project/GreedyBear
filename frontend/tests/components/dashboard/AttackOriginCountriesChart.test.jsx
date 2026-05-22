@@ -8,7 +8,7 @@ import useAttackerCountriesStore from "../../../src/stores/useAttackerCountriesS
 
 vi.mock("axios");
 
-vi.mock("@certego/certego-ui", () => ({
+vi.mock("@greedybear/gb-ui", () => ({
   useTimePickerStore: () => ({ range: "7d" }),
   getRandomColorsArray: (n) => Array(n).fill("#aabbcc"),
   AnyChartWidget: () => <div />,

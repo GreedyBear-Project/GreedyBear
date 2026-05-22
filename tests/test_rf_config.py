@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from greedybear.cronjobs.scoring.random_forest import RFClassifier, RFRegressor
 from greedybear.settings import ML_CONFIG_FILE
@@ -7,7 +8,7 @@ from tests import CustomTestCase
 
 class TestRFConfig(CustomTestCase):
     def setUp(self):
-        with open(ML_CONFIG_FILE) as f:
+        with Path(ML_CONFIG_FILE).open("rb") as f:
             self.config = json.load(f)
 
     def test_rf_classifier_config_loading(self):

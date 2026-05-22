@@ -253,7 +253,7 @@ class TestTannerAttackClassification(ExtractionTestCase):
         # check if tag was added
         found = False
         for call in mock_add_tags.call_args_list:
-            source, tags = call[0]
+            _, tags = call[0]
             for tag in tags:
                 if tag["ioc_id"] == mock_ioc_record.id and tag["value"] == "sqli":
                     found = True
@@ -275,7 +275,7 @@ class TestTannerAttackClassification(ExtractionTestCase):
         # check if tag was added
         found = False
         for call in mock_add_tags.call_args_list:
-            source, tags = call[0]
+            _, tags = call[0]
             for tag in tags:
                 if tag["ioc_id"] == mock_ioc_record.id and tag["value"] == "sqli":
                     found = True

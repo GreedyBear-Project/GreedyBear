@@ -10,7 +10,7 @@ import {
   Select,
   useAxiosComponentLoader,
   useDataTable,
-} from "@certego/certego-ui";
+} from "@greedybear/gb-ui";
 import { MultiSelectDropdown } from "./MultiSelectDropdown";
 import { Form, Formik } from "formik";
 import { feedsTableColumns } from "./tableColumns";

@@ -18,8 +18,8 @@ class Cronjob(metaclass=ABCMeta):
             self.log.info("Starting execution")
             self.run()
             self.success = True
-        except Exception as e:
-            self.log.exception(e)
+        except Exception:
+            self.log.exception("Execution failed")
             raise  # <--- this line ensures failures propagate
         finally:
             self.log.info("Finished execution")

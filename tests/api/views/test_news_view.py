@@ -33,38 +33,6 @@ class NewsTestCase(CustomTestCase):
         mock_parse.assert_not_called()
 
     @patch("api.views.utils.feedparser.parse")
-    def test_filters_only_greedybear_posts(self, mock_parse):
-        mock_parse.return_value = FeedParserDict(
-            entries=[
-                FeedParserDict(
-                    title="IntelOwl Update",
-                    summary="intelowl news",
-                    published="Wed, 01 Jan 2026 00:00:00 GMT",
-                    published_parsed=(2026, 1, 1, 0, 0, 0, 2, 1, 0),
-                    link="https://example.com/1",
-                ),
-                FeedParserDict(
-                    title="GreedyBear v3 Release",
-                    summary="greedybear release notes",
-                    published="Thu, 29 Jan 2026 00:00:00 GMT",
-                    published_parsed=(2026, 1, 29, 0, 0, 0, 3, 29, 0),
-                    link="https://example.com/2",
-                ),
-                FeedParserDict(
-                    title="IntelOwl Improvements",
-                    summary="Not related to GreedyBear",
-                    published="Mon, 01 Sep 2025 00:00:00 GMT",
-                    published_parsed=(2025, 9, 1, 0, 0, 0, 0, 244, 0),
-                    link="https://example.com/3",
-                ),
-            ]
-        )
-
-        result = get_greedybear_news()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["title"], "GreedyBear v3 Release")
-
-    @patch("api.views.utils.feedparser.parse")
     def test_sorts_posts_by_date_desc(self, mock_parse):
         mock_parse.return_value = FeedParserDict(
             entries=[

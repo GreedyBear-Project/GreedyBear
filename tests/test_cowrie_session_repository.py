@@ -255,11 +255,10 @@ class CredentialReuseTestCase(CustomTestCase):
         if session_id is None:
             session_id = self._session_counter
             self._session_counter += 1
-        session = CowrieSession.objects.create(
+        return CowrieSession.objects.create(
             session_id=session_id,
             source=source_ioc,
         )
-        return session
 
     def test_same_ip_not_counted_twice(self):
         session = self.create_cowrie_session(source_ip="1.2.3.4", session_id=111)

@@ -8,7 +8,7 @@ import {
   DateHoverable,
   useAxiosComponentLoader,
   confirm,
-} from "@certego/certego-ui";
+} from "@greedybear/gb-ui";
 
 import { deleteOtherSessions, deleteTokenById } from "./api";
 import { SESSIONS_BASE_URI } from "../../../constants/api";

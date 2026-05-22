@@ -1,4 +1,5 @@
 import React from "react";
+import { useShallow } from "zustand/shallow";
 import { AUTHENTICATION_STATUSES } from "../constants";
 
 import { useAuthStore } from "../stores";
@@ -11,14 +12,11 @@ function withAuth(WrappedComponent) {
     // stores
     const [isAuthenticated, checkAuthentication, fetchUserAccess] =
       useAuthStore(
-        React.useCallback(
-          (s) => [
-            s.isAuthenticated,
-            s.checkAuthentication,
-            s.service.fetchUserAccess,
-          ],
-          [],
-        ),
+        useShallow((s) => [
+          s.isAuthenticated,
+          s.checkAuthentication,
+          s.service.fetchUserAccess,
+        ]),
       );
 
     React.useLayoutEffect(() => {

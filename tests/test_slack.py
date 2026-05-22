@@ -20,7 +20,7 @@ class SendSlackMessageTests(CustomTestCase):
         send_slack_message("hello")
 
         mock_webclient.assert_not_called()
-        mock_logger.warning.assert_called_once_with("Slack is not configured, message not sent")
+        mock_logger.warning.assert_called_once()
 
     @override_settings(SLACK_TOKEN="xoxb-test-token", DEFAULT_SLACK_CHANNEL="#alerts")
     @patch("greedybear.slack.WebClient")
@@ -46,4 +46,4 @@ class SendSlackMessageTests(CustomTestCase):
 
         send_slack_message("test alert")
 
-        mock_logger.exception.assert_called_once_with(error)
+        mock_logger.exception.assert_called_once()

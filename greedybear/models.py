@@ -116,6 +116,7 @@ class IOC(models.Model):
         indexes = [
             models.Index(fields=["name"]),
             models.Index(fields=["attacker_country"]),
+            models.Index(fields=["attacker_country_code"]),
         ]
 
     def __str__(self):
@@ -183,7 +184,7 @@ class CowrieSession(models.Model):
     def __str__(self):
         if self.session_id is None:
             return "New Session (unsaved)"
-        return f"Session {hex(self.session_id)[2:]} from {self.source.name}"
+        return f"Session {self.session_id:x} from {self.source.name}"
 
 
 class CowrieFileTransfer(models.Model):
@@ -204,7 +205,7 @@ class CowrieFileTransfer(models.Model):
 
 
 class Statistics(models.Model):
-    source = models.CharField(max_length=15)
+    source = models.CharField(max_length=64)
     view = models.CharField(
         max_length=32,
         choices=ViewType.choices,

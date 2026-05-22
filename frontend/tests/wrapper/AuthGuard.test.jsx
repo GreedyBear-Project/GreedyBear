@@ -4,14 +4,14 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import AuthGuard from "../../src/wrappers/AuthGuard";
 import { AUTHENTICATION_STATUSES } from "../../src/constants";
-import { addToast } from "@certego/certego-ui";
+import { addToast } from "@greedybear/gb-ui";
 
 const mockUseAuthStore = vi.fn();
 vi.mock("../../src/stores", () => ({
   useAuthStore: (selector) => mockUseAuthStore(selector),
 }));
 
-vi.mock("@certego/certego-ui", async (importOriginal) => {
+vi.mock("@greedybear/gb-ui", async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,

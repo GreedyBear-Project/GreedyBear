@@ -36,13 +36,13 @@ class TorExitNodesCron(Cronjob):
                     self.log.debug(f"Invalid IPv4 address: {ip_candidate}")
                     continue
 
-                tor_node, created = self.tor_repo.get_or_create(ip_address)
+                _, created = self.tor_repo.get_or_create(ip_address)
                 if created:
                     self.log.info(f"Added new Tor exit node {ip_address}")
                     self.ioc_repo.update_ioc_reputation(ip_address, IpReputation.TOR_EXIT_NODE)
 
             self.log.info("Completed download of Tor exit node list")
 
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch Tor exit nodes: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch Tor exit nodes")
             raise

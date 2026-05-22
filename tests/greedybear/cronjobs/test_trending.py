@@ -2,10 +2,9 @@ from datetime import datetime
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
-from elasticsearch.dsl.response import Hit
 
 from greedybear.cronjobs.bucket_cleanup import TrendingBucketCleanupCron
-from greedybear.cronjobs.bucket_utils import update_activity_buckets_from_hits
+from greedybear.cronjobs.extraction.bucket_updater import BucketUpdater
 from greedybear.cronjobs.repositories.trending_bucket import TrendingBucketRepository
 from greedybear.cronjobs.trending import (
     attacker_sort_tuple,
@@ -70,13 +69,15 @@ class UpdateActivityBucketsFromHitsTestCase(CustomTestCase):
             interaction_count=3,
         )
 
-        unique_keys = update_activity_buckets_from_hits(
+        bu = BucketUpdater()
+        bu.collect_hits(
             [
-                Hit({"_source": {"src_ip": "1.1.1.1", "type": "Cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "1.1.1.1", "type": "cowrie", "@timestamp": "2026-03-20T09:50:00"}}),
-                Hit({"_source": {"src_ip": "2.2.2.2", "type": "Heralding", "@timestamp": "2026-03-20T09:10:00"}}),
+                {"src_ip": "1.1.1.1", "type": "Cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "1.1.1.1", "type": "cowrie", "@timestamp": "2026-03-20T09:50:00"},
+                {"src_ip": "2.2.2.2", "type": "Heralding", "@timestamp": "2026-03-20T09:10:00"},
             ]
         )
+        unique_keys = bu.update()
 
         self.assertEqual(unique_keys, 2)
 
@@ -95,49 +96,59 @@ class UpdateActivityBucketsFromHitsTestCase(CustomTestCase):
         self.assertEqual(created_bucket.interaction_count, 1)
 
     def test_invalid_hits_are_ignored(self):
-        unique_keys = update_activity_buckets_from_hits(
+        bu = BucketUpdater()
+        bu.collect_hits(
             [
-                Hit({"_source": {"src_ip": "", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "999.999.999.999", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "3.3.3.3", "type": "", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "3.3.3.3", "type": "cowrie"}}),
+                {"src_ip": "", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "999.999.999.999", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "3.3.3.3", "type": "", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "3.3.3.3", "type": "cowrie"},
             ]
         )
+        unique_keys = bu.update()
 
         self.assertEqual(unique_keys, 0)
         self.assertEqual(AttackerActivityBucket.objects.count(), 0)
 
     def test_invalid_timestamp_is_ignored(self):
-        unique_keys = update_activity_buckets_from_hits(
+        bu = BucketUpdater()
+        bu.collect_hits(
             [
-                Hit({"_source": {"src_ip": "8.8.8.8", "type": "cowrie", "@timestamp": "not-a-timestamp"}}),
+                {"src_ip": "8.8.8.8", "type": "cowrie", "@timestamp": "not-a-timestamp"},
             ]
         )
+        unique_keys = bu.update()
+
         self.assertEqual(unique_keys, 0)
         self.assertEqual(AttackerActivityBucket.objects.count(), 0)
 
     def test_non_global_ip_hits_are_ignored(self):
-        unique_keys = update_activity_buckets_from_hits(
+        bu = BucketUpdater()
+        bu.collect_hits(
             [
-                Hit({"_source": {"src_ip": "10.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "127.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "224.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "169.254.1.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "240.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
-                Hit({"_source": {"src_ip": "8.8.8.8", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
+                {"src_ip": "10.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "127.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "224.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "169.254.1.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "240.0.0.1", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
+                {"src_ip": "8.8.8.8", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"},
             ]
         )
+        unique_keys = bu.update()
 
         self.assertEqual(unique_keys, 1)
         self.assertEqual(AttackerActivityBucket.objects.count(), 1)
         self.assertTrue(AttackerActivityBucket.objects.filter(attacker_ip="8.8.8.8").exists())
 
     def test_global_ipv6_hit_is_counted(self):
-        unique_keys = update_activity_buckets_from_hits(
+        bu = BucketUpdater()
+        bu.collect_hits(
             [
-                Hit({"_source": {"src_ip": "2001:4860:4860::8888", "type": "Cowrie", "@timestamp": "2026-03-20T09:15:00"}}),
+                {"src_ip": "2001:4860:4860::8888", "type": "Cowrie", "@timestamp": "2026-03-20T09:15:00"},
             ]
         )
+        unique_keys = bu.update()
+
         self.assertEqual(unique_keys, 1)
         self.assertTrue(
             AttackerActivityBucket.objects.filter(
@@ -157,17 +168,21 @@ class UpdateActivityBucketsFromHitsTestCase(CustomTestCase):
         }
 
         repository = TrendingBucketRepository()
-        with patch.object(TrendingBucketRepository, "UPSERT_BATCH_SIZE", 2):
-            with patch("greedybear.cronjobs.repositories.trending_bucket.connection.cursor") as mock_cursor_factory:
-                mock_cursor = mock_cursor_factory.return_value.__enter__.return_value
-                inserted = repository.upsert_bucket_counts(counters)
+        with (
+            patch.object(TrendingBucketRepository, "UPSERT_BATCH_SIZE", 2),
+            patch("greedybear.cronjobs.repositories.trending_bucket.connection.cursor") as mock_cursor_factory,
+        ):
+            mock_cursor = mock_cursor_factory.return_value.__enter__.return_value
+            inserted = repository.upsert_bucket_counts(counters)
 
         self.assertEqual(inserted, 5)
         self.assertEqual(mock_cursor.execute.call_count, 3)
 
-    @patch("greedybear.cronjobs.bucket_utils.TrendingBucketRepository.upsert_bucket_counts", side_effect=Exception("db down"))
+    @patch("greedybear.cronjobs.extraction.bucket_updater.TrendingBucketRepository.upsert_bucket_counts", side_effect=Exception("db down"))
     def test_upsert_failure_returns_zero(self, mock_upsert):
-        unique_keys = update_activity_buckets_from_hits([Hit({"_source": {"src_ip": "8.8.8.8", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}})])
+        bu = BucketUpdater()
+        bu.collect_hits([{"src_ip": "8.8.8.8", "type": "cowrie", "@timestamp": "2026-03-20T09:15:00"}])
+        unique_keys = bu.update()
         self.assertEqual(unique_keys, 0)
         mock_upsert.assert_called_once()
 
@@ -209,45 +224,40 @@ class TrendingBucketCleanupCronTestCase(CustomTestCase):
         TRENDING_BUCKET_RETENTION_HOURS=0,
     )
     def test_run_raises_on_invalid_retention_hours(self):
-        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
-            with self.assertRaises(ValueError):
-                self.cron.run()
+        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)), self.assertRaises(ValueError):
+            self.cron.run()
 
     @override_settings(
         TRENDING_BUCKET_RETENTION_HOURS=1,
         TRENDING_MAX_WINDOW_MINUTES=60,
     )
     def test_run_raises_when_retention_cannot_cover_two_windows(self):
-        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
-            with self.assertRaises(ValueError):
-                self.cron.run()
+        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)), self.assertRaises(ValueError):
+            self.cron.run()
 
     @override_settings(
         TRENDING_BUCKET_RETENTION_HOURS=1,
         TRENDING_MAX_WINDOW_MINUTES=120,
     )
     def test_run_raises_when_max_window_exceeds_retention_horizon(self):
-        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
-            with self.assertRaises(ValueError):
-                self.cron.run()
+        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)), self.assertRaises(ValueError):
+            self.cron.run()
 
     @override_settings(
         TRENDING_BUCKET_RETENTION_HOURS=4,
         TRENDING_MAX_WINDOW_MINUTES=59,
     )
     def test_run_raises_when_max_window_below_60(self):
-        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
-            with self.assertRaises(ValueError):
-                self.cron.run()
+        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)), self.assertRaises(ValueError):
+            self.cron.run()
 
     @override_settings(
         TRENDING_BUCKET_RETENTION_HOURS=4,
         TRENDING_MAX_WINDOW_MINUTES=130,
     )
     def test_run_raises_when_max_window_not_multiple_of_60(self):
-        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
-            with self.assertRaises(ValueError):
-                self.cron.run()
+        with patch("greedybear.cronjobs.bucket_cleanup.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)), self.assertRaises(ValueError):
+            self.cron.run()
 
     def test_positive_int_setting_rejects_non_numeric(self):
         with self.assertRaisesMessage(ValueError, "TRENDING_BUCKET_RETENTION_HOURS must be a positive integer"):

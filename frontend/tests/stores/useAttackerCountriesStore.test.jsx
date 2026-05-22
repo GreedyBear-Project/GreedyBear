@@ -124,7 +124,7 @@ describe("useAttackerCountriesStore", () => {
       // Second mock returns another pending promise
       axios.get.mockReturnValueOnce(deferred2.promise);
 
-      const fetchData = useAttackerCountriesStore.getState().fetchData;
+      const { fetchData } = useAttackerCountriesStore.getState();
 
       // Start first fetch
       const fetch1 = fetchData("24h");
@@ -208,7 +208,7 @@ describe("useAttackerCountriesStore", () => {
       axios.get.mockReturnValueOnce(deferred1.promise);
       axios.get.mockReturnValueOnce(deferred2.promise);
 
-      const fetchData = useAttackerCountriesStore.getState().fetchData;
+      const { fetchData } = useAttackerCountriesStore.getState();
 
       // Start first fetch
       const fetch1 = fetchData("24h");

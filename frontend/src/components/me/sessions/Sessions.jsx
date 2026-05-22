@@ -1,7 +1,7 @@
 import React from "react";
 import { Alert, Container, Row } from "reactstrap";
 
-import { ContentSection } from "@certego/certego-ui";
+import { ContentSection } from "@greedybear/gb-ui";
 
 import SessionsList from "./SessionList";
 import APIAccess from "./APIaccess";

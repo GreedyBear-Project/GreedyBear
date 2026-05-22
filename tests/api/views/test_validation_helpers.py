@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+from api.views.utils import UnableToExtractSourceIPError, get_request_source_ip
 from greedybear.utils import is_ip_address, is_sha256hash
 from tests import CustomTestCase
 
@@ -36,3 +39,31 @@ class ValidationHelpersTestCase(CustomTestCase):
         self.assertFalse(is_sha256hash("a" * 65))  # Too long
         self.assertFalse(is_sha256hash("z" * 64))  # Invalid chars
         self.assertFalse(is_sha256hash("not-a-hash"))
+
+    def test_get_request_source_ip(self):
+        """The first valid X-Forwarded-For entry should be preferred."""
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "203.0.113.5, 198.51.100.7",
+            }
+        )
+        self.assertEqual(get_request_source_ip(request), "203.0.113.5")
+
+    def test_get_request_source_ip_supports_ipv6(self):
+        """IPv6 addresses should be accepted from forwarded header."""
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "2001:db8::1",
+            }
+        )
+        self.assertEqual(get_request_source_ip(request), "2001:db8::1")
+
+    def test_get_request_source_ip_raises_exception_when_invalid(self):
+        """Raise UnableToExtractSourceIPError when no valid source IP can be extracted."""
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "unknown, not-an-ip",
+            }
+        )
+        with self.assertRaises(UnableToExtractSourceIPError):
+            get_request_source_ip(request)

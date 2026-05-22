@@ -1,7 +1,7 @@
 import React from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { Spinner } from "reactstrap";
-import { ContentSection } from "@certego/certego-ui";
+import { ContentSection } from "@greedybear/gb-ui";
 
 import { verifyEmail } from "./api";
 
@@ -21,18 +21,19 @@ export default function EmailVerification() {
   // side-effects
   React.useEffect(() => {
     if (key) {
-      setTimeout(
+      const timeoutId = setTimeout(
         () =>
           verifyEmail({ key })
             .then(() => setIsVerified(true))
             .catch(() => setIsKeyValid(false)),
         500,
       );
+
+      return () => clearTimeout(timeoutId);
     } else {
       setIsKeyValid(false);
     }
   }, [key]);
-
   return isVerified ? (
     <Navigate push to="/login" />
   ) : (

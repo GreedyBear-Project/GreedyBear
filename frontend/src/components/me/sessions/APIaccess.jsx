@@ -12,7 +12,7 @@ import {
   CopyToClipboardButton,
   useAxiosComponentLoader,
   confirm,
-} from "@certego/certego-ui";
+} from "@greedybear/gb-ui";
 
 import { createNewToken, deleteToken } from "./api";
 import { APIACCESS_BASE_URI } from "../../../constants/api";

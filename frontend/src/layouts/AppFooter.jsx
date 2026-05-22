@@ -2,7 +2,7 @@ import React from "react";
 import { Row, Col, Container } from "reactstrap";
 import { FaXTwitter, FaGithub, FaLinkedin } from "react-icons/fa6";
 
-import { ScrollToTopButton, Toaster, useToastr } from "@certego/certego-ui";
+import { ScrollToTopButton, Toaster, useToastr } from "@greedybear/gb-ui";
 
 import { VERSION } from "../constants/environment";
 
@@ -32,31 +32,13 @@ function AppFooter() {
                 Follow us on:
               </span>
               <a
-                href="https://x.com/intel_owl"
+                href="https://github.com/GreedyBear-Project"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ms-3 text-white text-decoration-none"
-                aria-label="IntelOwl on X"
-              >
-                <FaXTwitter size={20} />
-              </a>
-              <a
-                href="https://github.com/intelowlproject"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ms-3 text-white text-decoration-none"
-                aria-label="IntelOwl on GitHub"
+                aria-label="GreedyBear on GitHub"
               >
                 <FaGithub size={20} />
-              </a>
-              <a
-                href="https://www.linkedin.com/company/intelowl/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ms-3 text-white text-decoration-none"
-                aria-label="IntelOwl on LinkedIn"
-              >
-                <FaLinkedin size={20} />
               </a>
             </Col>
           </Row>

@@ -55,9 +55,8 @@ def correct_ip_reputation(ip: str, ip_reputation: str, mass_scanner_ips: set) ->
     Returns:
         Corrected reputation string.
     """
-    if not ip_reputation or ip_reputation == IpReputation.KNOWN_ATTACKER:
-        if ip in mass_scanner_ips:
-            ip_reputation = IpReputation.MASS_SCANNER
+    if (not ip_reputation or ip_reputation == IpReputation.KNOWN_ATTACKER) and ip in mass_scanner_ips:
+        ip_reputation = IpReputation.MASS_SCANNER
     return ip_reputation
 
 
@@ -161,8 +160,8 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
 
         geoip = next((h.get("geoip") for h in hits if h.get("geoip")), {})
         attacker_country = geoip.get("country_name", "")
-        raw_country_code = geoip.get("country_iso_code", "")
-        attacker_country_code = raw_country_code if len(raw_country_code) == 2 else ""
+        raw_country_code = geoip.get("country_code2", "")
+        attacker_country_code = raw_country_code.upper() if len(raw_country_code) == 2 else ""
 
         asn = geoip.get("asn")
         as_name = geoip.get("as_org", "")
@@ -227,10 +226,7 @@ def threatfox_submission(ioc_record: IOC, related_urls: list, log: Logger) -> No
     headers = {"Auth-Key": settings.THREATFOX_API_KEY}
     log.info(f"submitting IOC {urls_to_submit} to Threatfox")
 
-    if hasattr(ioc_record, "_seen_honeypots"):
-        seen_honeypots = ioc_record._seen_honeypots
-    else:
-        seen_honeypots = [hp.name for hp in ioc_record.honeypots.all()]
+    seen_honeypots = ioc_record._seen_honeypots if hasattr(ioc_record, "_seen_honeypots") else [hp.name for hp in ioc_record.honeypots.all()]
 
     seen_honeypots_str = ", ".join(seen_honeypots)
 
@@ -253,7 +249,7 @@ def threatfox_submission(ioc_record: IOC, related_urls: list, log: Logger) -> No
             json=json_data,
             timeout=5,
         )
-    except requests.RequestException as e:
-        log.exception(f"Threatfox push error: {e}")
+    except requests.RequestException:
+        log.exception("Threatfox push error")
     else:
         log.info(f"Threatfox submission successful. Received response: {r.text}")

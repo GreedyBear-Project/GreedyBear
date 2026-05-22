@@ -237,7 +237,7 @@ class TestMassScannersCron(CustomTestCase):
             with self.assertRaises(requests.exceptions.HTTPError):
                 self.cron.run()
 
-        self.cron.log.error.assert_called_once()
+        self.cron.log.exception.assert_called_once()
         self.assertEqual(MassScanner.objects.count(), 0)
 
     def test_raises_on_network_error(self):
@@ -247,7 +247,7 @@ class TestMassScannersCron(CustomTestCase):
             with self.assertRaises(requests.exceptions.ConnectionError):
                 self.cron.run()
 
-        self.cron.log.error.assert_called_once()
+        self.cron.log.exception.assert_called_once()
         self.assertEqual(MassScanner.objects.count(), 0)
 
     def test_raises_on_timeout(self):
@@ -257,7 +257,7 @@ class TestMassScannersCron(CustomTestCase):
             with self.assertRaises(requests.exceptions.Timeout):
                 self.cron.run()
 
-        self.cron.log.error.assert_called_once()
+        self.cron.log.exception.assert_called_once()
         self.assertEqual(MassScanner.objects.count(), 0)
 
     def test_execute_sets_success_false_on_http_error(self):

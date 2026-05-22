@@ -693,7 +693,7 @@ class IocsFromHitsTestCase(CustomTestCase):
         self.assertEqual(ioc.interaction_count, 1)
 
     def test_ioc_attacker_country_code_set_correctly(self):
-        """Verify that iocs_from_hits extracts country_iso_code from geoip."""
+        """Verify that iocs_from_hits extracts country_code2 from geoip."""
         hits = [
             self._create_hit(
                 src_ip="8.8.8.8",
@@ -702,7 +702,7 @@ class IocsFromHitsTestCase(CustomTestCase):
             )
         ]
 
-        hits[0]["geoip"] = {"country_name": "Nepal", "country_iso_code": "NP"}
+        hits[0]["geoip"] = {"country_name": "Nepal", "country_code2": "NP"}
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)
@@ -712,7 +712,7 @@ class IocsFromHitsTestCase(CustomTestCase):
         self.assertEqual(ioc.attacker_country_code, "NP")
 
     def test_ioc_attacker_country_code_defaults_to_empty(self):
-        """Verify that attacker_country_code defaults to empty when geoip has no country_iso_code."""
+        """Verify that attacker_country_code defaults to empty when geoip has no country_code2."""
         hits = [
             self._create_hit(
                 src_ip="8.8.8.8",
@@ -740,7 +740,7 @@ class IocsFromHitsTestCase(CustomTestCase):
             )
         ]
 
-        hits[0]["geoip"] = {"country_name": "Nepal", "country_iso_code": "NPL"}
+        hits[0]["geoip"] = {"country_name": "Nepal", "country_code2": "NPL"}
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)

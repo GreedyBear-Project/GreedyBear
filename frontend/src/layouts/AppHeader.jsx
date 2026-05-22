@@ -12,7 +12,7 @@ import { MdHome, MdOutlineFeed, MdDashboard } from "react-icons/md";
 import { RiBookReadFill } from "react-icons/ri";
 
 // lib
-import { NavLink } from "@certego/certego-ui";
+import { NavLink } from "@greedybear/gb-ui";
 
 // constants
 import { GREEDYBEAR_DOCS_URL } from "../constants/environment";

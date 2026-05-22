@@ -18,8 +18,8 @@ class WhatsMyIPCron(Cronjob):
 
         try:
             json_file = r.json()
-        except ValueError as e:
-            self.log.error(f"Failed to parse whats-my-ip response as JSON: {e}")
+        except ValueError:
+            self.log.exception("Failed to parse whats-my-ip response as JSON")
             raise
 
         if "list" not in json_file:

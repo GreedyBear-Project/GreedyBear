@@ -8,15 +8,19 @@ import useAttackerCountriesStore from "../../../src/stores/useAttackerCountriesS
 
 vi.mock("axios");
 
-vi.mock("@certego/certego-ui", () => ({
+vi.mock("@greedybear/gb-ui", () => ({
   useTimePickerStore: () => ({ range: "7d" }),
 }));
 
-// Mock react-simple-maps components.
-// Each mock geography carries a numeric ISO id (geo.id) so that
-// AttackOriginMap can resolve it to an alpha-2 code via i18n-iso-countries,
-// matching the alpha-2-keyed countryDataMap from the store.
-vi.mock("react-simple-maps", () => ({
+// Stub TopoJSON fetch (undici rejects the relative URL used in production).
+globalThis.fetch = vi.fn(() =>
+  Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
+);
+
+// Mock the map library. Each mock geography carries a numeric ISO id
+// (geo.id) so that AttackOriginMap can resolve it to an alpha-2 code via
+// i18n-iso-countries, matching the alpha-2-keyed countryDataMap from the store.
+vi.mock("@vnedyalk0v/react19-simple-maps", () => ({
   ComposableMap: ({ children, onMouseMove, onMouseLeave }) => (
     <div
       data-testid="composable-map"

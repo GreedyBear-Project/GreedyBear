@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from elasticsearch.dsl import Q, Search
 
-from greedybear.consts import REQUIRED_FIELDS
+from greedybear.consts import FIELDS_TO_EXTRACT
 from greedybear.settings import EXTRACTION_INTERVAL
 
 
@@ -19,8 +19,6 @@ class ElasticRepository:
 
     class ElasticServerDownError(Exception):
         """Raised when the Elasticsearch server is unreachable."""
-
-        pass
 
     def __init__(self):
         """Initialize the repository with an Elasticsearch client."""
@@ -56,7 +54,7 @@ class ElasticRepository:
             minutes_back_to_lookup: Number of minutes to look back from the current time.
 
         Yields:
-            list: Log entries sorted by @timestamp for each chunk, containing only REQUIRED_FIELDS.
+            list: Log entries sorted by @timestamp for each chunk, containing only FIELDS_TO_EXTRACT.
 
         Raises:
             ElasticServerDownError: If Elasticsearch is unreachable.
@@ -72,7 +70,7 @@ class ElasticRepository:
             search = Search(using=self.elastic_client, index="logstash-*")
             q = Q("range", **{"@timestamp": {"gte": chunk_start, "lt": chunk_end}})
             search = search.query(q)
-            search.source(REQUIRED_FIELDS)
+            search = search.source(FIELDS_TO_EXTRACT)
             result = list(search.scan())
             self.log.debug(f"found {len(result)} hits")
             result.sort(key=lambda hit: hit["@timestamp"])

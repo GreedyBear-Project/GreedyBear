@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { addToast } from "@certego/certego-ui";
+import { addToast } from "@greedybear/gb-ui";
 
 import { AUTH_BASE_URI } from "../../constants/api";
 

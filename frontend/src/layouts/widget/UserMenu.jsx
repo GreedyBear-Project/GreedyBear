@@ -1,4 +1,5 @@
 import React from "react";
+import { useShallow } from "zustand/shallow";
 import {
   UncontrolledDropdown,
   DropdownToggle,
@@ -9,14 +10,14 @@ import { FiLogOut } from "react-icons/fi";
 import { IoMdKey, IoMdSettings } from "react-icons/io";
 import { MdPassword } from "react-icons/md";
 
-import { UserBubble, DropdownNavLink } from "@certego/certego-ui";
+import { UserBubble, DropdownNavLink } from "@greedybear/gb-ui";
 
 import { useAuthStore } from "../../stores";
 
 function UserMenu(props) {
   // auth store
   const [user, isSuperuser] = useAuthStore(
-    React.useCallback((s) => [s.user, s.isSuperuser], []),
+    useShallow((s) => [s.user, s.isSuperuser]),
   );
 
   return (

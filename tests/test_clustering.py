@@ -88,7 +88,7 @@ class TokenizeTestCase(CustomTestCase):
 
 
 class ClusterCommandSequencesTestCase(CustomTestCase):
-    """Tests for ClusterCommandSequences.run() — covers lines 46–60."""
+    """Tests for ClusterCommandSequences.run() — covers lines 46-60."""
 
     def _run_job(self, labels):
         """Helper: run ClusterCommandSequences with mocked get_components()."""
@@ -97,7 +97,7 @@ class ClusterCommandSequencesTestCase(CustomTestCase):
             ClusterCommandSequences().run()
 
     def test_run_empty_db(self):
-        """Early return when no CommandSequence objects exist (lines 47–49)."""
+        """Early return when no CommandSequence objects exist (lines 47-49)."""
         CommandSequence.objects.all().delete()
         with patch("greedybear.cronjobs.commands.cluster.LSHConnectedComponents") as mock_lsh:
             ClusterCommandSequences().run()
@@ -114,7 +114,7 @@ class ClusterCommandSequencesTestCase(CustomTestCase):
             self.assertEqual(seq.cluster, original_label)
 
     def test_run_partial_label_changes(self):
-        """Only the sequence whose label changed is written to DB (lines 53–59)."""
+        """Only the sequence whose label changed is written to DB (lines 53-59)."""
         # Delete inherited fixtures and work with a single, known sequence so
         # there is no ordering ambiguity between this call and run()'s queryset.
         CommandSequence.objects.all().delete()
@@ -130,7 +130,7 @@ class ClusterCommandSequencesTestCase(CustomTestCase):
         self.assertEqual(seq.cluster, 999)
 
     def test_run_all_labels_changed(self):
-        """All sequences are updated when every label differs (lines 53–59)."""
+        """All sequences are updated when every label differs (lines 53-59)."""
         seqs = list(CommandSequence.objects.order_by("id"))
         new_labels = [777] * len(seqs)
         self._run_job(new_labels)
@@ -192,7 +192,7 @@ class ClusterCommandSequencesTestCase(CustomTestCase):
 
             clustering_input = mock_lsh_cls.return_value.get_components.call_args[0][0]
 
-        expected_tokenized = tokenize(command_lines + ["PAYLOAD_REQUEST:http://payload.example.com/a.sh"])
+        expected_tokenized = tokenize([*command_lines, "PAYLOAD_REQUEST:http://payload.example.com/a.sh"])
         self.assertEqual(clustering_input, [expected_tokenized])
         command_sequence.refresh_from_db()
         self.assertEqual(command_sequence.cluster, 42)
@@ -333,12 +333,7 @@ class ClusterCommandSequencesTestCase(CustomTestCase):
             clustering_input = mock_lsh_cls.return_value.get_components.call_args[0][0]
 
         expected_tokenized = tokenize(
-            command_lines
-            + [
-                "PAYLOAD_REQUEST:http://a.example/p.sh",
-                "PAYLOAD_REQUEST:http://m.example/p.sh",
-                "PAYLOAD_REQUEST:http://z.example/p.sh",
-            ]
+            [*command_lines, "PAYLOAD_REQUEST:http://a.example/p.sh", "PAYLOAD_REQUEST:http://m.example/p.sh", "PAYLOAD_REQUEST:http://z.example/p.sh"]
         )
         self.assertEqual(clustering_input, [expected_tokenized])
         command_sequence.refresh_from_db()
@@ -456,13 +451,7 @@ class ClusterCommandSequencesTestCase(CustomTestCase):
             ClusterCommandSequences().run()
             clustering_input = mock_lsh_cls.return_value.get_components.call_args[0][0]
 
-        expected_tokenized = tokenize(
-            command_lines
-            + [
-                "PAYLOAD_REQUEST:http://dup.example/a.sh",
-                "PAYLOAD_REQUEST:http://dup.example/b.sh",
-            ]
-        )
+        expected_tokenized = tokenize([*command_lines, "PAYLOAD_REQUEST:http://dup.example/a.sh", "PAYLOAD_REQUEST:http://dup.example/b.sh"])
         self.assertEqual(clustering_input, [expected_tokenized])
         command_sequence.refresh_from_db()
         self.assertEqual(command_sequence.cluster, 99)
