@@ -26,7 +26,7 @@ class SourceType(models.TextChoices):
 
 
 class APISource(models.Model):
-    user = models.OneToOneField(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="apisource")
+    user = models.OneToOneField(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_source")
     name = models.CharField(max_length=128, unique=True)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
@@ -66,7 +66,7 @@ class Sensor(models.Model):
 
     autonomous_system = models.ForeignKey(AutonomousSystem, on_delete=models.SET_NULL, related_name="sensors", null=True, blank=True)
 
-    apisource = models.ForeignKey(APISource, on_delete=models.CASCADE, related_name="sensors", null=True, blank=True)
+    api_source = models.ForeignKey(APISource, on_delete=models.SET_NULL, related_name="sensors", null=True, blank=True)
 
     source_type = models.CharField(
         max_length=16,

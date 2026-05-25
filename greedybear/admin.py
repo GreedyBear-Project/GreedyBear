@@ -44,7 +44,7 @@ class SensorsModelAdmin(admin.ModelAdmin):
         "honeypot_software",
         "group_label",
         "source_type",
-        "apisource",
+        "api_source",
         "autonomous_system",
     ]
     list_filter = ["source_type", "honeypot_type"]
