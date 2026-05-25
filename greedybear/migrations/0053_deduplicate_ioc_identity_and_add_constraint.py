@@ -23,8 +23,15 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(deduplicate_ioc_identity, migrations.RunPython.noop),
-        migrations.AddConstraint(
-            model_name="ioc",
-            constraint=models.UniqueConstraint(fields=("name",), name="unique_ioc_name"),
+        migrations.AlterField(
+            model_name='ioc',
+            name='name',
+            field=models.CharField(max_length=256, unique=True),
+        ),
+        # Explicit index is duplicate now
+        # because unique=True implies the creation of an index
+        migrations.RemoveIndex(
+            model_name='ioc',
+            name='greedybear__name_b54897_idx',
         ),
     ]
