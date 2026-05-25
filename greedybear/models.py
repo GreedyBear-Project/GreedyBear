@@ -106,7 +106,7 @@ class FireHolList(models.Model):
 
 
 class IOC(models.Model):
-    name = models.CharField(max_length=256)
+    name = models.CharField(max_length=256, unique=True)
     type = models.CharField(max_length=32, choices=IocType.choices)
     first_seen = models.DateTimeField(db_default=Now())
     last_seen = models.DateTimeField(db_default=Now())
@@ -149,7 +149,6 @@ class IOC(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["name"]),
             models.Index(fields=["attacker_country"]),
             models.Index(fields=["attacker_country_code"]),
         ]
