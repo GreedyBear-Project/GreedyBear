@@ -57,8 +57,8 @@ class TestHttpClient(TestCase):
             self.client.get("https://example.com")
 
         mock_response.raise_for_status.assert_called_once()
-        mock_logger.error.assert_called_once()
-        self.assertIn("HTTP Request failed", mock_logger.error.call_args[0][0])
+        mock_logger.exception.assert_called_once()
+        self.assertIn("HTTP Request failed", mock_logger.exception.call_args[0][0])
 
     @patch("requests.Session.request")
     def test_post_request(self, mock_request):

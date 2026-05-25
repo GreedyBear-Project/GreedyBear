@@ -44,11 +44,11 @@ class HttpClient:
 
             # Always raise for status to ensure consistent error handling
             response.raise_for_status()
-
-            return response
-        except requests.RequestException as e:
-            logger.error(f"HTTP Request failed for {method} {url}: {e}")
+        except requests.RequestException:
+            logger.exception(f"HTTP Request failed for {method} {url}")
             raise
+        else:
+            return response
 
     def get(self, url, **kwargs):
         """Sends a GET request."""
