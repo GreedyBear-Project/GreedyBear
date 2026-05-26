@@ -20,7 +20,6 @@ describe("NewsWidget", () => {
       fetch.mockImplementation(() => new Promise(() => {}));
 
       render(<NewsWidget />);
-
       expect(screen.getByText("Loading news...")).toBeInTheDocument();
       expect(screen.getByRole("status")).toBeInTheDocument();
     });
@@ -156,6 +155,32 @@ describe("NewsWidget", () => {
   });
 
   describe("Date Formatting", () => {
+    it("should format date correctly in non-utc timezones", async () => {
+      const originalTZ = process.env.TZ;
+      process.env.TZ = "America/Los_Angeles";
+
+      try {
+        const mockNewsDataUTC = [
+          {
+            date: "2024-01-01",
+            title: "updated_timezone",
+            subtext: "Testing for utc formating",
+            link: "L1_utc",
+          },
+        ];
+        fetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockNewsDataUTC,
+        });
+        render(<NewsWidget />);
+
+        const dateElement = await screen.findByText("1st Jan 2024");
+        expect(dateElement).toBeInTheDocument();
+        expect(screen.queryByText("31st Dec 2023")).not.toBeInTheDocument();
+      } finally {
+        process.env.TZ = originalTZ;
+      }
+    });
     it("should format date correctly with ordinal suffix", async () => {
       const mockNewsData = [
         { date: "2024-01-01", title: "N1", subtext: "T", link: "L1" },

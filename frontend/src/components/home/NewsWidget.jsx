@@ -12,11 +12,14 @@ export const NewsWidget = React.memo(() => {
     if (!dateStr) return "";
 
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
+    if (isNaN(date.getTime())) return String(dateStr);
 
-    const day = date.getDate();
-    const month = date.toLocaleDateString("en-US", { month: "short" });
-    const year = date.getFullYear();
+    const day = date.getUTCDate();
+    const month = date.toLocaleDateString("en-US", {
+      month: "short",
+      timeZone: "UTC",
+    });
+    const year = date.getUTCFullYear();
 
     const ordinals = ["th", "st", "nd", "rd"];
     const v = day % 100;
@@ -33,6 +36,7 @@ export const NewsWidget = React.memo(() => {
         }
         return response.json();
       })
+
       .then(setData)
       .catch((err) => {
         console.error("Error fetching news:", err);
