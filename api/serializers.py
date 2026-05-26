@@ -6,7 +6,7 @@ from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
 
 from greedybear.consts import REGEX_DOMAIN
-from greedybear.models import IOC, Honeypot, Sensor, Tag
+from greedybear.models import IOC, AutonomousSystem, Honeypot, Sensor, Tag
 from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
@@ -251,3 +251,61 @@ class FeedsResponseSerializer(serializers.Serializer):
     def validate_feed_type(self, feed_type):
         logger.debug(f"FeedsResponseSerializer - validation feed_type: '{feed_type}'")
         return [feed_type_validation(feed, self.context["valid_feed_types"]) for feed in feed_type]
+
+
+class SensorCreateSerializer(serializers.ModelSerializer):
+    sensor_label = serializers.CharField(source="label", required=False, allow_blank=True, max_length=128)
+
+    asn = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = Sensor
+        fields = [
+            "id",
+            "address",
+            "honeypot_type",
+            "honeypot_software",
+            "honeypot_description",
+            "sensor_label",
+            "group_label",
+            "country",
+            "asn",
+        ]
+
+        # this is done intentionally, we allow address duplication in this layer
+        # duplications are handled by get_or_create in a view logic.
+        extra_kwargs = {
+            "address": {"validators": []},
+        }
+
+        read_only_fields = ["id"]
+
+    def validate_country(self, value):
+        if value and len(value) != 2:
+            raise serializers.ValidationError("Country must be 2-character ISO code (e.g. 'NP', 'IN')")
+        return value.upper() if value else value
+
+    def validate_address(self, value):
+        if not is_ip_address(value):
+            raise serializers.ValidationError("Invalid IP address")
+        return value
+
+    # validate() should only validate data.
+    # asn handling touches the db, so we added helper method here.
+    def attach_autonomous_system(self, validated_data):
+        asn_value = validated_data.pop("asn", None)
+
+        if asn_value is None:
+            return validated_data
+
+        autonomous_system, _ = AutonomousSystem.objects.get_or_create(
+            asn=asn_value,
+            defaults={"name": ""},
+        )
+
+        validated_data["autonomous_system"] = autonomous_system
+
+        return validated_data
