@@ -149,7 +149,7 @@ class IOC(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["attacker_country"]),
+            models.Index(fields=["last_seen"]),
             models.Index(fields=["attacker_country_code"]),
         ]
 
