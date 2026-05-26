@@ -8,6 +8,7 @@ from django.utils.translation import ngettext
 
 from greedybear.models import (
     IOC,
+    APISource,
     AttackerActivityBucket,
     CommandSequence,
     CowrieSession,
@@ -34,10 +35,23 @@ class TorExitNodeModelAdmin(admin.ModelAdmin):
 
 @admin.register(Sensor)
 class SensorsModelAdmin(admin.ModelAdmin):
-    list_display = ["id", "address", "country", "label"]
+    list_display = [
+        "id",
+        "address",
+        "country",
+        "label",
+        "honeypot_type",
+        "honeypot_software",
+        "group_label",
+        "source_type",
+        "api_source",
+        "autonomous_system",
+    ]
+    list_filter = ["source_type", "honeypot_type"]
     list_editable = ["label"]
-    search_fields = ["address", "label"]
-    search_help_text = "search for the sensor IP address or label"
+    search_fields = ["address", "label", "group_label"]
+    search_help_text = "search by sensor IP, label, or group"
+    readonly_fields = ["created_at", "updated_at"]
 
 
 @admin.register(Statistics)
@@ -242,3 +256,12 @@ class HoneypotAdmin(admin.ModelAdmin):
             % number_updated,
             messages.SUCCESS,
         )
+
+
+@admin.register(APISource)
+class APISourceModelAdmin(admin.ModelAdmin):
+    list_display = ["name", "user", "is_active", "invalid_event_count", "created_at", "last_activity"]
+    list_filter = ["is_active"]
+    search_fields = ["name", "user__username"]
+    search_help_text = "search by source name or username"
+    readonly_fields = ["created_at", "last_activity", "invalid_event_count"]
