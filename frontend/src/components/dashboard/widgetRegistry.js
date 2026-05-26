@@ -56,7 +56,7 @@ const widgetRegistry = new Map([
       component: EnrichmentLookup,
       displayName: "Enrichment Lookup",
       defaultColSpan: 12,
-      defaultHeight: null,  // auto-sizes via Bootstrap row
+      defaultHeight: null, // auto-sizes via Bootstrap row
       fillHeight: false,
       endpoints: [ENRICHMENT_URI],
       defaultProps: {},
@@ -141,7 +141,7 @@ const widgetRegistry = new Map([
       displayName: "Attack Origins: Top Countries",
       defaultColSpan: 4,
       defaultHeight: null,
-      fillHeight: false,  // chart height is data-driven
+      fillHeight: false, // chart height is data-driven
       endpoints: [IOC_ATTACKER_COUNTRIES_URI],
       defaultProps: {},
     },
