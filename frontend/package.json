@@ -24,7 +24,7 @@
     "react-use": "^17.6.0",
     "reactstrap": "^9.2.3",
     "recharts": "^3.8.1",
-    "sass": "^1.99.0",
+    "sass": "^1.100.0",
     "zustand": "^5.0.13"
   },
   "scripts": {
