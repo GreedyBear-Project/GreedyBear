@@ -6,7 +6,7 @@ from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
 
 from greedybear.consts import REGEX_DOMAIN
-from greedybear.models import IOC, AutonomousSystem, Honeypot, Sensor, Tag
+from greedybear.models import IOC, Honeypot, Sensor, Tag
 from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
@@ -259,6 +259,7 @@ class SensorCreateSerializer(serializers.ModelSerializer):
     asn = serializers.IntegerField(
         required=False,
         allow_null=True,
+        min_value=1,
     )
 
     class Meta:
@@ -271,41 +272,30 @@ class SensorCreateSerializer(serializers.ModelSerializer):
             "honeypot_description",
             "sensor_label",
             "group_label",
-            "country",
+            "country_code",
             "asn",
         ]
 
-        # this is done intentionally, we allow address duplication in this layer
-        # duplications are handled by get_or_create in a view logic.
         extra_kwargs = {
             "address": {"validators": []},
         }
 
         read_only_fields = ["id"]
 
-    def validate_country(self, value):
-        if value and len(value) != 2:
-            raise serializers.ValidationError("Country must be 2-character ISO code (e.g. 'NP', 'IN')")
-        return value.upper() if value else value
+    def validate_country_code(self, value):
+        """
+        Validates that the input is exactly 2 alphabet letters using regex,
+        and converts it to uppercase.
+        """
+        if value:
+            # Regex pattern: ^[A-Za-z]{2}$ means exactly two letters (A-Z or a-z)
+            if not re.match(r"^[A-Za-z]{2}$", value):
+                raise serializers.ValidationError("Country code must be a 2-character ISO code containing letters only (e.g. 'NP', 'IN').")
+            return value.upper()
+
+        return value
 
     def validate_address(self, value):
         if not is_ip_address(value):
             raise serializers.ValidationError("Invalid IP address")
         return value
-
-    # validate() should only validate data.
-    # asn handling touches the db, so we added helper method here.
-    def attach_autonomous_system(self, validated_data):
-        asn_value = validated_data.pop("asn", None)
-
-        if asn_value is None:
-            return validated_data
-
-        autonomous_system, _ = AutonomousSystem.objects.get_or_create(
-            asn=asn_value,
-            defaults={"name": ""},
-        )
-
-        validated_data["autonomous_system"] = autonomous_system
-
-        return validated_data

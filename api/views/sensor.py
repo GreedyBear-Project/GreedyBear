@@ -5,7 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from api.serializers import SensorCreateSerializer
-from greedybear.models import APISource, Sensor, SourceType
+from api.views.utils import create_or_get_sensor
+from greedybear.models import APISource
 
 
 @api_view(["POST"])
@@ -24,7 +25,7 @@ def sensor_create_view(request):
 
     Behavior:
     - If the sensor does not exist, it will be created.
-    - If the sensor already exists, the existing record is returned.
+    - If the sensor already exists, the existing id is returned.
     - Autonomous System (ASN) is optionally resolved and linked via AutonomousSystem model.
 
     Authentication:
@@ -41,7 +42,7 @@ def sensor_create_view(request):
         honeypot_description (str, optional): Description of the sensor.
         sensor_label (str, optional): Human-readable label.
         group_label (str, optional): Group classification label.
-        country (str, optional): 2-letter ISO country code.
+        country_code (str, optional): 2-letter ISO country code.
         asn (int, optional): Autonomous System Number.
 
     Responses:
@@ -67,17 +68,9 @@ def sensor_create_view(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    validated_data = serializer.attach_autonomous_system(serializer.validated_data)
-
-    address = validated_data["address"]
-
-    sensor, created = Sensor.objects.get_or_create(
-        address=address,
-        defaults={
-            **validated_data,
-            "api_source": api_source,
-            "source_type": SourceType.EXTERNAL,
-        },
+    sensor, created = create_or_get_sensor(
+        api_source=api_source,
+        validated_data=serializer.validated_data.copy(),
     )
 
     return Response(

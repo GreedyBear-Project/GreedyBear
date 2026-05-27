@@ -11,6 +11,7 @@ import requests
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache, caches
+from django.db import transaction
 from django.db.models import Count, F, Max, Min, Q, Sum, Value
 from django.db.models.functions import JSONObject
 from django.http import HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
@@ -21,7 +22,7 @@ from stix2 import Bundle, ExternalReference, Indicator
 from api.serializers import FeedsRequestSerializer, parse_feed_types
 from greedybear.consts import CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, Honeypot, Statistics
+from greedybear.models import IOC, AutonomousSystem, Honeypot, Sensor, SourceType, Statistics
 from greedybear.utils import is_ip_address, is_valid_domain
 
 logger = logging.getLogger(__name__)
@@ -655,3 +656,33 @@ def get_greedybear_news() -> list[dict]:
             CACHE_TIMEOUT_SECONDS,
         )
         return news_items
+
+
+@transaction.atomic
+def create_or_get_sensor(*, api_source, validated_data):
+    """
+    Logic for sensor creation/retrieval.
+    """
+
+    asn_value = validated_data.pop("asn", None)
+
+    autonomous_system = None
+    if asn_value:
+        autonomous_system, _ = AutonomousSystem.objects.get_or_create(
+            asn=asn_value,
+            defaults={"name": ""},
+        )
+        validated_data["autonomous_system"] = autonomous_system
+
+    address = validated_data["address"]
+
+    sensor, created = Sensor.objects.get_or_create(
+        address=address,
+        api_source=api_source,
+        defaults={
+            **validated_data,
+            "source_type": SourceType.EXTERNAL,
+        },
+    )
+
+    return sensor, created

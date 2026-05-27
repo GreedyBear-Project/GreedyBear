@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -31,7 +32,7 @@ VALID_PAYLOAD = {
     "honeypot_description": "test honeypot",
     "sensor_label": "sensor-a",
     "group_label": "group-a",
-    "country": "NP",
+    "country_code": "NP",
     "asn": 64512,
 }
 
@@ -122,10 +123,10 @@ class SensorCreateTests(BaseSensorTestCase):
         sensor = Sensor.objects.get(address="1.2.3.4")
         self.assertEqual(sensor.label, "sensor-a")
 
-    def test_country_is_uppercased_in_db(self):
+    def test_country_code_is_uppercased_in_db(self):
         payload = {
             **VALID_PAYLOAD,
-            "country": "np",
+            "country_code": "np",
         }
 
         self.client.post(
@@ -135,7 +136,7 @@ class SensorCreateTests(BaseSensorTestCase):
         )
 
         sensor = Sensor.objects.get(address="1.2.3.4")
-        self.assertEqual(sensor.country, "NP")
+        self.assertEqual(sensor.country_code, "NP")
 
     def test_minimal_payload_succeeds(self):
         response = self.client.post(
@@ -153,7 +154,7 @@ class SensorCreateTests(BaseSensorTestCase):
             "honeypot_description": "",
             "sensor_label": "",
             "group_label": "",
-            "country": "",
+            "country_code": "",
         }
 
         response = self.client.post(
@@ -189,6 +190,18 @@ class SensorCreateTests(BaseSensorTestCase):
 
         self.assertNotIn("autonomous_system", response.data)
         self.assertNotIn("api_source", response.data)
+
+    def test_internal_sensor_address_must_be_unique(self):
+        Sensor.objects.create(
+            address="1.2.3.4",
+            source_type=SourceType.TPOT,
+        )
+
+        with self.assertRaises(IntegrityError):
+            Sensor.objects.create(
+                address="1.2.3.4",
+                source_type=SourceType.TPOT,
+            )
 
 
 class SensorASNTests(BaseSensorTestCase):
@@ -297,10 +310,10 @@ class SensorValidationTests(BaseSensorTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_invalid_country_returns_400(self):
+    def test_invalid_country_code_returns_400(self):
         payload = {
             **VALID_PAYLOAD,
-            "country": "NPL",
+            "country_code": "NPL",
         }
 
         response = self.client.post(
@@ -398,3 +411,36 @@ class SensorMultiUserTests(CustomTestCase):
         )
 
         self.assertEqual(Sensor.objects.count(), 2)
+
+    def test_different_users_can_create_same_address(self):
+        response_a = auth_client(self.user_a).post(
+            SENSOR_CREATE_URL,
+            VALID_PAYLOAD,
+            format="json",
+        )
+
+        response_b = auth_client(self.user_b).post(
+            SENSOR_CREATE_URL,
+            VALID_PAYLOAD,
+            format="json",
+        )
+
+        self.assertEqual(response_a.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response_b.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(
+            Sensor.objects.filter(address="1.2.3.4").count(),
+            2,
+        )
+
+        sensor_a = Sensor.objects.get(
+            address="1.2.3.4",
+            api_source=self.api_source_a,
+        )
+
+        sensor_b = Sensor.objects.get(
+            address="1.2.3.4",
+            api_source=self.api_source_b,
+        )
+
+        self.assertNotEqual(sensor_a.id, sensor_b.id)

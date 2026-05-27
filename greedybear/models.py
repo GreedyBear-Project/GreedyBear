@@ -47,12 +47,18 @@ class AutonomousSystem(models.Model):
 
 
 class Sensor(models.Model):
-    address = models.GenericIPAddressField(unique=True)
+    address = models.GenericIPAddressField()
     country = models.CharField(
         max_length=64,
         blank=True,
         default="",
     )
+    country_code = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+    )
+
     label = models.CharField(
         max_length=128,
         blank=True,
@@ -75,6 +81,22 @@ class Sensor(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # this preserves the original tpot-ingestion uniqueness behavior while
+    # adding per-user API isolation cleanly.
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["api_source", "address"],
+                condition=models.Q(api_source__isnull=False),
+                name="unique_sensor_per_api_source",
+            ),
+            models.UniqueConstraint(
+                fields=["address"],
+                condition=models.Q(api_source__isnull=True),
+                name="unique_internal_sensor_address",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.address} ({self.label})" if self.label else self.address
