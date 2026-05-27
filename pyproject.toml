@@ -19,7 +19,7 @@ dependencies = [
     "gunicorn~=26.0",
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
-    "elasticsearch==9.4.0",
+    "elasticsearch==9.4.1",
     "psycopg[c]~=3.3",
     # ML / data science
     "scikit-learn~=1.8.0",
@@ -45,11 +45,11 @@ dev = [
     "django-watchfiles~=1.4",
 ]
 test = [
-    "coverage==7.14.0",
+    "coverage==7.14.1",
     "django-test-migrations==1.5.0",
 ]
 lint = [
-    "ruff==0.15.13",
+    "ruff==0.15.14",
 ]
 
 [tool.uv]
