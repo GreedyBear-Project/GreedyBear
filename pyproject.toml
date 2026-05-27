@@ -19,7 +19,7 @@ dependencies = [
     "gunicorn~=26.0",
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
-    "elasticsearch==9.4.0",
+    "elasticsearch==9.4.1",
     "psycopg[c]~=3.3",
     # ML / data science
     "scikit-learn~=1.8.0",
