@@ -251,3 +251,51 @@ class FeedsResponseSerializer(serializers.Serializer):
     def validate_feed_type(self, feed_type):
         logger.debug(f"FeedsResponseSerializer - validation feed_type: '{feed_type}'")
         return [feed_type_validation(feed, self.context["valid_feed_types"]) for feed in feed_type]
+
+
+class SensorCreateSerializer(serializers.ModelSerializer):
+    sensor_label = serializers.CharField(source="label", required=False, allow_blank=True, max_length=128)
+
+    asn = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+    )
+
+    class Meta:
+        model = Sensor
+        fields = [
+            "id",
+            "address",
+            "honeypot_type",
+            "honeypot_software",
+            "honeypot_description",
+            "sensor_label",
+            "group_label",
+            "country_code",
+            "asn",
+        ]
+
+        extra_kwargs = {
+            "address": {"validators": []},
+        }
+
+        read_only_fields = ["id"]
+
+    def validate_country_code(self, value):
+        """
+        Validates that the input is exactly 2 alphabet letters using regex,
+        and converts it to uppercase.
+        """
+        if value:
+            # Regex pattern: ^[A-Za-z]{2}$ means exactly two letters (A-Z or a-z)
+            if not re.match(r"^[A-Za-z]{2}$", value):
+                raise serializers.ValidationError("Country code must be a 2-character ISO code containing letters only (e.g. 'NP', 'IN').")
+            return value.upper()
+
+        return value
+
+    def validate_address(self, value):
+        if not is_ip_address(value):
+            raise serializers.ValidationError("Invalid IP address")
+        return value
