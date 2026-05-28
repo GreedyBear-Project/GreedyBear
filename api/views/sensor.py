@@ -60,6 +60,11 @@ def sensor_create_view(request):
     """
     try:
         api_source = request.user.api_source
+        if not api_source.is_active:
+            return Response(
+                {"error": "APISource is inactive"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
     except APISource.DoesNotExist:
         return Response({"error": "No APISource linked to your account"}, status=status.HTTP_403_FORBIDDEN)
 

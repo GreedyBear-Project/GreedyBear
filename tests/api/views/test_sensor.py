@@ -371,6 +371,18 @@ class SensorValidationTests(BaseSensorTestCase):
 
         self.assertEqual(Sensor.objects.count(), 0)
 
+    def test_inactive_apisource_cannot_create_sensor(self):
+        self.api_source.is_active = False
+        self.api_source.save()
+
+        response = self.client.post(
+            SENSOR_CREATE_URL,
+            VALID_PAYLOAD,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class SensorMultiUserTests(CustomTestCase):
     def setUp(self):
