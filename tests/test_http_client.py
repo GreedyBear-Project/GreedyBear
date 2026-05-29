@@ -9,6 +9,11 @@ from greedybear.cronjobs.http_client import HttpClient
 
 
 class RetryHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.server.request_count += 1
+        self.send_response(500)
+        self.end_headers()
+
     def do_POST(self):
         self.server.request_count += 1
         self.send_response(500)
@@ -79,8 +84,8 @@ class TestHttpClient(TestCase):
                 self.assertIsInstance(client, HttpClient)
             mock_close.assert_called_once()
 
-    def test_post_retry_logic(self):
-        """Test that POST requests are correctly retried upon receiving server errors."""
+    def test_get_retry_logic(self):
+        """Test that GET requests are correctly retried upon receiving server errors."""
         server = HTTPServer(("localhost", 0), RetryHandler)
         server.request_count = 0
 
@@ -96,10 +101,35 @@ class TestHttpClient(TestCase):
             client = HttpClient(retries=3, backoff_factor=0)
 
             with self.assertRaises(requests.exceptions.RetryError):
-                client.post(url, json={"test": "data"})
+                client.get(url)
 
             # Initial call + 3 retries = 4 calls
             self.assertEqual(server.request_count, 4)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_post_not_retried(self):
+        """Test that POST requests are NOT retried to prevent duplicate side effects."""
+        server = HTTPServer(("localhost", 0), RetryHandler)
+        server.request_count = 0
+
+        thread = threading.Thread(target=server.serve_forever)
+        thread.daemon = True
+        thread.start()
+
+        try:
+            port = server.server_port
+            url = f"http://localhost:{port}/api"
+
+            client = HttpClient(retries=3, backoff_factor=0)
+
+            with self.assertRaises(requests.HTTPError):
+                client.post(url, json={"test": "data"})
+
+            # POST should NOT be retried — only 1 call
+            self.assertEqual(server.request_count, 1)
         finally:
             server.shutdown()
             server.server_close()

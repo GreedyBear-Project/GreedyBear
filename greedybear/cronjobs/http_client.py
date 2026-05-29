@@ -17,12 +17,12 @@ class HttpClient:
         self.default_timeout = default_timeout
         self.session = requests.Session()
 
-        # Configure retries
+        # Configure retries for idempotent methods only (urllib3 defaults).
+        # POST is intentionally excluded to prevent duplicate side effects.
         retry_strategy = Retry(
             total=retries,
             status_forcelist=[429, 500, 502, 503, 504],
             backoff_factor=backoff_factor,
-            allowed_methods=frozenset(["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]),
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
