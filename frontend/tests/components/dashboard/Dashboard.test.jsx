@@ -5,6 +5,8 @@ import { BrowserRouter } from "react-router-dom";
 import Dashboard from "../../../src/components/dashboard/Dashboard";
 
 vi.mock("axios");
+
+const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 // mock charts module
 vi.mock(
   "../../../src/components/dashboard/utils/charts",
@@ -15,7 +17,9 @@ vi.mock(
     const EnrichmentSourcesChart = () => <div />;
     const EnrichmentRequestsChart = () => <div />;
     const FeedsTypesChart = () => <div />;
-    const AttackOriginCountriesChart = () => <div />;
+    const AttackOriginCountriesChart = () => {
+      throw new Error("Widget failure");
+    };
 
     return {
       ...originalChartModule,
@@ -34,6 +38,10 @@ vi.mock("../../../src/components/dashboard/AttackOriginMap", () => ({
 }));
 
 describe("Dashboard component", () => {
+  afterEach(() => {
+    consoleErrorSpy.mockClear();
+  });
+
   test("Dashboard", () => {
     render(
       <BrowserRouter>
@@ -55,5 +63,18 @@ describe("Dashboard component", () => {
       "Enrichment Service: Requests",
     );
     expect(EnrichmentRequestsChart).toBeInTheDocument();
+  });
+
+  test("renders a fallback for a throwing widget while keeping the dashboard alive", () => {
+    render(
+      <BrowserRouter>
+        <Dashboard />
+      </BrowserRouter>,
+    );
+
+    expect(screen.getByText("Widget failed to render.")).toBeInTheDocument();
+    expect(screen.getByText("Widget failure")).toBeInTheDocument();
+    expect(screen.getByText("Feeds: Sources")).toBeInTheDocument();
+    expect(screen.getByText("Attack Origins: World Map")).toBeInTheDocument();
   });
 });
