@@ -1,5 +1,5 @@
 /**
- * A Map<string, WidgetDefinition> registery for all dashboard widgets
+ * A Map<string, WidgetDefinition> registry for all dashboard widgets
  *
  * Each entry shape:
  * {
