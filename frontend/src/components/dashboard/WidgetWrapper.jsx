@@ -27,11 +27,10 @@ class WidgetErrorBoundary extends React.Component {
           className="d-flex flex-column justify-content-center align-items-center py-4 text-muted"
           style={{ minHeight: 120 }}
         >
-          <span className="small">
-            Widget failed to render.
-            <br />
-            <code className="small">{this.state.error?.message}</code>
+          <span className="mb-1" style={{ fontSize: "1.5rem" }}>
+            ⚠️
           </span>
+          <span className="small">Widget failed to render.</span>
         </div>
       );
     }
@@ -53,7 +52,13 @@ WidgetErrorBoundary.propTypes = {
 //                             (used inside react-grid-layout slots)
 //   children   {ReactNode}    The widget component
 // ---------------------------------------------------------------------------
-function WidgetWrapper({ id, header, minHeight = null, fillHeight = false, children }) {
+function WidgetWrapper({
+  id,
+  header,
+  minHeight = null,
+  fillHeight = false,
+  children,
+}) {
   const cardStyle = React.useMemo(() => {
     if (fillHeight) return { height: "100%" };
     if (minHeight != null) return { minHeight };
@@ -78,7 +83,13 @@ WidgetWrapper.propTypes = {
   children: PropTypes.node.isRequired,
 };
 
-function SafeWidgetWrapper({ id, header, minHeight = null, fillHeight = false, children }) {
+function SafeWidgetWrapper({
+  id,
+  header,
+  minHeight = null,
+  fillHeight = false,
+  children,
+}) {
   return (
     <WidgetErrorBoundary widgetId={id}>
       <WidgetWrapper

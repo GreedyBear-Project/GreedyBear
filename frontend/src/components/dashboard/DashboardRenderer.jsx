@@ -149,6 +149,4 @@ DashboardRenderer.propTypes = {
   ),
 };
 
-
-
 export default DashboardRenderer;

@@ -5,7 +5,8 @@
  * {
  *   component:    React.ComponentType  - the widget component to render
  *   displayName:  string               - card header
- *   defaultHeight:  number | null      - min-height in px for noGrid widgets
+ *   defaultHeight:  number | null      - min-height in px; only meaningful for
+ *                                        noGrid widgets where the card auto-sizes.
  *   fillHeight:   boolean              - true = card fills its react-grid-layout slot (height 100%)
  *   endpoints:    string[]             - API endpoints this widget consumes
  *   defaultProps: object               - default props forwarded to the component
@@ -39,7 +40,7 @@ import {
  * @typedef {Object} WidgetDefinition
  * @property {React.ComponentType} component
  * @property {string}   displayName
- * @property {number|null} defaultHeight
+ * @property {number|null} [defaultHeight]
  * @property {boolean}  fillHeight
  * @property {string[]} endpoints
  * @property {object}   defaultProps
@@ -63,7 +64,6 @@ const widgetRegistry = new Map([
     {
       component: FeedsTypesChart,
       displayName: "Feeds: Types",
-      defaultHeight: 360,
       fillHeight: true,
       endpoints: [FEEDS_STATISTICS_TYPES_URI],
       defaultProps: {},
@@ -74,7 +74,6 @@ const widgetRegistry = new Map([
     {
       component: FeedsSourcesChart,
       displayName: "Feeds: Sources",
-      defaultHeight: 360,
       fillHeight: true,
       endpoints: [FEEDS_STATISTICS_SOURCES_URI],
       defaultProps: {},
@@ -85,7 +84,6 @@ const widgetRegistry = new Map([
     {
       component: FeedsDownloadsChart,
       displayName: "Feeds: Downloads",
-      defaultHeight: 360,
       fillHeight: true,
       endpoints: [FEEDS_STATISTICS_DOWNLOADS_URI],
       defaultProps: {},
@@ -96,7 +94,6 @@ const widgetRegistry = new Map([
     {
       component: EnrichmentSourcesChart,
       displayName: "Enrichment Service: Sources",
-      defaultHeight: 360,
       fillHeight: true,
       endpoints: [ENRICHMENT_STATISTICS_SOURCES_URI],
       defaultProps: {},
@@ -107,7 +104,6 @@ const widgetRegistry = new Map([
     {
       component: EnrichmentRequestsChart,
       displayName: "Enrichment Service: Requests",
-      defaultHeight: 360,
       fillHeight: true,
       endpoints: [ENRICHMENT_STATISTICS_REQUESTS_URI],
       defaultProps: {},
@@ -118,7 +114,6 @@ const widgetRegistry = new Map([
     {
       component: AttackOriginMap,
       displayName: "Attack Origins: World Map",
-      defaultHeight: null,
       fillHeight: true,
       endpoints: [IOC_ATTACKER_COUNTRIES_URI],
       defaultProps: {},
@@ -129,8 +124,7 @@ const widgetRegistry = new Map([
     {
       component: AttackOriginCountriesChart,
       displayName: "Attack Origins: Top Countries",
-      defaultHeight: null,
-      fillHeight: false, // chart height is data-driven
+      fillHeight: false, // chart height is data-driven (# countries × 28px)
       endpoints: [IOC_ATTACKER_COUNTRIES_URI],
       defaultProps: {},
     },

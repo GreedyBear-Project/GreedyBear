@@ -42,6 +42,10 @@ describe("Dashboard component", () => {
     consoleErrorSpy.mockClear();
   });
 
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
   test("Dashboard", () => {
     render(
       <BrowserRouter>
@@ -73,7 +77,6 @@ describe("Dashboard component", () => {
     );
 
     expect(screen.getByText("Widget failed to render.")).toBeInTheDocument();
-    expect(screen.getByText("Widget failure")).toBeInTheDocument();
     expect(screen.getByText("Feeds: Sources")).toBeInTheDocument();
     expect(screen.getByText("Attack Origins: World Map")).toBeInTheDocument();
   });

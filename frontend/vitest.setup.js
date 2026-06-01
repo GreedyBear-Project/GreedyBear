@@ -1,5 +1,4 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
 
 // react-grid-layout's useContainerWidth hook relies on ResizeObserver, which is
 // absent in jsdom. Stub it so dashboard tests don't throw when measuring width.
