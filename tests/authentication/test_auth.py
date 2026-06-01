@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -5,6 +7,9 @@ from django.test import tag
 from durin.models import AuthToken, Client
 from rest_email_auth.models import EmailConfirmation, PasswordResetToken
 from rest_framework.reverse import reverse
+from rest_framework.test import APIClient
+
+from authentication.throttles import LoginIdentifierThrottle, LoginIPThrottle
 
 from . import CustomOAuthTestCase
 
@@ -68,6 +73,32 @@ class TestUserAuth(CustomOAuthTestCase):
         response = self.client.post(login_uri, body)
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(cache.get("current_site"))
+
+    def test_login_rate_limit_by_ip(self):
+        cache.clear()
+        body = {**self.creds}
+
+        with patch.object(LoginIPThrottle, "THROTTLE_RATES", {"auth_login_ip": "1/minute"}):
+            response_1 = self.client.post(login_uri, body)
+            response_2 = self.client.post(login_uri, body)
+        cache.clear()
+
+        self.assertEqual(response_1.status_code, 200, msg=response_1.cookies)
+        self.assertEqual(response_2.status_code, 429, msg=response_2.content)
+
+    def test_login_rate_limit_by_identifier(self):
+        cache.clear()
+        client_1 = APIClient()
+        client_2 = APIClient(REMOTE_ADDR="203.0.113.10")
+        body = {**self.creds}
+
+        with patch.object(LoginIdentifierThrottle, "THROTTLE_RATES", {"auth_login_identifier": "1/minute"}):
+            response_1 = client_1.post(login_uri, body)
+            response_2 = client_2.post(login_uri, {"username": self.creds["username"].upper(), "password": body["password"]})
+        cache.clear()
+
+        self.assertEqual(response_1.status_code, 200, msg=response_1.cookies)
+        self.assertEqual(response_2.status_code, 429, msg=response_2.content)
 
     def test_logout_204(self):
         self.assertEqual(AuthToken.objects.count(), 0)
