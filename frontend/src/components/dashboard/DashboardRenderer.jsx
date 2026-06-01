@@ -33,7 +33,7 @@ import WidgetWrapper from "./WidgetWrapper";
  * @param {WidgetConfig[]} props.widgetConfigs
  * @param {object}         props.layouts
  */
-function DashboardRenderer({ widgetConfigs, layouts }) {
+function DashboardRenderer({ widgetConfigs, layouts = {} }) {
   const { width, containerRef } = useContainerWidth();
 
   const noGridConfigs = widgetConfigs.filter((cfg) => cfg.noGrid);
@@ -149,8 +149,6 @@ DashboardRenderer.propTypes = {
   ),
 };
 
-DashboardRenderer.defaultProps = {
-  layouts: {},
-};
+
 
 export default DashboardRenderer;

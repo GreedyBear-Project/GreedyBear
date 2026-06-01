@@ -53,7 +53,7 @@ WidgetErrorBoundary.propTypes = {
 //                             (used inside react-grid-layout slots)
 //   children   {ReactNode}    The widget component
 // ---------------------------------------------------------------------------
-function WidgetWrapper({ id, header, minHeight, fillHeight, children }) {
+function WidgetWrapper({ id, header, minHeight = null, fillHeight = false, children }) {
   const cardStyle = React.useMemo(() => {
     if (fillHeight) return { height: "100%" };
     if (minHeight != null) return { minHeight };
@@ -78,12 +78,7 @@ WidgetWrapper.propTypes = {
   children: PropTypes.node.isRequired,
 };
 
-WidgetWrapper.defaultProps = {
-  minHeight: null,
-  fillHeight: false,
-};
-
-function SafeWidgetWrapper({ id, header, minHeight, fillHeight, children }) {
+function SafeWidgetWrapper({ id, header, minHeight = null, fillHeight = false, children }) {
   return (
     <WidgetErrorBoundary widgetId={id}>
       <WidgetWrapper
@@ -104,11 +99,6 @@ SafeWidgetWrapper.propTypes = {
   minHeight: PropTypes.number,
   fillHeight: PropTypes.bool,
   children: PropTypes.node.isRequired,
-};
-
-SafeWidgetWrapper.defaultProps = {
-  minHeight: null,
-  fillHeight: false,
 };
 
 export default SafeWidgetWrapper;
