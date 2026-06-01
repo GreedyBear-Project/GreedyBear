@@ -25,7 +25,7 @@ class SourceType(models.TextChoices):
     EXTERNAL = "external", "External API"
 
 
-class StatusType(models.TextChoices):
+class EventStatusType(models.TextChoices):
     PENDING = "pending", "Pending"
     PROCESSING = "processing", "Processing"
     COMPLETED = "completed", "Completed"
@@ -404,8 +404,8 @@ class EventStatus(models.Model):
     task_id = models.CharField(max_length=255, unique=True)
     status = models.CharField(
         max_length=20,
-        choices=StatusType.choices,
-        default=StatusType.PENDING,
+        choices=EventStatusType.choices,
+        default=EventStatusType.PENDING,
     )
     ioc_count = models.PositiveIntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
@@ -415,7 +415,6 @@ class EventStatus(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["task_id"]),
             models.Index(fields=["status"]),
             models.Index(fields=["api_source", "status"]),
         ]
@@ -438,16 +437,9 @@ class RawEvent(models.Model):
         on_delete=models.CASCADE,
         related_name="raw_events",
     )
-    api_source = models.ForeignKey(
-        "APISource",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="raw_events",
-    )
     batch = models.ForeignKey(
         "EventStatus",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="raw_events",
         null=True,
         blank=True,
@@ -484,7 +476,6 @@ class RawEvent(models.Model):
         indexes = [
             models.Index(fields=["src_ip"]),
             models.Index(fields=["timestamp"]),
-            models.Index(fields=["sensor"]),
             models.Index(fields=["processed"]),
         ]
 

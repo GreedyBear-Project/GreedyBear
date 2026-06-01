@@ -308,7 +308,7 @@ class RawEventAdmin(admin.ModelAdmin):
         "event_type",
         "timestamp",
         "sensor",
-        "api_source",
+        "get_api_source",
         "dest_port",
         "protocol",
         "service_name",
@@ -323,7 +323,7 @@ class RawEventAdmin(admin.ModelAdmin):
         "event_type",
         "timestamp",
         "sensor",
-        "api_source",
+        "get_api_source",
         "batch",
         "session_id",
         "token_id",
@@ -342,8 +342,22 @@ class RawEventAdmin(admin.ModelAdmin):
         "processed",
     ]
 
+    @admin.display(description="API Source")
+    def get_api_source(self, obj):
+        return obj.sensor.api_source if obj.sensor else None
+
     def has_add_permission(self, request):
         return False
 
     def has_change_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related(
+                "sensor",
+                "sensor__api_source",
+            )
+        )
