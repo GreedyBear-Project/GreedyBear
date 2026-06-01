@@ -55,7 +55,7 @@ WidgetErrorBoundary.propTypes = {
 function WidgetWrapper({
   id,
   header,
-  minHeight = null,
+  minHeight = undefined,
   fillHeight = false,
   children,
 }) {
@@ -86,7 +86,7 @@ WidgetWrapper.propTypes = {
 function SafeWidgetWrapper({
   id,
   header,
-  minHeight = null,
+  minHeight = undefined,
   fillHeight = false,
   children,
 }) {
