@@ -5,8 +5,6 @@
  * {
  *   component:    React.ComponentType  - the widget component to render
  *   displayName:  string               - card header
- *   defaultColSpan: number             - default Bootstrap column width (1–12)
- *                                        (legacy; used by old DashboardRenderer)
  *   defaultHeight:  number | null      - min-height in px for noGrid widgets
  *   fillHeight:   boolean              - true = card fills its react-grid-layout slot (height 100%)
  *   endpoints:    string[]             - API endpoints this widget consumes
@@ -41,7 +39,6 @@ import {
  * @typedef {Object} WidgetDefinition
  * @property {React.ComponentType} component
  * @property {string}   displayName
- * @property {number}   defaultColSpan
  * @property {number|null} defaultHeight
  * @property {boolean}  fillHeight
  * @property {string[]} endpoints
@@ -55,7 +52,6 @@ const widgetRegistry = new Map([
     {
       component: EnrichmentLookup,
       displayName: "Enrichment Lookup",
-      defaultColSpan: 12,
       defaultHeight: null, // auto-sizes via Bootstrap row
       fillHeight: false,
       endpoints: [ENRICHMENT_URI],
@@ -67,7 +63,6 @@ const widgetRegistry = new Map([
     {
       component: FeedsTypesChart,
       displayName: "Feeds: Types",
-      defaultColSpan: 12,
       defaultHeight: 360,
       fillHeight: true,
       endpoints: [FEEDS_STATISTICS_TYPES_URI],
@@ -79,7 +74,6 @@ const widgetRegistry = new Map([
     {
       component: FeedsSourcesChart,
       displayName: "Feeds: Sources",
-      defaultColSpan: 6,
       defaultHeight: 360,
       fillHeight: true,
       endpoints: [FEEDS_STATISTICS_SOURCES_URI],
@@ -91,7 +85,6 @@ const widgetRegistry = new Map([
     {
       component: FeedsDownloadsChart,
       displayName: "Feeds: Downloads",
-      defaultColSpan: 6,
       defaultHeight: 360,
       fillHeight: true,
       endpoints: [FEEDS_STATISTICS_DOWNLOADS_URI],
@@ -103,7 +96,6 @@ const widgetRegistry = new Map([
     {
       component: EnrichmentSourcesChart,
       displayName: "Enrichment Service: Sources",
-      defaultColSpan: 6,
       defaultHeight: 360,
       fillHeight: true,
       endpoints: [ENRICHMENT_STATISTICS_SOURCES_URI],
@@ -115,7 +107,6 @@ const widgetRegistry = new Map([
     {
       component: EnrichmentRequestsChart,
       displayName: "Enrichment Service: Requests",
-      defaultColSpan: 6,
       defaultHeight: 360,
       fillHeight: true,
       endpoints: [ENRICHMENT_STATISTICS_REQUESTS_URI],
@@ -127,7 +118,6 @@ const widgetRegistry = new Map([
     {
       component: AttackOriginMap,
       displayName: "Attack Origins: World Map",
-      defaultColSpan: 8,
       defaultHeight: null,
       fillHeight: true,
       endpoints: [IOC_ATTACKER_COUNTRIES_URI],
@@ -139,7 +129,6 @@ const widgetRegistry = new Map([
     {
       component: AttackOriginCountriesChart,
       displayName: "Attack Origins: Top Countries",
-      defaultColSpan: 4,
       defaultHeight: null,
       fillHeight: false, // chart height is data-driven
       endpoints: [IOC_ATTACKER_COUNTRIES_URI],
