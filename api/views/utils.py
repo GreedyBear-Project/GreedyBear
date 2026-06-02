@@ -1,6 +1,5 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
-import csv
 import hashlib
 import logging
 import urllib.parse
@@ -13,9 +12,6 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache, caches
 from django.db import transaction
 from django.db.models import Count, F, Max, Min, Sum
-from django.http import HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
-from rest_framework import status
-from rest_framework.response import Response
 from stix2 import Bundle, ExternalReference, Indicator
 
 from greedybear.consts import CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
@@ -27,24 +23,6 @@ logger = logging.getLogger(__name__)
 
 class UnableToExtractSourceIPError(Exception):
     """Raised when no valid source IP can be extracted from the request."""
-
-
-class Echo:
-    """An object that implements just the write method of the file-like
-    interface.
-    This class is used to stream data in CSV format.
-    """
-
-    def write(self, value):
-        """Write the value by returning it, instead of storing in a buffer.
-
-        Args:
-            value (str): The value to be written.
-
-        Returns:
-            str: The same value that was passed.
-        """
-        return value
 
 
 def get_request_source_ip(request) -> str:
@@ -89,187 +67,226 @@ def ioc_as_dict(ioc, fields: set) -> dict:
     return {k: v for k, v in ioc.__dict__.items() if k in fields}
 
 
-def feeds_response(request=None, iocs=None, response_format="json", dict_only=False, verbose=False, include_sensors=False):
-    """
-    Format the IOC data into the requested format (e.g., JSON, CSV, TXT).
+# JSON output fields. `honeypot_names` and `destination_ports` are fetched to derive
+# `feed_type` / `destination_port_count` and then dropped from each row.
+JSON_BASE_FIELDS = (
+    "value",
+    "first_seen",
+    "last_seen",
+    "attack_count",
+    "credential_count",
+    "interaction_count",
+    "scanner",
+    "payload_request",
+    "ip_reputation",
+    "login_attempts",
+    "recurrence_probability",
+    "expected_interactions",
+    "honeypot_names",
+    "destination_ports",
+    "attacker_country",
+    "attacker_country_code",
+    "autonomous_system",
+    "tags",
+)
+JSON_VERBOSE_FIELDS = (
+    "days_seen",
+    "firehol_categories",
+)
+STIX_FIELDS = {
+    "value",
+    "type",
+    "first_seen",
+    "last_seen",
+    "recurrence_probability",
+    "honeypot_names",
+    "ip_reputation",
+}
+
+
+def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict]:
+    """Shape a queryset (or list) of IOCs into the JSON feed row dicts.
+
+    Pure data logic shared by the JSON renderer and the ML scoring path; it
+    builds the per-row dicts but performs no HTTP/encoding work.
 
     Args:
-        iocs (QuerySet): The filtered queryset of IOC data.
-        feed_params (dict): Validated request parameters (serializer validated_data), including format.
-        dict_only (bool): Return IOC dictionary instead of Response object.
-        verbose (bool): Include verbose fields (days_seen, destination_ports, honeypots, firehol_categories).
+        iocs (QuerySet | list): Filtered IOCs to render.
+        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
+        include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 
-    Returns:
-        Response: The HTTP response containing formatted IOC data.
+    Returns: A list of JSON-serializable IOC dicts.
     """
-    logger.info(f"Format feeds in: {response_format}")
-    match response_format:
-        case "txt":
-            text_lines = [f"# {settings.FEEDS_LICENSE}"] if settings.FEEDS_LICENSE else []
-            text_lines += [ioc[0] for ioc in iocs.values_list("name")]
-            return HttpResponse("\n".join(text_lines), content_type="text/plain")
-        case "csv":
-            rows = [[f"# {settings.FEEDS_LICENSE}"]] if settings.FEEDS_LICENSE else []
-            rows += [list(ioc) for ioc in iocs.values_list("name")]
-            pseudo_buffer = Echo()
-            writer = csv.writer(pseudo_buffer, quoting=csv.QUOTE_NONE)
-            return StreamingHttpResponse(
-                (writer.writerow(row) for row in rows),
-                content_type="text/csv",
-                headers={"Content-Disposition": 'attachment; filename="feeds.csv"'},
-                status=200,
-            )
-        case "json":
-            json_list = []
+    required_fields = JSON_BASE_FIELDS + JSON_VERBOSE_FIELDS if verbose else JSON_BASE_FIELDS
 
-            # Base fields always returned
-            base_fields = (
-                "value",
-                "first_seen",
-                "last_seen",
-                "attack_count",
-                "credential_count",
-                "interaction_count",
-                "scanner",
-                "payload_request",
-                "ip_reputation",
-                "login_attempts",
-                "recurrence_probability",
-                "expected_interactions",
-                "honeypot_names",  # used to build feed_type; removed from response
-                "destination_ports",  # used to calculate destination_port_count
-                "attacker_country",
-                "attacker_country_code",
-                "autonomous_system",
-                "tags",
-            )
+    # `tags_json` is annotated in get_queryset (only for JSON format) to avoid conflicting
+    # with the `tags` reverse FK on IOC. When the queryset comes from a repository method
+    # that does not annotate `tags_json` (e.g. the ML scoring path), exclude the field.
+    # `sensors_json` follows the same pattern and is only annotated for authenticated views.
+    if isinstance(iocs, list):
+        has_tags_annotation = bool(iocs) and hasattr(iocs[0], "tags_json")
+        has_sensors_annotation = include_sensors and bool(iocs) and hasattr(iocs[0], "sensors_json")
+        has_credential_count = bool(iocs) and hasattr(iocs[0], "credential_count")
+    else:
+        has_tags_annotation = "tags_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
+        has_sensors_annotation = include_sensors and "sensors_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
+        has_credential_count = "credential_count" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
+    required_fields = tuple(("tags_json" if f == "tags" else f) for f in required_fields if f != "tags" or has_tags_annotation)
+    required_fields = tuple(f for f in required_fields if f != "credential_count" or has_credential_count)
+    if has_sensors_annotation:
+        required_fields = (*required_fields, "sensors_json")
 
-            verbose_only_fields = (
-                "days_seen",
-                "firehol_categories",
-            )
+    if isinstance(iocs, list):
+        iocs_iter = (ioc_as_dict(ioc, set(required_fields)) for ioc in iocs)
+    else:
+        iocs_iter = iocs.values(*required_fields).iterator(chunk_size=2000)
 
-            required_fields = base_fields + verbose_only_fields if verbose else base_fields
+    json_list = []
+    for ioc in iocs_iter:
+        ioc_feed_type = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
 
-            # `tags_json` is annotated in get_queryset (only for JSON format) to avoid conflicting
-            # with the `tags` reverse FK on IOC. When the queryset comes from a repository method
-            # that does not annotate `tags_json` (e.g. the ML scoring path), exclude the field.
-            # `sensors_json` follows the same pattern and is only annotated for authenticated views.
-            if isinstance(iocs, list):
-                has_tags_annotation = bool(iocs) and hasattr(iocs[0], "tags_json")
-                has_sensors_annotation = include_sensors and bool(iocs) and hasattr(iocs[0], "sensors_json")
-                has_credential_count = bool(iocs) and hasattr(iocs[0], "credential_count")
-            else:
-                has_tags_annotation = "tags_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
-                has_sensors_annotation = include_sensors and "sensors_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
-                has_credential_count = "credential_count" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
-            required_fields = tuple(("tags_json" if f == "tags" else f) for f in required_fields if f != "tags" or has_tags_annotation)
-            required_fields = tuple(f for f in required_fields if f != "credential_count" or has_credential_count)
-            if has_sensors_annotation:
-                required_fields = (*required_fields, "sensors_json")
+        data_ = ioc | {
+            "first_seen": ioc["first_seen"].strftime("%Y-%m-%d"),
+            "last_seen": ioc["last_seen"].strftime("%Y-%m-%d"),
+            "feed_type": ioc_feed_type,
+            "destination_port_count": len(ioc.get("destination_ports", [])),
+            "asn": ioc.get("autonomous_system", ""),
+            "tags": ioc.pop("tags_json", []),
+            **({"sensors": ioc.pop("sensors_json", [])} if has_sensors_annotation else {}),
+        }
 
-            iocs_iter: object
-            if isinstance(iocs, list):
-                iocs_iter = (ioc_as_dict(ioc, set(required_fields)) for ioc in iocs)
-            else:
-                iocs_iter = iocs.values(*required_fields).iterator(chunk_size=2000)
-            for ioc in iocs_iter:
-                ioc_feed_type = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
+        if not verbose:
+            data_.pop("destination_ports", None)
+        data_.pop("autonomous_system", None)
+        data_.pop("honeypot_names", None)
+        data_.pop("id", None)
 
-                data_ = ioc | {
-                    "first_seen": ioc["first_seen"].strftime("%Y-%m-%d"),
-                    "last_seen": ioc["last_seen"].strftime("%Y-%m-%d"),
-                    "feed_type": ioc_feed_type,
-                    "destination_port_count": len(ioc.get("destination_ports", [])),
-                    "asn": ioc.get("autonomous_system", ""),
-                    "tags": ioc.pop("tags_json", []),
-                    **({"sensors": ioc.pop("sensors_json", [])} if has_sensors_annotation else {}),
-                }
+        json_list.append(data_)
 
-                if not verbose:
-                    data_.pop("destination_ports", None)
-                data_.pop("autonomous_system", None)
-                data_.pop("honeypot_names", None)
-                data_.pop("id", None)
+    logger.info(f"Number of feeds returned: {len(json_list)}")
+    return json_list
 
-                json_list.append(data_)
 
-            logger.info(f"Number of feeds returned: {len(json_list)}")
-            resp_data = {"iocs": json_list}
-            if settings.FEEDS_LICENSE:
-                resp_data["license"] = settings.FEEDS_LICENSE
-            if dict_only:
-                return resp_data
-            return Response(resp_data, status=status.HTTP_200_OK)
-        case "stix21":
-            stix_fields = {
-                "value",
-                "type",
-                "first_seen",
-                "last_seen",
-                "recurrence_probability",
-                "honeypot_names",
-                "ip_reputation",
-            }
-            # Fetch fields from database
-            iocs = (ioc_as_dict(ioc, stix_fields) for ioc in iocs) if isinstance(iocs, list) else iocs.values(*stix_fields)
+def build_feed_dict(iocs, verbose=False, include_sensors=False) -> dict:
+    """Wrap the JSON feed rows in the public response envelope, attaching the license when set."""
+    resp_data = {"iocs": build_ioc_json_list(iocs, verbose=verbose, include_sensors=include_sensors)}
+    if settings.FEEDS_LICENSE:
+        resp_data["license"] = settings.FEEDS_LICENSE
+    return resp_data
 
-            stix_objects = []
-            for ioc in iocs:
-                value = ioc["value"]
-                ioc_type = ioc["type"]
 
-                # Validate and sanitize value before inserting into STIX pattern
-                # to prevent pattern injection via malicious IOC values.
-                if ioc_type == "ip":
-                    if not is_ip_address(value):
-                        logger.warning(f"Skipping IOC with invalid IP value for STIX export: {value!r}")
-                        continue
-                    stix_type = "ipv6-addr" if ":" in value else "ipv4-addr"
-                    pattern = f"[{stix_type}:value = '{value}']"
-                else:  # domain
-                    if not is_valid_domain(value):
-                        logger.warning(f"Skipping IOC with unsafe domain value for STIX export: {value!r}")
-                        continue
-                    pattern = f"[domain-name:value = '{value}']"
+def build_stix_bundle(iocs, request=None) -> str:
+    """Serialize a queryset (or list) of IOCs into a STIX 2.1 bundle JSON string."""
+    iocs = (ioc_as_dict(ioc, STIX_FIELDS) for ioc in iocs) if isinstance(iocs, list) else iocs.values(*STIX_FIELDS)
 
-                # Confidence 0-100.
-                # We use a fixed high confidence (90) for honeypot observations as they are highly reliable.
-                confidence = 90
+    stix_objects = []
+    for ioc in iocs:
+        value = ioc["value"]
+        ioc_type = ioc["type"]
 
-                # Labels
-                labels = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
-                if ioc.get("ip_reputation"):
-                    labels.append(ioc["ip_reputation"])
+        # Validate and sanitize value before inserting into STIX pattern
+        # to prevent pattern injection via malicious IOC values.
+        if ioc_type == "ip":
+            if not is_ip_address(value):
+                logger.warning(f"Skipping IOC with invalid IP value for STIX export: {value!r}")
+                continue
+            stix_type = "ipv6-addr" if ":" in value else "ipv4-addr"
+            pattern = f"[{stix_type}:value = '{value}']"
+        else:  # domain
+            if not is_valid_domain(value):
+                logger.warning(f"Skipping IOC with unsafe domain value for STIX export: {value!r}")
+                continue
+            pattern = f"[domain-name:value = '{value}']"
 
-                indicator = Indicator(
-                    name=value,
-                    pattern=pattern,
-                    pattern_type="stix",
-                    valid_from=ioc["first_seen"],
-                    valid_until=ioc["last_seen"] + timedelta(days=1),
-                    labels=labels,
-                    confidence=confidence,
-                    description=f"Detected by GreedyBear honeypots: {', '.join(labels)}",
-                    external_references=[
-                        ExternalReference(
-                            source_name="GreedyBear",
-                            url=(request.build_absolute_uri(f"/?query={value}") if request else f"https://greedybear.honeynet.org/?query={value}"),
-                        )
-                    ],
+        # Confidence 0-100.
+        # We use a fixed high confidence (90) for honeypot observations as they are highly reliable.
+        confidence = 90
+
+        # Labels
+        labels = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
+        if ioc.get("ip_reputation"):
+            labels.append(ioc["ip_reputation"])
+
+        indicator = Indicator(
+            name=value,
+            pattern=pattern,
+            pattern_type="stix",
+            valid_from=ioc["first_seen"],
+            valid_until=ioc["last_seen"] + timedelta(days=1),
+            labels=labels,
+            confidence=confidence,
+            description=f"Detected by GreedyBear honeypots: {', '.join(labels)}",
+            external_references=[
+                ExternalReference(
+                    source_name="GreedyBear",
+                    url=(request.build_absolute_uri(f"/?query={value}") if request else f"https://greedybear.honeynet.org/?query={value}"),
                 )
-                stix_objects.append(indicator)
+            ],
+        )
+        stix_objects.append(indicator)
 
-            bundle = Bundle(objects=stix_objects)
-            return HttpResponse(bundle.serialize(), content_type="application/json")
-        case _:
-            return HttpResponseBadRequest()
+    return Bundle(objects=stix_objects).serialize()
+
+
+def _asn_honeypot_lookup(with_asn) -> dict:
+    """Per-ASN active-honeypot names.
+
+    Kept separate from the numeric aggregation because it filters on
+    honeypots.active, which changes independently of the IOC data.
+
+    Args:
+        with_asn (QuerySet): IOC queryset already restricted to rows with an ASN.
+
+    Returns: A dict mapping ASN -> sorted-ready list of active honeypot names.
+    """
+    rows = (
+        with_asn.filter(honeypots__active=True)
+        .values(asn=F("autonomous_system__asn"))
+        .annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
+    )
+    return {row["asn"]: row["honeypot_names"] or [] for row in rows}
+
+
+def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
+    """Aggregate a filtered IOC queryset into per-ASN metric rows.
+
+    Pure data logic: no request/cache concerns. IOCs without an ASN are dropped.
+
+    Args:
+        iocs_qs (QuerySet): Filtered IOC queryset from the view's get_queryset;
+        ordering (str): Validated aggregate ordering field (e.g. "-ioc_count").
+
+    Returns: A list of dicts with aggregated metrics and honeypot arrays per ASN.
+    """
+    with_asn = iocs_qs.exclude(autonomous_system__isnull=True)
+
+    numeric_agg = (
+        with_asn.values(
+            asn=F("autonomous_system__asn"),
+            as_name=F("autonomous_system__name"),
+        )
+        .annotate(
+            ioc_count=Count("id"),
+            total_attack_count=Sum("attack_count"),
+            total_interaction_count=Sum("interaction_count"),
+            total_login_attempts=Sum("login_attempts"),
+            expected_ioc_count=Sum("recurrence_probability"),
+            expected_interactions=Sum("expected_interactions"),
+            first_seen=Min("first_seen"),
+            last_seen=Max("last_seen"),
+        )
+        .order_by(ordering)
+    )
+
+    hp_lookup = _asn_honeypot_lookup(with_asn)
+
+    return [{**row, "honeypots": sorted(hp_lookup.get(row["asn"], []))} for row in numeric_agg]
 
 
 def asn_aggregated_queryset(iocs_qs, request, feed_params):
     """
-    Retrieve ASN aggregation data. Caches the heavy aggregation query
-    since the data only updates during the extraction cronjob.
+    Caching wrapper around aggregate_iocs_by_asn. Caches the heavy aggregation
+    query since the data only updates during the extraction cronjob.
 
     Args
         iocs_qs (QuerySet): Filtered IOC queryset from get_queryset;
@@ -295,56 +312,9 @@ def asn_aggregated_queryset(iocs_qs, request, feed_params):
     if cached_result is not None:
         return cached_result
 
-    asn_filter = request.query_params.get("asn")
-    if asn_filter:
-        iocs_qs = iocs_qs.filter(autonomous_system__asn=asn_filter)
-
-    # default ordering is overridden here because of serializer default(-last-seen) behaviour
-    ordering = feed_params["ordering"]
-    if not ordering or ordering.strip() in {"", "-last_seen", "last_seen"}:
-        ordering = "-ioc_count"
-
-    numeric_agg = (
-        iocs_qs.exclude(autonomous_system__isnull=True)
-        .values(
-            asn=F("autonomous_system__asn"),
-            as_name=F("autonomous_system__name"),
-        )
-        .annotate(
-            ioc_count=Count("id"),
-            total_attack_count=Sum("attack_count"),
-            total_interaction_count=Sum("interaction_count"),
-            total_login_attempts=Sum("login_attempts"),
-            expected_ioc_count=Sum("recurrence_probability"),
-            expected_interactions=Sum("expected_interactions"),
-            first_seen=Min("first_seen"),
-            last_seen=Max("last_seen"),
-        )
-    )
-    numeric_agg = numeric_agg.order_by(ordering)
-
-    # Honeypot names still require a lightweight aggregation because
-    # they depend on the active flag which can change independently.
-    honeypot_agg = (
-        iocs_qs.exclude(autonomous_system__isnull=True)
-        .filter(honeypots__active=True)
-        .values(asn=F("autonomous_system__asn"))
-        .annotate(
-            honeypot_names=ArrayAgg(
-                "honeypots__name",
-                distinct=True,
-            )
-        )
-    )
-
-    hp_lookup = {row["asn"]: row["honeypot_names"] or [] for row in honeypot_agg}
-
-    result = []
-    for row in numeric_agg:
-        asn = row["asn"]
-        row_dict = dict(row)
-        row_dict["honeypots"] = sorted(hp_lookup.get(asn, []))
-        result.append(row_dict)
+    # ASN filtering and the aggregate ordering default are applied upstream
+    # (AsnFeedView.get_queryset and ASNFeedOrderingSerializer respectively).
+    result = aggregate_iocs_by_asn(iocs_qs, feed_params["ordering"])
 
     # Set cache with a 60-minute timeout (max extraction interval length) to prevent memory bloat
     shared_cache.set(cache_key, result, timeout=3600)
