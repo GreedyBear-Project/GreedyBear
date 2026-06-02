@@ -13,9 +13,11 @@ from greedybear.models import (
     CommandSequence,
     CowrieSession,
     Credential,
+    EventStatus,
     FireHolList,
     Honeypot,
     MassScanner,
+    RawEvent,
     Sensor,
     Statistics,
     Tag,
@@ -265,3 +267,97 @@ class APISourceModelAdmin(admin.ModelAdmin):
     search_fields = ["name", "user__username"]
     search_help_text = "search by source name or username"
     readonly_fields = ["created_at", "last_activity", "invalid_event_count"]
+
+
+@admin.register(EventStatus)
+class EventStatusAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "api_source",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "processed_at",
+    ]
+    list_filter = ["status"]
+    search_fields = ["task_id", "api_source__name"]
+    search_help_text = "search by task_id or api_source name"
+    readonly_fields = [
+        "task_id",
+        "api_source",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "processed_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(RawEvent)
+class RawEventAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "src_ip",
+        "event_type",
+        "timestamp",
+        "sensor",
+        "get_api_source",
+        "dest_port",
+        "protocol",
+        "service_name",
+        "processed",
+        "created_at",
+    ]
+    list_filter = ["processed", "event_type", "protocol"]
+    search_fields = ["src_ip", "session_id", "cve_id", "username", "command"]
+    search_help_text = "search by src_ip, session_id, CVE, username, or command"
+    readonly_fields = [
+        "src_ip",
+        "event_type",
+        "timestamp",
+        "sensor",
+        "get_api_source",
+        "batch",
+        "session_id",
+        "token_id",
+        "src_port",
+        "dest_port",
+        "protocol",
+        "service_name",
+        "username",
+        "password",
+        "related_url",
+        "payload_hash",
+        "command",
+        "cve_id",
+        "data",
+        "created_at",
+        "processed",
+    ]
+
+    @admin.display(description="API Source")
+    def get_api_source(self, obj):
+        return obj.sensor.api_source if obj.sensor else None
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related(
+                "sensor",
+                "sensor__api_source",
+            )
+        )

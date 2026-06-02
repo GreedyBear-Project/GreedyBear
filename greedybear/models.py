@@ -25,6 +25,13 @@ class SourceType(models.TextChoices):
     EXTERNAL = "external", "External API"
 
 
+class EventStatusType(models.TextChoices):
+    PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+
+
 class APISource(models.Model):
     user = models.OneToOneField(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_source")
     name = models.CharField(max_length=128, unique=True)
@@ -382,3 +389,95 @@ class AttackerActivityBucket(models.Model):
 
     def __str__(self):
         return f"{self.attacker_ip} [{self.feed_type}] @ {self.bucket_start} ({self.interaction_count})"
+
+
+class EventStatus(models.Model):
+    """Tracks the processing status of a single batch of incoming events."""
+
+    api_source = models.ForeignKey(
+        "APISource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="event_statuses",
+    )
+    task_id = models.CharField(max_length=255, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=EventStatusType.choices,
+        default=EventStatusType.PENDING,
+    )
+    ioc_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["api_source", "status"]),
+        ]
+
+    def __str__(self):
+        return f"Batch {self.id} — {self.status} (task: {self.task_id})"
+
+
+class RawEvent(models.Model):
+    """
+    Raw storage for all incoming events from external sensors.
+
+    All fields from the Event Collector API spec are persisted here immediately
+    on ingestion. An async Django-Q task does post-processing later and maps
+    fields to the existing models (IOC, Credential, CommandSequence, etc.).
+    """
+
+    sensor = models.ForeignKey(
+        "Sensor",
+        on_delete=models.CASCADE,
+        related_name="raw_events",
+    )
+    batch = models.ForeignKey(
+        "EventStatus",
+        on_delete=models.SET_NULL,
+        related_name="raw_events",
+        null=True,
+        blank=True,
+    )
+
+    # required fields
+    src_ip = models.GenericIPAddressField()
+    event_type = models.CharField(max_length=100)
+    timestamp = models.DateTimeField()
+
+    # optional fields
+    session_id = models.CharField(max_length=100, blank=True, default="")
+    token_id = models.CharField(max_length=100, blank=True, default="")
+    src_port = models.IntegerField(null=True, blank=True)
+    dest_port = models.IntegerField(null=True, blank=True)
+    protocol = models.CharField(max_length=50, blank=True, default="")
+    service_name = models.CharField(max_length=100, blank=True, default="")
+    username = models.CharField(max_length=255, blank=True, default="")
+    password = models.CharField(max_length=255, blank=True, default="")
+    related_url = models.URLField(max_length=900, blank=True, default="")
+    payload_hash = models.CharField(max_length=64, blank=True, default="")
+    command = models.TextField(blank=True, default="")
+    cve_id = models.CharField(max_length=50, blank=True, default="")
+
+    # fallback field
+    data = models.JSONField(default=dict, blank=True)
+
+    # internal
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["src_ip"]),
+            models.Index(fields=["timestamp"]),
+            models.Index(fields=["processed"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} from {self.src_ip} @ {self.timestamp}"
