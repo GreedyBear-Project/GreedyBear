@@ -2,7 +2,7 @@ from rest_framework.throttling import SimpleRateThrottle
 
 
 class LoginIPThrottle(SimpleRateThrottle):
-    scope = "auth_login_ip"
+    scope = "login"
 
     def get_cache_key(self, request, view):
         return self.cache_format % {
@@ -12,7 +12,7 @@ class LoginIPThrottle(SimpleRateThrottle):
 
 
 class LoginIdentifierThrottle(SimpleRateThrottle):
-    scope = "auth_login_identifier"
+    scope = "login"
 
     def get_cache_key(self, request, view):
         identifier = request.data.get("username") or request.data.get("email")
