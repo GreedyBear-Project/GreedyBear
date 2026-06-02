@@ -199,6 +199,8 @@ class ASNFeedOrderingSerializer(AdvancedFeedRequestSerializer):
         }
     )
 
+    ordering = serializers.CharField(default="-ioc_count")
+
     def validate_ordering(self, ordering: str) -> str:
         logger.debug(f"Validating ordering: {ordering}")
         field_name = ordering.lstrip("-").strip()
