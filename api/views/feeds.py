@@ -2,32 +2,30 @@
 # See the file 'LICENSE' for copying permission.
 import hashlib
 import logging
+from abc import ABCMeta
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
+from certego_saas.apps.auth.backend import CookieTokenAuthentication  # ty:ignore[unresolved-import]
 from certego_saas.ext.pagination import CustomPageNumberPagination
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
+from django.db.models import Count, F, Q, Value
+from django.db.models.functions import JSONObject
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import (
-    api_view,
-    authentication_classes,
-    permission_classes,
-    throttle_classes,
-)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
-from api.serializers import ASNFeedsOrderingSerializer
+from api.filters import FeedsFilterSet
+from api.serializers import AdvancedFeedRequestSerializer, ASNFeedOrderingSerializer, SimpleFeedRequestSerializer
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
-    FeedRequestParams,
     asn_aggregated_queryset,
     feeds_response,
-    get_queryset,
-    get_valid_feed_types,
+    save_request_source,
 )
-from greedybear.consts import GET
-from greedybear.models import ShareToken
+from greedybear.models import IOC, ShareToken
 
 logger = logging.getLogger(__name__)
 
@@ -50,324 +48,295 @@ _TOKEN_LIST_FIELDS = (
 )
 
 
-@api_view([GET])
-@throttle_classes([FeedsThrottle])
-def feeds(request, feed_type, attack_type, prioritize, format_):
-    """
-    Handle requests for IOC feeds with specific parameters and format the response accordingly.
+class BaseFeedView(APIView, metaclass=ABCMeta):
+    """Shared GET flow: validate request params via ``serializer_class``, build
+    the IOC queryset, and render with ``feeds_response`` (paginating when asked).
 
-    Args:
-        request: The incoming request object.
-        feed_type (str): Type of feed (e.g. cowrie, honeytrap, etc.).
-        attack_type (str): Type of attack (e.g., all, specific attack types).
-        prioritize (str): Prioritization mechanism to use (e.g., recent, persistent).
-        format_ (str): Desired format of the response (e.g., json, csv, txt).
-        include_mass_scanners (bool): query parameter flag to include IOCs that are known mass scanners.
-        include_tor_exit_nodes (bool): query parameter flag to include IOCs that are known tor exit nodes.
-
-    Returns:
-        Response: The HTTP response with formatted IOC data.
-    """
-    logger.info(f"request /api/feeds with params: feed type: {feed_type}, attack_type: {attack_type}, prioritization: {prioritize}, format: {format_}")
-
-    filtered_query_params = {key: request.query_params.get(key) for key in ALLOWED_UNAUTHENTICATED_QUERY_PARAMS if key in request.query_params}
-
-    feed_params_data = filtered_query_params.copy()
-    feed_params_data.update({"feed_type": feed_type, "attack_type": attack_type, "format": format_})
-    feed_params = FeedRequestParams(feed_params_data)
-    feed_params.apply_default_filters(filtered_query_params)
-    feed_params.set_prioritization(prioritize)
-
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(request, feed_params, valid_feed_types)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types)
-
-
-@api_view([GET])
-@throttle_classes([FeedsThrottle])
-def feeds_pagination(request):
-    """
-    Handle requests for paginated IOC feeds based on query parameters.
-
-    Args:
-        request: The incoming request object.
-
-    Returns:
-        Response: The paginated HTTP response with IOC data.
+    Subclasses are typically attribute-only. They set ``serializer_class`` (and
+    the usual DRF class attributes: ``throttle_classes``,
+    ``authentication_classes``, ``permission_classes``) plus the feed-specific
+    toggles below, and may override ``get_request_data`` to merge path
+    parameters or token-derived data into the serializer input.
     """
 
-    logger.info(f"request /api/feeds with params: {request.query_params}")
+    throttle_classes = [FeedsThrottle]
+    serializer_class = None
+    pagination_class = None
+    include_sensors = False
+    include_credential_count = False
+    # ASN feed disables slicing + model-level ordering (needs all rows to aggregate).
+    is_aggregated = False
+    # validated request params, set by get() before get_queryset() runs.
+    feed_params = None
 
-    filtered_query_params = {key: request.query_params.get(key) for key in ALLOWED_UNAUTHENTICATED_QUERY_PARAMS if key in request.query_params}
+    def get_request_data(self, request, **kwargs):
+        """Raw input mapping handed to the serializer. Defaults to the query
+        params; override to merge path parameters or token data."""
+        return request.query_params.dict()
 
-    feed_params = FeedRequestParams(filtered_query_params)
-    feed_params.format = "json"
-    feed_params.apply_default_filters(filtered_query_params)
-    feed_params.set_prioritization(filtered_query_params.get("prioritize"))
+    def validate_request(self, request, **kwargs):
+        serializer = self.serializer_class(data=self.get_request_data(request, **kwargs))
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(request, feed_params, valid_feed_types)
-    paginator = CustomPageNumberPagination()
-    iocs = paginator.paginate_queryset(iocs_queryset, request)
-    resp_data = feeds_response(request, iocs, feed_params, valid_feed_types, dict_only=True)
-    return paginator.get_paginated_response(resp_data)
+    def should_paginate(self, request_data):
+        """Whether to paginate this response. Requires a ``pagination_class`` and,
+        by default, the validated ``paginate`` flag. Override to always paginate."""
+        return self.pagination_class is not None and request_data.get("paginate", False)
 
+    def get_queryset(self):
+        """Build the IOC queryset from the validated params (``self.feed_params``)
+        and ``self.request``. Replaces the module-level
+        ``api.views.utils.get_queryset`` (API_refactor.md 2.2).
 
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-@throttle_classes([FeedsAdvancedThrottle])
-def feeds_advanced(request):
-    """
-    Handle requests for IOC feeds based on query parameters and format the response accordingly.
+        Field → ORM filtering is delegated to ``FeedsFilterSet`` (2.3); this
+        method owns what isn't a plain field lookup.
+        """
+        iocs = IOC.objects.annotate(value=F("name"))
+        iocs = FeedsFilterSet(self.feed_params, queryset=iocs, request=self.request).qs
 
-    Args:
-        request: The incoming request object.
-        feed_type (str): Type of feed to retrieve. (supported: `cowrie`, `honeytrap`, etc.; default: `all`)
-        attack_type (str): Type of attack to filter. (supported: `scanner`, `payload_request`, `all`; default: `all`)
-        max_age (int): Maximum number of days since last occurrence. E.g. an IOC that was last seen 4 days ago is excluded by default. (default: 3)
-        min_days_seen (int): Minimum number of days on which an IOC must have been seen. (default: 1)
-        min_credential_count (int, optional): Filter IOCs with at least this many distinct credentials. (default: no filter)
-        max_credential_count (int, optional): Filter IOCs with at most this many distinct credentials. (default: no filter)
-        include_reputation (str): `;`-separated list of reputation values to include, e.g. `known attacker` or `known attacker;` to include IOCs without reputation. (default: include all)
-        exclude_reputation (str): `;`-separated list of reputation values to exclude, e.g. `mass scanner` or `mass scanner;bot, crawler`. (default: exclude none)
-        feed_size (int): Number of IOC items to return. (default: 5000)
-        ordering (str): Field to order results by, with optional `-` prefix for descending. (default: `-last_seen`)
-        verbose (bool): `true` to include IOC properties that contain a lot of data, e.g. the list of days it was seen. (default: `false`)
-        paginate (bool): `true` to paginate results. This forces the json format. (default: `false`)
-        format (str): Response format type. Besides `json`, `txt` and `csv` are supported but the response will only contain IOC values (e.g. IP addresses) without further information. (default: `json`)
-        tag_key (str, optional): Filter IOCs by tag key, e.g. `malware` or `confidence_of_abuse`. Only IOCs with at least one matching tag are returned.
-        tag_value (str, optional): Filter IOCs by tag value (case-insensitive substring match), e.g. `mirai`. Can be used alone or combined with `tag_key`.
+        # exclude specific reputations
+        iocs = iocs.exclude(ip_reputation__in=self.feed_params.get("exclude_reputation", [])).distinct()
 
-    Returns:
-        Response: The HTTP response with formatted IOC data.
-    """
-    logger.info(f"request /api/feeds/advanced/ with params: {request.query_params}")
-    feed_params = FeedRequestParams(request.query_params)
-    verbose = feed_params.verbose == "true"
-    paginate = feed_params.paginate == "true"
-    if paginate:
-        feed_params.format = "json"
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(
-        request,
-        feed_params,
-        valid_feed_types,
-        tag_key=request.query_params.get("tag_key", "").strip(),
-        tag_value=request.query_params.get("tag_value", "").strip(),
-        include_sensors=True,
-        include_credential_count=True,
-    )
-    if paginate:
-        paginator = CustomPageNumberPagination()
-        iocs = paginator.paginate_queryset(iocs_queryset, request)
-        resp_data = feeds_response(request, iocs, feed_params, valid_feed_types, dict_only=True, verbose=verbose, include_sensors=True)
-        return paginator.get_paginated_response(resp_data)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types, verbose=verbose, include_sensors=True)
+        # apply feed type filter
+        if "all" not in self.feed_params["feed_type"]:
+            type_filter = Q()
+            for ft in self.feed_params["feed_type"]:
+                type_filter |= Q(honeypots__name__iexact=ft)
+            iocs = iocs.filter(type_filter)
 
+        if self.is_aggregated:
+            return iocs
 
-@api_view(["GET"])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-@throttle_classes([FeedsAdvancedThrottle])
-def feeds_asn(request):
-    """
-    Retrieve aggregated IOC feed data grouped by ASN (Autonomous System Number).
+        iocs = iocs.filter(honeypots__active=True)
+        iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
+        # Only annotate tags metadata when the response format needs it (e.g. JSON),
+        # to avoid unnecessary joins and aggregation work for txt/csv feeds.
+        if self.feed_params["format"] == "json":
+            iocs = iocs.annotate(
+                tags_json=ArrayAgg(
+                    JSONObject(key=F("tags__key"), value=F("tags__value"), source=F("tags__source")),
+                    filter=Q(tags__isnull=False),
+                    default=Value([]),
+                    distinct=True,
+                )
+            )
+        return iocs
 
-    Args:
-        request: The HTTP request object.
-        feed_type (str): Filter by feed type (e.g. 'cowrie', 'honeytrap'). Default: 'all'.
-        attack_type (str): Filter by attack type (e.g., 'scanner', 'payload_request'). Default: 'all'.
-        max_age (int): Maximum age of IOCs in days. Default: 3.
-        min_days_seen (int): Minimum days an IOC must have been observed. Default: 1.
-        exclude_reputation (str): ';'-separated reputations to exclude (e.g., 'mass scanner'). Default: none.
-        ordering (str): Aggregation ordering field (e.g., 'total_attack_count', 'asn'). Default: '-ioc_count'.
-        asn (str, optional): Filter results to a single ASN.
+    def sort_and_slice_queryset(self, qs):
+        if self.is_aggregated:
+            return qs
+        return qs.order_by(self.feed_params["ordering"])[: self.feed_params["feed_size"]]
 
-    Returns:
-     Response: HTTP response with a JSON list of ASN aggregation objects.
-     Each object contains:
-            asn (int): ASN number.
-            ioc_count (int): Number of IOCs for this ASN.
-            total_attack_count (int): Sum of attack_count for all IOCs.
-            total_interaction_count (int): Sum of interaction_count for all IOCs.
-            total_login_attempts (int): Sum of login_attempts for all IOCs.
-            honeypots (List[str]): Sorted list of unique honeypots that observed these IOCs.
-            expected_ioc_count (float): Sum of recurrence_probability for all IOCs, rounded to 4 decimals.
-            expected_interactions (float): Sum of expected_interactions for all IOCs, rounded to 4 decimals.
-            first_seen (DateTime): Earliest first_seen timestamp among IOCs.
-            last_seen (DateTime): Latest last_seen timestamp among IOCs.
-    """
-    logger.info(f"request /api/feeds/asn/ with params: {request.query_params}")
-    feed_params = FeedRequestParams(request.query_params)
-    valid_feed_types = get_valid_feed_types()
-
-    iocs_qs = get_queryset(request, feed_params, valid_feed_types, is_aggregated=True, serializer_class=ASNFeedsOrderingSerializer)
-
-    asn_aggregates = asn_aggregated_queryset(iocs_qs, request, feed_params)
-    data = list(asn_aggregates)
-    return Response(data)
+    def get(self, request, *args, **kwargs):
+        self.feed_params = self.validate_request(request, **kwargs)
+        iocs_queryset = self.get_queryset()
+        iocs_queryset = self.sort_and_slice_queryset(iocs_queryset)
+        save_request_source(request)
+        verbose = self.feed_params.get("verbose", False)
+        if self.should_paginate(self.feed_params):
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(iocs_queryset, request)
+            resp_data = feeds_response(request, page, self.feed_params["format"], dict_only=True, verbose=verbose, include_sensors=self.include_sensors)
+            return paginator.get_paginated_response(resp_data)
+        return feeds_response(request, iocs_queryset, self.feed_params["format"], verbose=verbose, include_sensors=self.include_sensors)
 
 
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def feeds_share(request):
-    """
-    Generate a shareable link for the current feed configuration.
+class SimpleFeedView(BaseFeedView):
+    """Public feed endpoint with path parameters:
+    ``feeds/<feed_type>/<attack_type>/<prioritize>.<format_>``."""
 
-    Args:
-        request: The incoming request object.
-        feed_type (str): Type of feed to retrieve.
-        attack_type (str): Type of attack to filter.
-        max_age (int): Maximum number of days since last occurrence.
-        min_days_seen (int): Minimum number of days on which an IOC must have been seen.
-        include_reputation (str): `;`-separated list of reputation values to include.
-        exclude_reputation (str): `;`-separated list of reputation values to exclude.
-        ordering (str): Field to order results by.
-        verbose (bool): `true` to include IOC properties that contain a lot of data.
-        asn (int): Filter by ASN.
-        min_score (float): Filter by minimum recurrence_probability (0-1).
-        port (int): Filter by destination port.
-        start_date (str): Filter by start date (YYYY-MM-DD).
-        end_date (str): Filter by end date (YYYY-MM-DD).
-        reason (str): Optional human-readable label for this share token (max 256 chars).
+    throttle_classes = [FeedsThrottle]
+    serializer_class = SimpleFeedRequestSerializer
+    pagination_class = None
 
-    Returns:
-        Response: A JSON object containing the signed shareable URL.
-    """
-    safe_params = {k: v for k, v in request.query_params.items() if k != "reason"}
-    logger.info(f"request /api/feeds/share with params: {safe_params}")
-    feed_params = FeedRequestParams(request.query_params)
-    data = vars(feed_params)
-    # Remove internal or non-serializable objects if any
-    data.pop("feed_type_sorting", None)
-
-    reason = request.query_params.get("reason", "").strip()[:256]
-
-    # Generate signed token and persist a ShareToken record
-    token = signing.dumps(data, salt="greedybear-feeds")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    ShareToken.objects.get_or_create(
-        token_hash=token_hash,
-        defaults={"user": request.user, "reason": reason},
-    )
-
-    host = request.build_absolute_uri("/")
-    share_url = f"{host}api/feeds/consume/{token}"
-    revoke_url = f"{host}api/feeds/revoke/{token}"
-    return Response({"url": share_url, "revoke_url": revoke_url})
-
-
-@api_view([GET])
-@authentication_classes([])
-@permission_classes([])
-@throttle_classes([SharedFeedRateThrottle])
-def feeds_consume(request, token):
-    """
-    Consume a shared feed using a signed token.
-    This endpoint is publicly accessible but strictly rate-limited.
-
-    Args:
-        request: The incoming request object.
-        token (str): The signed token containing feed configuration.
-
-    Returns:
-        Response: The HTTP response with formatted IOC data in JSON/CSV/TXT/STIX2.1.
-    """
-    logger.info("request /api/feeds/consume with token")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    try:
-        share_token = ShareToken.objects.get(token_hash=token_hash)
-    except ShareToken.DoesNotExist:
-        return Response(
-            {"error": "Invalid or expired token"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if share_token.revoked:
-        return Response(
-            {"error": "Token has been revoked"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    try:
-        data = signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)  # 30 days validity
-    except signing.BadSignature:
-        return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Reconstruct params
-    feed_params = FeedRequestParams(data)
-
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(request, feed_params, valid_feed_types)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types)
-
-
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def feeds_revoke(request, token):
-    """
-    Revoke a previously generated shareable feed token.
-
-    Once revoked, any attempt to consume the feed via that token will return a 400 error.
-    This is intentionally a GET endpoint so the revoke link can be opened directly in a browser.
-    Only the user who created the token (or staff) can revoke it.
-
-    Args:
-        request: The incoming request object.
-        token (str): The raw signed token to revoke.
-
-    Returns:
-        Response: 200 on successful revocation, 400/403 if invalid, expired, or not authorized.
-    """
-    logger.info("request /api/feeds/revoke")
-    try:
-        signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)
-    except signing.BadSignature:
-        return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    try:
-        share_token = ShareToken.objects.get(token_hash=token_hash)
-    except ShareToken.DoesNotExist:
-        return Response({"error": "Token not found. Only the creator can revoke a token."}, status=status.HTTP_403_FORBIDDEN)
-
-    if share_token.user != request.user and not request.user.is_staff:
-        return Response({"error": "You do not have permission to revoke this token."}, status=status.HTTP_403_FORBIDDEN)
-
-    if share_token.revoked:
-        return Response({"detail": "Token was already revoked."}, status=status.HTTP_200_OK)
-    share_token.revoked = True
-    share_token.revoked_at = timezone.now()
-    share_token.save(update_fields=["revoked", "revoked_at"])
-    return Response({"detail": "Token revoked successfully."}, status=status.HTTP_200_OK)
-
-
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def feeds_tokens(request):
-    """
-    List the calling user's share tokens with safe metadata.
-
-    Returns only non-sensitive fields: a truncated hash prefix (first 12 hex
-    chars), the reason label, creation timestamp, and revocation status.
-    The raw token is never stored and therefore cannot be returned.
-
-    Returns:
-        Response: A JSON list of token metadata objects.
-    """
-    logger.info("request /api/feeds/tokens/")
-    tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values(*_TOKEN_LIST_FIELDS)
-    results = [
-        {
-            "hash_prefix": t["token_hash"][:12],
-            "reason": t["reason"],
-            "created_at": t["created_at"],
-            "revoked": t["revoked"],
-            "revoked_at": t["revoked_at"],
+    def get_request_data(self, request, **kwargs):
+        return request.query_params.dict() | {
+            "feed_type": kwargs["feed_type"],
+            "attack_type": kwargs["attack_type"],
+            "prioritize": kwargs["prioritize"],
+            "format": kwargs["format_"],
         }
-        for t in tokens
-    ]
-    return Response(results)
+
+
+class PaginatedFeedView(BaseFeedView):
+    """Public paginated feed endpoint (query params only). Forces JSON output."""
+
+    throttle_classes = [FeedsThrottle]
+    serializer_class = SimpleFeedRequestSerializer
+    pagination_class = CustomPageNumberPagination
+
+    def should_paginate(self, request_data):
+        # this endpoint always paginates
+        return True
+
+    def get_request_data(self, request, **kwargs):
+        # pagination requires JSON response
+        return request.query_params.dict() | {"format": "json"}
+
+
+class AdvancedFeedView(BaseFeedView):
+    """Authenticated advanced feed endpoint with full filtering and optional pagination."""
+
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [FeedsAdvancedThrottle]
+    serializer_class = AdvancedFeedRequestSerializer
+    pagination_class = CustomPageNumberPagination
+    include_sensors = True
+
+    def get_queryset(self):
+        iocs = super().get_queryset()
+
+        # annotate and filter credential count
+        iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
+        if "min_credential_count" in self.feed_params:
+            iocs = iocs.filter(credential_count__gte=self.feed_params["min_credential_count"])
+        if "max_credential_count" in self.feed_params:
+            iocs = iocs.filter(credential_count__lte=self.feed_params["max_credential_count"])
+
+        if self.is_aggregated:
+            return iocs
+
+        if self.feed_params["format"] == "json":
+            iocs = iocs.annotate(
+                sensors_json=ArrayAgg(
+                    JSONObject(address=F("sensors__address"), label=F("sensors__label")),
+                    filter=Q(sensors__isnull=False),
+                    default=Value([]),
+                    distinct=True,
+                )
+            )
+
+        return iocs
+
+
+class AsnFeedView(BaseFeedView):
+    """Authenticated feed endpoint aggregated by ASN. Uses its own render path."""
+
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [FeedsAdvancedThrottle]
+    serializer_class = ASNFeedOrderingSerializer
+    pagination_class = None
+    is_aggregated = True
+
+    def get(self, request, *args, **kwargs):
+        self.feed_params = self.validate_request(request, **kwargs)
+        iocs_qs = self.get_queryset()
+        asn_aggregates = asn_aggregated_queryset(iocs_qs, request, self.feed_params)
+        return Response(list(asn_aggregates))
+
+
+class TokenError(Exception):
+    """Raised when a share token is missing, revoked, or has an invalid signature.
+
+    Caught by ``ConsumeFeedView.get`` to produce the ``{"error": <message>}`` 400
+    response shape the share/consume API contract expects (matching the sibling
+    ``ShareTokenViewSet.revoke``); a plain DRF ``ValidationError`` would instead
+    render as ``{"errors": [...]}``.
+    """
+
+
+class ConsumeFeedView(BaseFeedView):
+    """Public, rate-limited endpoint that consumes a signed share token.
+
+    The token replaces the query string: ``get_request_data`` decodes it into
+    the serializer input, so the shared base flow renders it like any feed.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+    throttle_classes = [SharedFeedRateThrottle]
+    serializer_class = AdvancedFeedRequestSerializer
+
+    def get_request_data(self, request, **kwargs):
+        token = kwargs["token"]
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        try:
+            share_token = ShareToken.objects.get(token_hash=token_hash)
+        except ShareToken.DoesNotExist as exc:
+            raise TokenError("Invalid or expired token") from exc
+        if share_token.revoked:
+            raise TokenError("Token has been revoked")
+        try:
+            return signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)  # 30 days validity
+        except signing.BadSignature as exc:
+            raise TokenError("Invalid or expired token") from exc
+
+    def get(self, request, *args, **kwargs):
+        try:
+            return super().get(request, *args, **kwargs)
+        except TokenError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ShareTokenViewSet(ViewSet):
+    """Create, list and revoke shareable feed tokens.
+
+    Share/revoke are intentionally GET-able so the links can be opened directly
+    in a browser. ``share`` stores the raw query params in the signed token so
+    ``FeedsConsumeView`` can replay them through ``AdvancedFeedRequestSerializer``.
+    """
+
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def share(self, request):
+        safe_params = {k: v for k, v in request.query_params.items() if k != "reason"}
+        logger.info(f"request /api/feeds/share with params: {safe_params}")
+        data = request.query_params.dict()
+        data.pop("reason", None)
+        reason = request.query_params.get("reason", "").strip()[:256]
+
+        token = signing.dumps(data, salt="greedybear-feeds")
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        ShareToken.objects.get_or_create(
+            token_hash=token_hash,
+            defaults={"user": request.user, "reason": reason},
+        )
+        host = request.build_absolute_uri("/")
+        return Response(
+            {
+                "url": f"{host}api/feeds/consume/{token}",
+                "revoke_url": f"{host}api/feeds/revoke/{token}",
+            }
+        )
+
+    def revoke(self, request, token):
+        logger.info("request /api/feeds/revoke")
+        try:
+            signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)
+        except signing.BadSignature:
+            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        try:
+            share_token = ShareToken.objects.get(token_hash=token_hash)
+        except ShareToken.DoesNotExist:
+            return Response({"error": "Token not found. Only the creator can revoke a token."}, status=status.HTTP_403_FORBIDDEN)
+
+        if share_token.user != request.user and not request.user.is_staff:
+            return Response({"error": "You do not have permission to revoke this token."}, status=status.HTTP_403_FORBIDDEN)
+
+        if share_token.revoked:
+            return Response({"detail": "Token was already revoked."}, status=status.HTTP_200_OK)
+        share_token.revoked = True
+        share_token.revoked_at = timezone.now()
+        share_token.save(update_fields=["revoked", "revoked_at"])
+        return Response({"detail": "Token revoked successfully."}, status=status.HTTP_200_OK)
+
+    def list_tokens(self, request):
+        logger.info("request /api/feeds/tokens/")
+        tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values(*_TOKEN_LIST_FIELDS)
+        results = [
+            {
+                "hash_prefix": t["token_hash"][:12],
+                "reason": t["reason"],
+                "created_at": t["created_at"],
+                "revoked": t["revoked"],
+                "revoked_at": t["revoked_at"],
+            }
+            for t in tokens
+        ]
+        return Response(results)

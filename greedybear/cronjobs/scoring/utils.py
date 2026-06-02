@@ -4,7 +4,7 @@ from functools import cache
 import numpy as np
 import pandas as pd
 
-from api.views.utils import FeedRequestParams, feeds_response
+from api.views.utils import feeds_response
 from greedybear.cronjobs.repositories import IocRepository
 
 
@@ -138,8 +138,6 @@ def serialize_iocs(iocs: list[dict]) -> list[dict]:
     """
     return feeds_response(
         iocs=iocs,
-        feed_params=FeedRequestParams({}),  # using defaults from FeedRequestParams
-        valid_feed_types={},  # not required as check is skipped due to the verbose argument
         dict_only=True,
         verbose=True,
     )["iocs"]
