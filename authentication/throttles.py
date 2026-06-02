@@ -2,6 +2,8 @@ from rest_framework.throttling import SimpleRateThrottle
 
 
 class LoginIPThrottle(SimpleRateThrottle):
+    """Rate-limit login attempts from the same IP address."""
+
     scope = "login"
 
     def get_cache_key(self, request, view):
@@ -12,6 +14,8 @@ class LoginIPThrottle(SimpleRateThrottle):
 
 
 class LoginIdentifierThrottle(SimpleRateThrottle):
+    """Rate-limit login attempts against the same username or email."""
+
     scope = "login"
 
     def get_cache_key(self, request, view):
