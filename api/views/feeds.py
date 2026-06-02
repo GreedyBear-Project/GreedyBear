@@ -2,44 +2,43 @@
 # See the file 'LICENSE' for copying permission.
 import hashlib
 import logging
-from abc import ABCMeta
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication  # ty:ignore[unresolved-import]
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
-from django.db.models import Count, F, Q, Value
+from django.db.models import Count, F, Q, QuerySet, Value
 from django.db.models.functions import JSONObject
+from django.http import HttpResponseBase
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from api.filters import FeedsFilterSet
+from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedTextRenderer, Stix21Renderer
 from api.serializers import AdvancedFeedRequestSerializer, ASNFeedOrderingSerializer, SimpleFeedRequestSerializer
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
-    asn_aggregated_queryset,
-    feeds_response,
+    aggregate_iocs_by_asn,
+    build_feed_dict,
     save_request_source,
 )
 from greedybear.models import IOC, ShareToken
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_UNAUTHENTICATED_QUERY_PARAMS = [
-    "feed_type",
-    "attack_type",
-    "ioc_type",
-    "ordering",
-    "include_mass_scanners",
-    "include_tor_exit_nodes",
-    "prioritize",
-]
+RENDERERS_BY_FORMAT = {
+    "json": FeedJSONRenderer,
+    "txt": FeedTextRenderer,
+    "csv": FeedCSVRenderer,
+    "stix21": Stix21Renderer,
+}
 
-_TOKEN_LIST_FIELDS = (
+TOKEN_LIST_FIELDS = (
     "token_hash",
     "reason",
     "created_at",
@@ -48,60 +47,72 @@ _TOKEN_LIST_FIELDS = (
 )
 
 
-class BaseFeedView(APIView, metaclass=ABCMeta):
-    """Shared GET flow: validate request params via ``serializer_class``, build
-    the IOC queryset, and render with ``feeds_response`` (paginating when asked).
+class BaseFeedView(APIView):
+    """Shared GET flow:
+    validate request params, build the IOC queryset and render (paginating when asked).
 
-    Subclasses are typically attribute-only. They set ``serializer_class`` (and
-    the usual DRF class attributes: ``throttle_classes``,
-    ``authentication_classes``, ``permission_classes``) plus the feed-specific
-    toggles below, and may override ``get_request_data`` to merge path
-    parameters or token-derived data into the serializer input.
+    Subclasses represent the actual endpoints and are typically attribute-only.
+    They set the usual DRF class attributes and the feed-specific toggles
+    overriding the defaults below.
     """
 
+    # ACCESS CONTROL
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [AllowAny]
     throttle_classes = [FeedsThrottle]
+    renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer]
+
+    # REQUEST HANDLING
     serializer_class = None
     pagination_class = None
-    include_sensors = False
-    include_credential_count = False
-    # ASN feed disables slicing + model-level ordering (needs all rows to aggregate).
-    is_aggregated = False
-    # validated request params, set by get() before get_queryset() runs.
-    feed_params = None
 
-    def get_request_data(self, request, **kwargs):
-        """Raw input mapping handed to the serializer. Defaults to the query
-        params; override to merge path parameters or token data."""
+    # QUERYSET SHAPE
+    include_sensors = False
+    is_aggregated = False
+
+    # VALIDATED REQUEST PARAMETERS - populated in get()
+    request_params = None
+
+    # OUTPUT SHAPE - set dynamically, depending on the requested format
+    build_feed_envelope = False
+
+    def get_request_data(self, request, **kwargs) -> dict:
+        """Raw input mapping handed to the serializer.
+        Defaults to the query params.
+        Override to merge path parameters or token data."""
         return request.query_params.dict()
 
-    def validate_request(self, request, **kwargs):
+    def validate_request(self, request: Request, **kwargs) -> dict:
+        """Run the request data through a serializer and return the validated params,
+        raising ValidationError (HTTP 400) on bad input."""
         serializer = self.serializer_class(data=self.get_request_data(request, **kwargs))
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
-    def should_paginate(self, request_data):
-        """Whether to paginate this response. Requires a ``pagination_class`` and,
-        by default, the validated ``paginate`` flag. Override to always paginate."""
+    def should_paginate(self, request_data: dict) -> bool:
+        """Whether to paginate this response.
+        Requires a pagination_class and the validated paginate flag."""
         return self.pagination_class is not None and request_data.get("paginate", False)
 
-    def get_queryset(self):
-        """Build the IOC queryset from the validated params (``self.feed_params``)
-        and ``self.request``. Replaces the module-level
-        ``api.views.utils.get_queryset`` (API_refactor.md 2.2).
+    def get_renderer_context(self) -> dict:
+        """Publish the render-time flags the feed renderers need, so they read
+        explicit context keys instead of reaching into view internals."""
+        context = super().get_renderer_context()
+        context["verbose"] = (self.request_params or {}).get("verbose", False)
+        context["include_sensors"] = self.include_sensors
+        context["build_feed_envelope"] = self.build_feed_envelope
+        return context
 
-        Field → ORM filtering is delegated to ``FeedsFilterSet`` (2.3); this
-        method owns what isn't a plain field lookup.
-        """
+    def get_queryset(self) -> QuerySet:
+        """Build the IOC queryset from the validated request parameters."""
         iocs = IOC.objects.annotate(value=F("name"))
-        iocs = FeedsFilterSet(self.feed_params, queryset=iocs, request=self.request).qs
+        iocs = FeedsFilterSet(self.request_params, queryset=iocs, request=self.request).qs
 
-        # exclude specific reputations
-        iocs = iocs.exclude(ip_reputation__in=self.feed_params.get("exclude_reputation", [])).distinct()
+        iocs = iocs.exclude(ip_reputation__in=self.request_params.get("exclude_reputation", [])).distinct()
 
-        # apply feed type filter
-        if "all" not in self.feed_params["feed_type"]:
+        if "all" not in self.request_params["feed_type"]:
             type_filter = Q()
-            for ft in self.feed_params["feed_type"]:
+            for ft in self.request_params["feed_type"]:
                 type_filter |= Q(honeypots__name__iexact=ft)
             iocs = iocs.filter(type_filter)
 
@@ -110,9 +121,7 @@ class BaseFeedView(APIView, metaclass=ABCMeta):
 
         iocs = iocs.filter(honeypots__active=True)
         iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
-        # Only annotate tags metadata when the response format needs it (e.g. JSON),
-        # to avoid unnecessary joins and aggregation work for txt/csv feeds.
-        if self.feed_params["format"] == "json":
+        if self.request_params["format"] == "json":
             iocs = iocs.annotate(
                 tags_json=ArrayAgg(
                     JSONObject(key=F("tags__key"), value=F("tags__value"), source=F("tags__source")),
@@ -123,34 +132,50 @@ class BaseFeedView(APIView, metaclass=ABCMeta):
             )
         return iocs
 
-    def sort_and_slice_queryset(self, qs):
+    def sort_and_slice_queryset(self, qs: QuerySet) -> QuerySet:
+        """Apply the requested ordering and cap the result at feed_size.
+        Aggregated views are returned untouched."""
         if self.is_aggregated:
             return qs
-        return qs.order_by(self.feed_params["ordering"])[: self.feed_params["feed_size"]]
+        return qs.order_by(self.request_params["ordering"])[: self.request_params["feed_size"]]
 
-    def get(self, request, *args, **kwargs):
-        self.feed_params = self.validate_request(request, **kwargs)
+    def render_response(self, request: Request, iocs_queryset: QuerySet) -> HttpResponseBase:
+        """Select the renderer for the validated format and hand it the prepared data."""
+        if self.should_paginate(self.request_params):
+            verbose = self.request_params.get("verbose", False)
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(iocs_queryset, request)
+            resp_data = build_feed_dict(page, verbose=verbose, include_sensors=self.include_sensors)
+            request.accepted_renderer = FeedJSONRenderer()
+            request.accepted_media_type = FeedJSONRenderer.media_type
+            return paginator.get_paginated_response(resp_data)
+
+        # Hand the raw queryset to the renderer and flag it for envelope shaping.
+        # Set only here so error/exception responses (which bypass render_response)
+        # and the pre-built paginated/ASN payloads are left as plain JSON.
+        renderer = RENDERERS_BY_FORMAT[self.request_params["format"]]()
+        request.accepted_renderer = renderer
+        request.accepted_media_type = renderer.media_type
+        self.build_feed_envelope = True
+        return Response(iocs_queryset)
+
+    def get(self, request: Request, *args, **kwargs) -> HttpResponseBase:
+        """Validate the request, build and sort the IOC queryset,
+        render it in the requested format, and optionally paginate."""
+        self.request_params = self.validate_request(request, **kwargs)
         iocs_queryset = self.get_queryset()
         iocs_queryset = self.sort_and_slice_queryset(iocs_queryset)
         save_request_source(request)
-        verbose = self.feed_params.get("verbose", False)
-        if self.should_paginate(self.feed_params):
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(iocs_queryset, request)
-            resp_data = feeds_response(request, page, self.feed_params["format"], dict_only=True, verbose=verbose, include_sensors=self.include_sensors)
-            return paginator.get_paginated_response(resp_data)
-        return feeds_response(request, iocs_queryset, self.feed_params["format"], verbose=verbose, include_sensors=self.include_sensors)
+        return self.render_response(request, iocs_queryset)
 
 
 class SimpleFeedView(BaseFeedView):
     """Public feed endpoint with path parameters:
-    ``feeds/<feed_type>/<attack_type>/<prioritize>.<format_>``."""
+    /feeds/<feed_type>/<attack_type>/<prioritize>.<format_>"""
 
-    throttle_classes = [FeedsThrottle]
     serializer_class = SimpleFeedRequestSerializer
-    pagination_class = None
 
-    def get_request_data(self, request, **kwargs):
+    def get_request_data(self, request: Request, **kwargs) -> dict:
         return request.query_params.dict() | {
             "feed_type": kwargs["feed_type"],
             "attack_type": kwargs["attack_type"],
@@ -162,43 +187,42 @@ class SimpleFeedView(BaseFeedView):
 class PaginatedFeedView(BaseFeedView):
     """Public paginated feed endpoint (query params only). Forces JSON output."""
 
-    throttle_classes = [FeedsThrottle]
     serializer_class = SimpleFeedRequestSerializer
     pagination_class = CustomPageNumberPagination
 
-    def should_paginate(self, request_data):
-        # this endpoint always paginates
+    def should_paginate(self, request_data: dict) -> bool:
+        """This endpoint always paginates."""
         return True
 
-    def get_request_data(self, request, **kwargs):
-        # pagination requires JSON response
+    def get_request_data(self, request: Request, **kwargs) -> dict:
+        """Pagination requires JSON response."""
         return request.query_params.dict() | {"format": "json"}
 
 
 class AdvancedFeedView(BaseFeedView):
     """Authenticated advanced feed endpoint with full filtering and optional pagination."""
 
-    authentication_classes = [CookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [FeedsAdvancedThrottle]
     serializer_class = AdvancedFeedRequestSerializer
     pagination_class = CustomPageNumberPagination
     include_sensors = True
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet:
+        """Overrides base class to include credential count
+        and sensor information."""
         iocs = super().get_queryset()
 
-        # annotate and filter credential count
         iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
-        if "min_credential_count" in self.feed_params:
-            iocs = iocs.filter(credential_count__gte=self.feed_params["min_credential_count"])
-        if "max_credential_count" in self.feed_params:
-            iocs = iocs.filter(credential_count__lte=self.feed_params["max_credential_count"])
+        if "min_credential_count" in self.request_params:
+            iocs = iocs.filter(credential_count__gte=self.request_params["min_credential_count"])
+        if "max_credential_count" in self.request_params:
+            iocs = iocs.filter(credential_count__lte=self.request_params["max_credential_count"])
 
         if self.is_aggregated:
             return iocs
 
-        if self.feed_params["format"] == "json":
+        if self.request_params["format"] == "json":
             iocs = iocs.annotate(
                 sensors_json=ArrayAgg(
                     JSONObject(address=F("sensors__address"), label=F("sensors__label")),
@@ -212,20 +236,27 @@ class AdvancedFeedView(BaseFeedView):
 
 
 class AsnFeedView(BaseFeedView):
-    """Authenticated feed endpoint aggregated by ASN. Uses its own render path."""
+    """Authenticated feed endpoint aggregated by ASN.
 
-    authentication_classes = [CookieTokenAuthentication]
+    Reuses the shared base flow (validation, queryset building, statistics
+    recording) and only swaps the render step for the ASN aggregation.
+    """
+
     permission_classes = [IsAuthenticated]
     throttle_classes = [FeedsAdvancedThrottle]
     serializer_class = ASNFeedOrderingSerializer
-    pagination_class = None
     is_aggregated = True
 
-    def get(self, request, *args, **kwargs):
-        self.feed_params = self.validate_request(request, **kwargs)
-        iocs_qs = self.get_queryset()
-        asn_aggregates = asn_aggregated_queryset(iocs_qs, request, self.feed_params)
-        return Response(list(asn_aggregates))
+    def get_queryset(self) -> QuerySet:
+        """Filter the base IOC queryset by the validated ASN, when provided."""
+        iocs = super().get_queryset()
+        asn = self.request_params.get("asn")
+        if asn:
+            iocs = iocs.filter(autonomous_system__asn=asn)
+        return iocs
+
+    def render_response(self, request: Request, iocs_queryset: QuerySet) -> Response:
+        return Response(aggregate_iocs_by_asn(iocs_queryset, self.request_params["ordering"]))
 
 
 class TokenError(Exception):
@@ -241,16 +272,14 @@ class TokenError(Exception):
 class ConsumeFeedView(BaseFeedView):
     """Public, rate-limited endpoint that consumes a signed share token.
 
-    The token replaces the query string: ``get_request_data`` decodes it into
+    The token replaces the query string: get_request_data decodes it into
     the serializer input, so the shared base flow renders it like any feed.
     """
-
     authentication_classes = []
-    permission_classes = []
     throttle_classes = [SharedFeedRateThrottle]
     serializer_class = AdvancedFeedRequestSerializer
 
-    def get_request_data(self, request, **kwargs):
+    def get_request_data(self, request: Request, **kwargs) -> dict:
         token = kwargs["token"]
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         try:
@@ -264,7 +293,7 @@ class ConsumeFeedView(BaseFeedView):
         except signing.BadSignature as exc:
             raise TokenError("Invalid or expired token") from exc
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request: Request, *args, **kwargs) -> HttpResponseBase:
         try:
             return super().get(request, *args, **kwargs)
         except TokenError as exc:
@@ -275,14 +304,13 @@ class ShareTokenViewSet(ViewSet):
     """Create, list and revoke shareable feed tokens.
 
     Share/revoke are intentionally GET-able so the links can be opened directly
-    in a browser. ``share`` stores the raw query params in the signed token so
-    ``FeedsConsumeView`` can replay them through ``AdvancedFeedRequestSerializer``.
+    in a browser. Share stores the raw query params in the signed token so
+    FeedsConsumeView can replay them through AdvancedFeedRequestSerializer.
     """
 
-    authentication_classes = [CookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def share(self, request):
+    def share(self, request: Request) -> Response:
         safe_params = {k: v for k, v in request.query_params.items() if k != "reason"}
         logger.info(f"request /api/feeds/share with params: {safe_params}")
         data = request.query_params.dict()
@@ -303,7 +331,7 @@ class ShareTokenViewSet(ViewSet):
             }
         )
 
-    def revoke(self, request, token):
+    def revoke(self, request: Request, token: str) -> Response:
         logger.info("request /api/feeds/revoke")
         try:
             signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)
@@ -326,9 +354,9 @@ class ShareTokenViewSet(ViewSet):
         share_token.save(update_fields=["revoked", "revoked_at"])
         return Response({"detail": "Token revoked successfully."}, status=status.HTTP_200_OK)
 
-    def list_tokens(self, request):
+    def list_tokens(self, request: Request) -> Response:
         logger.info("request /api/feeds/tokens/")
-        tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values(*_TOKEN_LIST_FIELDS)
+        tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values(*TOKEN_LIST_FIELDS)
         results = [
             {
                 "hash_prefix": t["token_hash"][:12],
