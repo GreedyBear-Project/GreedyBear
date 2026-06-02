@@ -78,7 +78,7 @@ class TestUserAuth(CustomOAuthTestCase):
         cache.clear()
         body = {**self.creds}
 
-        with patch.object(LoginIPThrottle, "THROTTLE_RATES", {"auth_login_ip": "1/minute"}):
+        with patch.object(LoginIPThrottle, "THROTTLE_RATES", {"login": "1/minute"}):
             response_1 = self.client.post(login_uri, body)
             response_2 = self.client.post(login_uri, body)
         cache.clear()
@@ -92,7 +92,7 @@ class TestUserAuth(CustomOAuthTestCase):
         client_2 = APIClient(REMOTE_ADDR="203.0.113.10")
         body = {**self.creds}
 
-        with patch.object(LoginIdentifierThrottle, "THROTTLE_RATES", {"auth_login_identifier": "1/minute"}):
+        with patch.object(LoginIdentifierThrottle, "THROTTLE_RATES", {"login": "1/minute"}):
             response_1 = client_1.post(login_uri, body)
             response_2 = client_2.post(login_uri, {"username": self.creds["username"].upper(), "password": body["password"]})
         cache.clear()
