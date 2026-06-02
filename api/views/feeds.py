@@ -275,6 +275,7 @@ class ConsumeFeedView(BaseFeedView):
     The token replaces the query string: get_request_data decodes it into
     the serializer input, so the shared base flow renders it like any feed.
     """
+
     authentication_classes = []
     throttle_classes = [SharedFeedRateThrottle]
     serializer_class = AdvancedFeedRequestSerializer

@@ -28,12 +28,14 @@ PRIORITIZATION_PRESETS = {
     "most_expected_hits": {"max_age": 30, "min_days_seen": 1, "ordering": "-expected_interactions"},
 }
 
+
 class FeedTypeField(serializers.CharField):
     """CharField for the feed_type query parameter.
     Accepts a single value or a comma-separated list of strings.
     Although the field is exposed as as CharField,
     the internal representation is always a list.
     """
+
     def to_internal_value(self, data: str) -> list[str]:
         feed_type_str = super().to_internal_value(data)
         logger.debug(f"Validating feed_type: {feed_type_str}")
@@ -59,19 +61,20 @@ class PresenceFlagField(serializers.BooleanField):
     Makes sure that a valueless query param such as include_mass_scanners
     is treated as truthy.
     """
+
     TRUE_VALUES = serializers.BooleanField.TRUE_VALUES | {""}
 
 
 class ReputationListField(serializers.ListField):
     """ListField for the include_reputation and exclude_reputation query params.
-    Takes a query string that contains ``;``-separated values 
+    Takes a query string that contains ``;``-separated values
     and represents it as a list.
     """
+
     def to_internal_value(self, data: str) -> list[str]:
         logger.debug(f"Converting reputation list: {data}")
         reputations = data.split(";") if data else []
         return super().to_internal_value(reputations)
-
 
 
 class BaseFeedRequestSerializer(serializers.Serializer):
@@ -82,6 +85,7 @@ class BaseFeedRequestSerializer(serializers.Serializer):
     Not used directly as an endpoint serializer;
     subclasses add their own fields and validation logic.
     """
+
     feed_type = FeedTypeField(default="all")
     attack_type = serializers.ChoiceField(choices=["scanner", "payload_request", "all"], default="all")
     ioc_type = serializers.ChoiceField(choices=["ip", "domain", "all"], default="all")
@@ -101,8 +105,7 @@ class BaseFeedRequestSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate_ordering(self, ordering: str) -> str:
-        """Validate ordering against the IOC model fields and return it normalized.
-        """
+        """Validate ordering against the IOC model fields and return it normalized."""
         logger.debug(f"Validating ordering: {ordering}")
         if not ordering:
             raise serializers.ValidationError("Invalid ordering: <empty string>")
@@ -121,10 +124,11 @@ class SimpleFeedRequestSerializer(BaseFeedRequestSerializer):
     and expands them into the full parameter set the views consume
     using presets and default fallbacks.
     """
+
     prioritize = serializers.ChoiceField(choices=["recent", "persistent", "likely_to_recur", "most_expected_hits"], default="recent")
     include_mass_scanners = PresenceFlagField(default=False)
     include_tor_exit_nodes = PresenceFlagField(default=False)
-    ordering = serializers.CharField(required=False) # allows explicit override of the ordering in PRIORITIZATION_PRESETS
+    ordering = serializers.CharField(required=False)  # allows explicit override of the ordering in PRIORITIZATION_PRESETS
 
     def validate(self, data: dict) -> dict:
         logger.debug("Validating simple feed request")
@@ -148,6 +152,7 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     Exposes the full set of filtering, scoring and pagination parameters directly,
     taking default fallback values from FEED_DEFAULTS.
     """
+
     max_age = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["max_age"])
     min_days_seen = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["min_days_seen"])
     feed_size = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["feed_size"])
@@ -184,6 +189,7 @@ class ASNFeedOrderingSerializer(AdvancedFeedRequestSerializer):
     Same parameters as the advanced feed, but restricts ordering to the
     aggregate fields in ALLOWED_ORDERING_FIELDS rather than IOC model fields.
     """
+
     ALLOWED_ORDERING_FIELDS = frozenset(
         {
             "asn",

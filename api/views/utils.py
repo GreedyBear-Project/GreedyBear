@@ -239,11 +239,7 @@ def _asn_honeypot_lookup(with_asn) -> dict:
 
     Returns: A dict mapping ASN -> sorted-ready list of active honeypot names.
     """
-    rows = (
-        with_asn.filter(honeypots__active=True)
-        .values(asn=F("autonomous_system__asn"))
-        .annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
-    )
+    rows = with_asn.filter(honeypots__active=True).values(asn=F("autonomous_system__asn")).annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
     return {row["asn"]: row["honeypot_names"] or [] for row in rows}
 
 
