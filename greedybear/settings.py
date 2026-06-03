@@ -251,6 +251,11 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.db.DatabaseCache",
         "LOCATION": "greedybear_cache",
     },
+    "api": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "greedybear_api_cache",
+        "OPTIONS": {"MAX_ENTRIES": 1000, "CULL_FREQUENCY": 4},
+    },
 }
 
 AUTH_USER_MODEL = "certego_saas_user.User"  # custom user model
