@@ -1,7 +1,9 @@
-from django.core.cache import cache, caches
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.models import IOC, AutonomousSystem, Honeypot
 from tests import CustomTestCase
 
@@ -65,7 +67,8 @@ class FeedsASNViewTestCase(CustomTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
-        caches["django-q"].clear()
+        self.cache = Cache(API_CACHE_ALIAS)
+        self.cache.clear()
         self.client = APIClient()
         self.client.force_authenticate(user=self.superuser)
         self.url = "/api/feeds/asn/"
@@ -228,7 +231,7 @@ class FeedsASNViewTestCase(CustomTestCase):
     def test_asn_feed_caching_behavior(self):
         """
         Verify that identical requests to the ASN feed return cached results,
-        and that invalidating the 'asn_feeds_version' forces a re-computation.
+        and that bumping the IOC data version forces a re-computation.
         """
         # 1. First request computes and caches the result
         response1 = self.client.get(self.url)
@@ -250,11 +253,7 @@ class FeedsASNViewTestCase(CustomTestCase):
         self.assertEqual(high_item1["total_attack_count"], high_item2["total_attack_count"])
 
         # 4. Invalidate the cache (simulate extraction cronjob behavior)
-        shared_cache = caches["django-q"]
-        try:
-            shared_cache.incr("asn_feeds_version")
-        except ValueError:
-            shared_cache.set("asn_feeds_version", 2, timeout=None)
+        self.cache.bump_data_version(IOC_DATA_VERSION_KEY)
 
         # 5. Third request should re-compute and show UPDATED DB value
         response3 = self.client.get(self.url)
