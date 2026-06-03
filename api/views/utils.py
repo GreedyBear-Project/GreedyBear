@@ -1,15 +1,13 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
-import hashlib
 import logging
-import urllib.parse
 from datetime import timedelta
 
 import feedparser
 import requests
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.core.cache import cache, caches
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, F, Max, Min, Sum
 from stix2 import Bundle, ExternalReference, Indicator
@@ -277,45 +275,6 @@ def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
     hp_lookup = _asn_honeypot_lookup(with_asn)
 
     return [{**row, "honeypots": sorted(hp_lookup.get(row["asn"], []))} for row in numeric_agg]
-
-
-def asn_aggregated_queryset(iocs_qs, request, feed_params):
-    """
-    Caching wrapper around aggregate_iocs_by_asn. Caches the heavy aggregation
-    query since the data only updates during the extraction cronjob.
-
-    Args
-        iocs_qs (QuerySet): Filtered IOC queryset from get_queryset;
-        request (Request): The API request object;
-        feed_params (dict): Validated request parameters (serializer validated_data)
-
-    Returns: A list of dicts with aggregated metrics and honeypot arrays per ASN.
-    """
-
-    # Build reliable cache key from query params
-    sorted_params = sorted(request.query_params.lists())
-    params_string = urllib.parse.urlencode(sorted_params, doseq=True)
-    param_hash = hashlib.sha256(params_string.encode("utf-8")).hexdigest()
-
-    # To prevent per-worker continuous RAM bloat, use the shared DB-backed cache
-    # instead of the default LocMemCache, since the JSON response size can be large.
-    # The extraction pipeline invalidates this cache by bumping the version counter.
-    shared_cache = caches["django-q"]
-    version = shared_cache.get("asn_feeds_version", 1)
-    cache_key = f"asn_feeds_v{version}_{param_hash}"
-
-    cached_result = shared_cache.get(cache_key)
-    if cached_result is not None:
-        return cached_result
-
-    # ASN filtering and the aggregate ordering default are applied upstream
-    # (AsnFeedView.get_queryset and ASNFeedOrderingSerializer respectively).
-    result = aggregate_iocs_by_asn(iocs_qs, feed_params["ordering"])
-
-    # Set cache with a 60-minute timeout (max extraction interval length) to prevent memory bloat
-    shared_cache.set(cache_key, result, timeout=3600)
-
-    return result
 
 
 def get_greedybear_news() -> list[dict]:
