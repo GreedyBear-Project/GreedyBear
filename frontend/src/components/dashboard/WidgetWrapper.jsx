@@ -91,16 +91,14 @@ function SafeWidgetWrapper({
   children,
 }) {
   return (
-    <WidgetErrorBoundary widgetId={id}>
-      <WidgetWrapper
-        id={id}
-        header={header}
-        minHeight={minHeight}
-        fillHeight={fillHeight}
-      >
-        {children}
-      </WidgetWrapper>
-    </WidgetErrorBoundary>
+    <WidgetWrapper
+      id={id}
+      header={header}
+      minHeight={minHeight}
+      fillHeight={fillHeight}
+    >
+      <WidgetErrorBoundary widgetId={id}>{children}</WidgetErrorBoundary>
+    </WidgetWrapper>
   );
 }
 
