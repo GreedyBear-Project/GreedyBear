@@ -44,6 +44,9 @@ export const AreaChartWidget = React.memo(({ url, colorMap, start, end }) => {
     () => ({
       url,
       accessorFnAggregation: (d) => d,
+      composedChartProps: {
+        chartProps: { margin: { top: 0, right: 0, left: 0, bottom: 0 } },
+      },
       componentsFn: () =>
         Object.entries(colorMap)
           .slice(start, end)
@@ -114,6 +117,9 @@ export const FeedsTypesChart = React.memo(() => {
     () => ({
       url: FEEDS_STATISTICS_TYPES_URI,
       accessorFnAggregation: (d) => d,
+      composedChartProps: {
+        chartProps: { margin: { top: 0, right: 0, left: 0, bottom: 0 } },
+      },
       componentsFn: (respData) => {
         console.debug("respData", respData);
         if (!respData || !respData?.length) return null;
