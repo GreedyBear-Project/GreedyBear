@@ -63,5 +63,10 @@ RSS_FEED_URL = "https://greedybear-project.github.io/feed.xml"
 CACHE_KEY_GREEDYBEAR_NEWS = "greedybear_news"
 CACHE_TIMEOUT_SECONDS = 60 * 60
 
+# API response cache (see greedybear/cache.py and api/caching.py).
+API_CACHE_ALIAS = "api"
+API_CACHE_TIMEOUT_SECONDS = 60 * 60
+IOC_DATA_VERSION_KEY = "ioc_data_version"
+
 # tracking application start time
 START_TIME = time.time()
