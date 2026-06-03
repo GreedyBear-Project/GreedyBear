@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
+from api.caching import CachedResponseMixin
 from api.filters import FeedsFilterSet
 from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedTextRenderer, Stix21Renderer
 from api.serializers import AdvancedFeedRequestSerializer, ASNFeedOrderingSerializer, SimpleFeedRequestSerializer
@@ -47,13 +48,16 @@ TOKEN_LIST_FIELDS = (
 )
 
 
-class BaseFeedView(APIView):
+class BaseFeedView(CachedResponseMixin, APIView):
     """Shared GET flow:
     validate request params, build the IOC queryset and render (paginating when asked).
 
     Subclasses represent the actual endpoints and are typically attribute-only.
     They set the usual DRF class attributes and the feed-specific toggles
     overriding the defaults below.
+
+    Responses are cached via CachedResponseMixin
+    The extraction pipeline invalidates them on every run.
     """
 
     # ACCESS CONTROL
@@ -75,6 +79,9 @@ class BaseFeedView(APIView):
 
     # OUTPUT SHAPE - set dynamically, depending on the requested format
     build_feed_envelope = False
+
+    # RESPONSE CACHING - do not override in subclasses
+    cache_namespace = "feeds"
 
     def get_request_data(self, request, **kwargs) -> dict:
         """Raw input mapping handed to the serializer.
@@ -163,9 +170,12 @@ class BaseFeedView(APIView):
         """Validate the request, build and sort the IOC queryset,
         render it in the requested format, and optionally paginate."""
         self.request_params = self.validate_request(request, **kwargs)
+        save_request_source(request)
+        cached_response = self.get_cached_response()
+        if cached_response is not None:
+            return cached_response
         iocs_queryset = self.get_queryset()
         iocs_queryset = self.sort_and_slice_queryset(iocs_queryset)
-        save_request_source(request)
         return self.render_response(request, iocs_queryset)
 
 
