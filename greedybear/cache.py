@@ -11,6 +11,7 @@ def build_versioned_key(namespace: str, version: int, material: str) -> str:
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
     return f"{namespace}_v{version}_{digest}"
 
+
 class Cache:
     """Thin wrapper around a named Django cache backend that adds data versioning."""
 
@@ -45,6 +46,3 @@ class Cache:
             cache.incr(version_key)
         except ValueError:
             cache.set(version_key, 2, timeout=None)
-
-
-
