@@ -8,6 +8,8 @@ from api.views import (
     command_sequence_view,
     cowrie_session_view,
     enrichment_view,
+    event_status_view,
+    events_create_view,
     feeds,
     feeds_advanced,
     feeds_asn,
@@ -43,6 +45,8 @@ urlpatterns = [
     path("news/", news_view),
     path("health/", health_view),
     path("sensor/", sensor_create_view),
+    path("events/", events_create_view),
+    path("event/<str:task_id>/status/", event_status_view),
     # router viewsets
     path("", include(router.urls)),
     # certego_saas:

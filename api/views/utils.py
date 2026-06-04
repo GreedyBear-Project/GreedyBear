@@ -4,6 +4,7 @@ import csv
 import hashlib
 import logging
 import urllib.parse
+import uuid
 from datetime import datetime, timedelta
 
 import feedparser
@@ -22,7 +23,7 @@ from stix2 import Bundle, ExternalReference, Indicator
 from api.serializers import FeedsRequestSerializer, parse_feed_types
 from greedybear.consts import CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, AutonomousSystem, Honeypot, Sensor, SourceType, Statistics
+from greedybear.models import IOC, AutonomousSystem, EventStatus, Honeypot, RawEvent, Sensor, SourceType, Statistics
 from greedybear.utils import is_ip_address, is_valid_domain
 
 logger = logging.getLogger(__name__)
@@ -686,3 +687,69 @@ def create_or_get_sensor(*, api_source, validated_data):
     )
 
     return sensor, created
+
+
+def _bulk_create_raw_events(events_data, batch, api_source):
+    """
+    Bulk-insert RawEvent rows in chunks
+    Returns the number of rows created.
+    """
+    chunk_size = 1000
+
+    # Prefetch all sensors in one query
+    sensor_ids = {e["sensor_id"] for e in events_data if "sensor_id" in e}
+    sensors_by_id = {s.id: s for s in Sensor.objects.filter(id__in=sensor_ids, api_source=api_source)}
+
+    raw_events = []
+
+    for event in events_data:
+        sensor_id = event.get("sensor_id")
+        sensor = sensors_by_id.get(sensor_id)
+
+        if sensor is None:
+            logger.warning(
+                "sensor_id=%s not found or not owned by api_source=%s",
+                sensor_id,
+                api_source.id,
+            )
+            continue
+
+        # creating a shallow copy (protects the original data from side effects)
+        event_fields = event.copy()
+
+        # safely remove 'sensor_id' so it doesn't break ** unpacking
+        if "sensor_id" in event_fields:
+            del event_fields["sensor_id"]
+
+        raw_events.append(RawEvent(sensor=sensor, batch=batch, **event_fields))
+
+    total = 0
+    try:
+        for i in range(0, len(raw_events), chunk_size):
+            chunk = raw_events[i : i + chunk_size]
+            RawEvent.objects.bulk_create(chunk)
+            total += len(chunk)
+    except Exception:
+        logger.exception(f"Database error during bulk-insert for batch {batch.task_id}")
+        return total
+
+    return total
+
+
+@transaction.atomic
+def create_batch_and_events(events_data, api_source):
+    tracking_id = uuid.uuid4().hex
+
+    batch = EventStatus.objects.create(
+        api_source=api_source,
+        task_id=tracking_id,
+        status="pending",
+    )
+
+    total_created = _bulk_create_raw_events(
+        events_data,
+        batch,
+        api_source,
+    )
+
+    return batch, total_created
