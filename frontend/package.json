@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@greedybear/gb-ui": "github:GreedyBear-Project/gb-ui#1.0.0",
-    "@vnedyalk0v/react19-simple-maps": "^2.0.7",
+    "@vnedyalk0v/react19-simple-maps": "^2.0.9",
     "axios": "^1.17.0",
     "axios-hooks": "^5.1.1",
     "bootstrap": ">=5.3.8",
