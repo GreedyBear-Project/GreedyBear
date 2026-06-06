@@ -167,9 +167,6 @@ def is_valid_url(url):
         if not parsed.netloc:
             return False
 
-        if parsed.scheme in {"javascript", "data", "file"}:
-            return False
-
         if parsed.netloc.strip() == "":
             return False
 
