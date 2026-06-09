@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from api.serializers import InjectionSerializer
-from api.views.utils import create_batch_and_events
+from api.views.utils import create_batch_and_events, increment_and_evaluate_lock
 from greedybear.models import APISource, EventStatus, EventStatusType
 
 logger = logging.getLogger(__name__)
@@ -55,8 +55,8 @@ def events_create_view(request):
 
     serializer = InjectionSerializer(data=request.data)
     if not serializer.is_valid():
-        api_source.invalid_event_count += 1
-        api_source.save(update_fields=["invalid_event_count"])
+        if lock_response := increment_and_evaluate_lock(api_source):
+            return lock_response
         return Response({"error": "Invalid data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
     events_data = serializer.validated_data["events"]
@@ -67,8 +67,8 @@ def events_create_view(request):
             api_source,
         )
     except ValueError as e:
-        api_source.invalid_event_count += 1
-        api_source.save(update_fields=["invalid_event_count"])
+        if lock_response := increment_and_evaluate_lock(api_source):
+            return lock_response
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     except Exception:

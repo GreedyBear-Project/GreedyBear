@@ -251,6 +251,32 @@ class TestEventsCreateSuccess(BaseEventTestCase):
 
         self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @patch("api.views.event.async_task")
+    def test_events_create_all_invalid_sensors_locks_api_source_after_10_failures(self, mock_task):
+        """
+        Verifies that if an APISource reaches 10 failed batch insertion
+        attempts due to invalid sensor data, it is automatically deactivated (locked).
+        """
+        # Set the current count to 9 (so the next failure hits the 10 threshold)
+        self.api_source.invalid_event_count = 9
+        self.api_source.save()
+
+        # Send a payload containing a non-existent sensor ID
+        bad_event = valid_event(sensor_id=999999)
+        res = self.client.post(EVENTS_URL, {"events": [bad_event]}, format="json")
+
+        # The 10th failure must return a 403 Forbidden instead of a 400 Bad Request
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("automatically locked", res.data["error"])
+
+        # Reload from the database to confirm it is locked
+        self.api_source.refresh_from_db()
+        self.assertFalse(self.api_source.is_active)
+        self.assertEqual(self.api_source.invalid_event_count, 10)
+
+        # Ensure background execution was never triggered
+        mock_task.assert_not_called()
+
 
 class TestEventsCreateAllInvalidSensors(BaseEventTestCase):
     @patch("api.views.event.async_task")

@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from stix2 import Bundle, ExternalReference, Indicator
 
 from api.serializers import FeedsRequestSerializer, parse_feed_types
-from greedybear.consts import CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
+from greedybear.consts import APISOURCE_LOCKED_THRESHOLD, CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, APISource, AutonomousSystem, EventStatus, EventStatusType, Honeypot, RawEvent, Sensor, SourceType, Statistics
 from greedybear.utils import is_ip_address, is_valid_domain
@@ -785,3 +785,21 @@ def create_batch_and_events(events_data: list[dict], api_source: APISource) -> t
         raise
 
     return batch, total_created
+
+
+def increment_and_evaluate_lock(api_source: APISource) -> Response | None:
+    """
+    Increments the failed batch attempts for an APISource and checks if the safety
+    threshold has been reached. If exceeded, it automatically locks the source.
+
+    Returns a 403 Response if locked, otherwise returns None.
+    """
+    api_source.invalid_event_count += 1
+
+    if api_source.invalid_event_count >= APISOURCE_LOCKED_THRESHOLD:
+        api_source.is_active = False
+        api_source.save(update_fields=["invalid_event_count", "is_active"])
+        return Response({"error": "Your APISource has been automatically locked due to excessive invalid batch submissions."}, status=status.HTTP_403_FORBIDDEN)
+
+    api_source.save(update_fields=["invalid_event_count"])
+    return None
