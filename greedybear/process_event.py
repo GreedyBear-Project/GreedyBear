@@ -9,25 +9,16 @@ from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
-from greedybear.models import CommandSequence, Credential, EventStatus, RawEvent
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, RawEvent
 from greedybear.utils import get_attack_type, is_valid_url
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_raw_event_to_hit(raw):
+def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
     """
     Convert a RawEvent into the hit-dict format expected by iocs_from_hits.
     """
-    # one bad event shuouldn't crash the whole batch.
-    if not raw.src_ip:
-        logger.warning(f"RawEvent pk={raw.pk} missing src_ip — skipping")
-        return None
-
-    if raw.sensor_id is None:
-        logger.warning(f"RawEvent pk={raw.pk} missing sensor — skipping")
-        return None
-
     hit: dict = {
         "src_ip": raw.src_ip,
         # loaded via a selected_realted
@@ -58,7 +49,7 @@ def _normalize_raw_event_to_hit(raw):
     return hit
 
 
-def _process_credentials(saved_ioc, ip_hits):
+def _process_credentials(saved_ioc: IOC, ip_hits: list[dict]) -> None:
     """
     Linking all credentials data to ioc
     """
@@ -83,7 +74,7 @@ def _process_credentials(saved_ioc, ip_hits):
         logger.debug(f"linked credential '{credential}' → IOC {saved_ioc.name}")
 
 
-def _process_related_urls(saved_ioc, ip_hits):
+def _process_related_urls(saved_ioc: IOC, ip_hits: list[dict]) -> None:
     """
     Extracts, filters, and appends unique related URLs from raw hits to an IOC instance.
 
@@ -104,7 +95,7 @@ def _process_related_urls(saved_ioc, ip_hits):
         logger.debug(f"added {len(to_add)} related_url(s) → IOC {saved_ioc.name}")
 
 
-def _process_commands(ip_hits):
+def _process_commands(ip_hits: list[dict]) -> None:
     """
     Deduplicates and registers order-preserving sequences of executed commands from raw hits.
 
@@ -145,18 +136,21 @@ def _process_commands(ip_hits):
         logger.debug(f"created CommandSequence hash={commands_hash[:12]}…")
 
 
-def process_incoming_event(source_id, task_id):
+def process_incoming_event(source_id: int, task_id: str) -> None:
     """
-    Process a batch of RawEvents into IOCs.
+    Asynchronously processes a tracked batch of RawEvents into refined IOCs.
 
-    Django-Q serializes task args into its DB. Passing N events
-    would bloat the queue. We pass only the batch_id and fetch fresh
-    from DB, faster queue, no serialization overhead.
+    To minimize message broker serialization overhead and avoid queue bloating,
+    this background worker accepts only lookup identifiers (source_id and task_id)
+    and fetches fresh records directly from the database.
 
+    Args:
+        source_id (int): The primary key ID of the associated APISource.
+        task_id (str): The unique hex tracking UUID string of the target EventStatus batch.
 
-    All exceptions are caught and written to EventStatus.last_error.
-    The batch always ends in a terminal state (completed / failed).
-    The finally block guarantees the status is saved even on crash.
+    Raises:
+        Exceptions are caught internally; failure tracebacks are safely written to
+        EventStatus.last_error to preserve background state tracking.
     """
     try:
         batch = EventStatus.objects.get(task_id=task_id)
@@ -164,11 +158,11 @@ def process_incoming_event(source_id, task_id):
         logger.exception(f"[batch={task_id}] EventStatus not found — aborting")
         return
 
-    if batch.status in ["processing", "completed"]:
+    if batch.status in [EventStatusType.PROCESSING, EventStatusType.COMPLETED]:
         logger.warning(f"[task={task_id}] Batch already {batch.status} — skipping to avoid race condition")
         return
 
-    batch.status = "processing"
+    batch.status = EventStatusType.PROCESSING
     batch.ioc_count = 0
     batch.last_error = ""
     batch.save(update_fields=["status", "ioc_count", "last_error"])
@@ -182,12 +176,12 @@ def process_incoming_event(source_id, task_id):
 
         if not raw_events:
             logger.warning(f"[task_id={task_id}] No unprocessed RawEvents — completing")
-            batch.status = "completed"
+            batch.status = EventStatusType.COMPLETED
             batch.processed_at = timezone.now()
             batch.save(update_fields=["status", "ioc_count", "processed_at"])
             return
 
-        logger.info(f"[task={task_id}] {len(raw_events)} RawEvents fetched")
+        logger.debug(f"[task={task_id}] {len(raw_events)} RawEvents fetched")
 
         # normaizing hit dicts
         hits = []
@@ -205,22 +199,22 @@ def process_incoming_event(source_id, task_id):
         if not hits:
             error_msg = f"All {len(raw_events)} RawEvents invalid after normalization"
             logger.error(f"[task={task_id}] {error_msg}")
-            batch.status = "failed"
+            batch.status = EventStatusType.FAILED
             batch.last_error = error_msg
             return
 
-        logger.info(f"[task={task_id}] {len(hits)} valid hits")
+        logger.debug(f"[task={task_id}] {len(hits)} valid hits")
 
         ioc_objects = iocs_from_hits(hits)
 
         if not ioc_objects:
             error_msg = "iocs_from_hits returned 0 IOCs, all source IPs may be non-global or filtered"
             logger.error(f"[task={task_id}] {error_msg}")
-            batch.status = "failed"
+            batch.status = EventStatusType.FAILED
             batch.last_error = error_msg
             return
 
-        logger.info(f"[task_id={task_id}] {len(ioc_objects)} unique IOCs")
+        logger.debug(f"[task_id={task_id}] {len(ioc_objects)} unique IOCs")
 
         # grouping hits by src_ip for post-processing lookup
         hits_by_ip: dict[str, list[dict]] = defaultdict(list)
@@ -256,9 +250,9 @@ def process_incoming_event(source_id, task_id):
                 processed_iocs.append(saved_ioc)
 
             if filtered:
-                logger.info(f"[task={task_id}] {filtered} IOC(s) filtered out")
+                logger.debug(f"[task={task_id}] {filtered} IOC(s) filtered out")
 
-            logger.info(f"[task={task_id}] {len(processed_iocs)} IOC(s) persisted")
+            logger.debug(f"[task={task_id}] {len(processed_iocs)} IOC persisted")
 
             # score
             if processed_iocs:
@@ -267,12 +261,12 @@ def process_incoming_event(source_id, task_id):
 
             RawEvent.objects.filter(batch=batch, processed=False).update(processed=True)
 
-            batch.status = "completed"
+            batch.status = EventStatusType.COMPLETED
             batch.ioc_count = len(processed_iocs)
 
     except Exception as exc:
         logger.exception(f"[task={task_id}] Failed")
-        batch.status = "failed"
+        batch.status = EventStatusType.FAILED
         batch.last_error = str(exc)[:1000]
 
     finally:

@@ -23,7 +23,7 @@ from stix2 import Bundle, ExternalReference, Indicator
 from api.serializers import FeedsRequestSerializer, parse_feed_types
 from greedybear.consts import CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, AutonomousSystem, EventStatus, Honeypot, RawEvent, Sensor, SourceType, Statistics
+from greedybear.models import IOC, APISource, AutonomousSystem, EventStatus, EventStatusType, Honeypot, RawEvent, Sensor, SourceType, Statistics
 from greedybear.utils import is_ip_address, is_valid_domain
 
 logger = logging.getLogger(__name__)
@@ -689,10 +689,27 @@ def create_or_get_sensor(*, api_source, validated_data):
     return sensor, created
 
 
-def _bulk_create_raw_events(events_data, batch, api_source):
+def _bulk_create_raw_events(events_data: list[dict], batch: EventStatus, api_source: APISource) -> int:
     """
-    Bulk-insert RawEvent rows in chunks
-    Returns the number of rows created.
+    Validates sensor ownership and bulk-inserts raw event payloads into the database.
+
+    This internal utility performs an optimized prefetch lookup of all referenced sensors to
+    ensure they exist and belong to the calling `APISource`. It validates the incoming list
+    upfront to fail fast on foreign or missing sensor identifiers, securely strips the mapping
+    fields to prevent schema mismatch unpacking errors, and stages the data into memory.
+
+    Args:
+        events_data (list[dict]): A collection of un-persisted, validated event data dictionaries.
+        batch (EventStatus): The tracking tracking batch model instance these events belong to.
+        api_source (APISource): The origin provider authority submitting the events.
+
+    Returns:
+        int: The aggregate count of total RawEvent rows successfully inserted into the database.
+
+    Raises:
+        ValueError: If any entry contains a sensor_id that does not exist or is not owned
+                    by the given api_source.
+
     """
     chunk_size = 1000
 
@@ -702,17 +719,14 @@ def _bulk_create_raw_events(events_data, batch, api_source):
 
     raw_events = []
 
+    for e in events_data:
+        sensor_id = e.get("sensor_id")
+        if sensor_id not in sensors_by_id:
+            raise ValueError(f"Invalid or missing sensor_id '{sensor_id}' for api_source {api_source.id}. ")
+
     for event in events_data:
         sensor_id = event.get("sensor_id")
         sensor = sensors_by_id.get(sensor_id)
-
-        if sensor is None:
-            logger.warning(
-                "sensor_id=%s not found or not owned by api_source=%s",
-                sensor_id,
-                api_source.id,
-            )
-            continue
 
         # creating a shallow copy (protects the original data from side effects)
         event_fields = event.copy()
@@ -724,32 +738,50 @@ def _bulk_create_raw_events(events_data, batch, api_source):
         raw_events.append(RawEvent(sensor=sensor, batch=batch, **event_fields))
 
     total = 0
-    try:
-        for i in range(0, len(raw_events), chunk_size):
-            chunk = raw_events[i : i + chunk_size]
-            RawEvent.objects.bulk_create(chunk)
-            total += len(chunk)
-    except Exception:
-        logger.exception(f"Database error during bulk-insert for batch {batch.task_id}")
-        return total
-
+    for i in range(0, len(raw_events), chunk_size):
+        chunk = raw_events[i : i + chunk_size]
+        RawEvent.objects.bulk_create(chunk)
+        total += len(chunk)
     return total
 
 
-@transaction.atomic
-def create_batch_and_events(events_data, api_source):
+def create_batch_and_events(events_data: list[dict], api_source: APISource) -> tuple[EventStatus, int]:
+    """
+    Initializes a tracking batch and executes an atomic bulk-creation of RawEvents.
+
+    Args:
+        events_data (list[dict]): A list of validated event data dictionaries to populate.
+        api_source (APISource): The authenticated origin provider entity submitting the batch.
+
+    Returns:
+        tuple[EventStatus, int]: A tuple containing the created EventStatus tracking model
+                                instance and the integer count of successfully stored events.
+
+    Raises:
+        Exception: Re-raises any underlying database error encountered during the bulk creation
+                  process after writing the crash state metadata.
+    """
     tracking_id = uuid.uuid4().hex
 
     batch = EventStatus.objects.create(
         api_source=api_source,
         task_id=tracking_id,
-        status="pending",
+        status=EventStatusType.PENDING,
     )
+    try:
+        with transaction.atomic():
+            total_created = _bulk_create_raw_events(
+                events_data,
+                batch,
+                api_source,
+            )
+    except Exception as e:
+        logger.exception(f"Database error during bulk-insert for batch {batch.task_id}")
 
-    total_created = _bulk_create_raw_events(
-        events_data,
-        batch,
-        api_source,
-    )
+        # updating the batch status here because it's outside the failed atomic block,
+        batch.status = EventStatusType.FAILED
+        batch.last_error = str(e)
+        batch.save(update_fields=["status", "last_error"])
+        raise
 
     return batch, total_created

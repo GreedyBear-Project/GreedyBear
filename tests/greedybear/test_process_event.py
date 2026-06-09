@@ -71,18 +71,6 @@ class TestNormalizeRawEventToHit(CustomTestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["src_ip"], "1.2.3.4")
 
-    def test_missing_src_ip_returns_none(self):
-        raw = RawEvent(batch=self.batch, sensor=self.sensor, src_ip=None)
-        result = _normalize_raw_event_to_hit(raw)
-        self.assertIsNone(result)
-
-    def test_missing_sensor_returns_none(self):
-        raw = self._raw(src_ip="1.2.3.4")
-        raw.sensor = None
-        raw.sensor_id = None
-        result = _normalize_raw_event_to_hit(raw)
-        self.assertIsNone(result)
-
     def test_timestamp_in_hit(self):
         ts = timezone.now() - timezone.timedelta(minutes=5)
         raw = self._raw(src_ip="1.2.3.4", timestamp=ts)

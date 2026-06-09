@@ -45,8 +45,8 @@ urlpatterns = [
     path("news/", news_view),
     path("health/", health_view),
     path("sensor/", sensor_create_view),
-    path("events/", events_create_view),
-    path("event/<str:task_id>/status/", event_status_view),
+    path("events/add/", events_create_view),
+    path("events/status/<str:task_id>/", event_status_view),
     # router viewsets
     path("", include(router.urls)),
     # certego_saas:

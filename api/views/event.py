@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from api.serializers import InjectionSerializer
 from api.views.utils import create_batch_and_events
-from greedybear.models import APISource, EventStatus
+from greedybear.models import APISource, EventStatus, EventStatusType
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,11 @@ def events_create_view(request):
             events_data,
             api_source,
         )
+    except ValueError as e:
+        api_source.invalid_event_count += 1
+        api_source.save(update_fields=["invalid_event_count"])
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     except Exception:
         logger.exception("Failed while creating batch & events")
         return Response({"error": "An internal database error occurred while staging events"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -76,12 +81,22 @@ def events_create_view(request):
         batch.save(update_fields=["status", "last_error"])
         return Response({"error": "No valid events could be stored"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # enqueue background task
-    async_task(
-        "greedybear.process_event.process_incoming_event",
-        api_source.id,
-        batch.task_id,
-    )
+    try:
+        # enqueue background task
+        async_task(
+            "greedybear.process_event.process_incoming_event",
+            api_source.id,
+            batch.task_id,
+        )
+    except Exception as e:
+        logger.exception(f"Failed to enqueue background task for batch {batch.task_id}")
+
+        # marking the batch as failed so it doesn't get orphaned in a 'PENDING' state
+        batch.status = EventStatusType.FAILED
+        batch.last_error = f"Background task dispatch failed: {e!s}"
+        batch.save(update_fields=["status", "last_error"])
+
+        return Response({"error": "An internal error occurred while queueing events for processing"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     logger.info(f"[task={batch.task_id}] Accepted {total_created} events — source={api_source.name}")
 
@@ -89,7 +104,7 @@ def events_create_view(request):
         {
             "message": f"{total_created} events accepted for processing",
             "task_id": batch.task_id,
-            "status_url": f"/api/event/{batch.task_id}/status/",
+            "status_url": f"/api/events/status/{batch.task_id}/",
         },
         status=status.HTTP_202_ACCEPTED,
     )

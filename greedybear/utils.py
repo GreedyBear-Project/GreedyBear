@@ -139,7 +139,7 @@ def get_ioc_type(ioc: str) -> str:
     return IP if is_valid else DOMAIN
 
 
-def get_attack_type(ip_hits):
+def get_attack_type(ip_hits: list[dict]) -> str:
     """
     Determines the attack type based on the raw hits for a specific IP.
 
@@ -156,7 +156,7 @@ def get_attack_type(ip_hits):
     return SCANNER
 
 
-def is_valid_url(url):
+def is_valid_url(url: str | None) -> bool:
     allowed_schemes = {"http", "https"}
     try:
         parsed = urlparse(url)

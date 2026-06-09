@@ -5,13 +5,13 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from greedybear.models import EventStatus, RawEvent
+from greedybear.models import EventStatus, EventStatusType, RawEvent
 from tests import CustomTestCase, make_api_source, make_sensor, make_user
 
 User = get_user_model()
 
-EVENTS_URL = "/api/events/"
-STATUS_URL = "/api/event/{task_id}/status/"
+EVENTS_URL = "/api/events/add/"
+STATUS_URL = "/api/events/status/{task_id}/"
 
 
 def auth_client(user):
@@ -175,7 +175,7 @@ class TestEventsCreateSuccess(BaseEventTestCase):
 
         # Verify that the status_url contains the correct lookup identifier returned in the response
         expected_task_id = res.data["task_id"]
-        self.assertIn(f"/api/event/{expected_task_id}/status/", res.data["status_url"])
+        self.assertIn(f"/api/events/status/{expected_task_id}/", res.data["status_url"])
         mock_task.assert_called_once()
 
     @patch("api.views.event.async_task", return_value="task-multi")
@@ -251,12 +251,6 @@ class TestEventsCreateSuccess(BaseEventTestCase):
 
         self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @patch("api.views.event.async_task", side_effect=Exception("Queue down"))
-    def test_async_task_failure_still_returns_response(self, mock_task):
-        payload = {"events": [valid_event(self.sensor.id)]}
-        with self.assertRaises(Exception):  # noqa: B017
-            self.client.post(EVENTS_URL, payload, format="json")
-
 
 class TestEventsCreateAllInvalidSensors(BaseEventTestCase):
     @patch("api.views.event.async_task")
@@ -265,19 +259,20 @@ class TestEventsCreateAllInvalidSensors(BaseEventTestCase):
         event = valid_event(sensor_id=999999)
         res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No valid events", res.data["error"])
+        self.assertIn("Invalid or missing sensor_id", res.data["error"])
         # background task must NOT be dispatched
         mock_task.assert_not_called()
 
     @patch("api.views.event.async_task", return_value="task-partial")
-    def test_mixed_valid_and_invalid_sensors_stores_valid_only(self, mock_task):
-        """One valid sensor + one ghost sensor → only the valid event is stored."""
+    def test_mixed_valid_and_invalid_sensors_stores_none(self, mock_task):
+        """One valid sensor + one ghost sensor → entire batch rejected with 400."""
         good = valid_event(self.sensor.id)
         bad = valid_event(sensor_id=999999)
         res = self.client.post(EVENTS_URL, {"events": [good, bad]}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
-        task_id = res.data["task_id"]
-        self.assertEqual(RawEvent.objects.filter(batch__task_id=task_id).count(), 1)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid or missing sensor_id", res.data["error"])
+        self.assertEqual(RawEvent.objects.count(), 0)
+        mock_task.assert_not_called()
 
 
 class TestEventStatusView(BaseEventTestCase):
@@ -374,3 +369,24 @@ class TestEventStatusView(BaseEventTestCase):
 
         res = self.client.get(STATUS_URL.format(task_id="task-flow"))
         self.assertEqual(res.data["status"], "processing")
+
+    @patch("api.views.event.async_task")
+    def test_events_create_fails_when_background_queue_crashing(self, mock_async_task):
+        """
+        If the message broker or async_task dispatcher throws an exception,
+        the API must catch it, transition the batch status to FAILED with the traceback,
+        and return a 500 Internal Server Error instead of staying stuck in PENDING.
+        """
+        mock_async_task.side_effect = Exception("Connection refused by Redis broker")
+
+        payload = {"events": [valid_event(self.sensor.id)]}
+
+        res = self.client.post(EVENTS_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn("An internal error occurred while queueing events", res.data["error"])
+
+        batch = EventStatus.objects.get(api_source=self.api_source)
+        self.assertEqual(batch.status, EventStatusType.FAILED)
+        self.assertIn("Background task dispatch failed", batch.last_error)
+        self.assertIn("Connection refused by Redis broker", batch.last_error)
