@@ -29,8 +29,13 @@ from api.serializers import (
     ASNFeedRequestSerializer,
     ASNFeedSerializer,
     PaginatedSimpleFeedSerializer,
+    ShareFeedRequestSerializer,
+    ShareTokenListItemSerializer,
+    ShareTokenResponseSerializer,
     SimpleFeedEnvelopeSerializer,
     SimpleFeedRequestSerializer,
+    TokenConsumeRequestSerializer,
+    TokenRequestSerializer,
 )
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
@@ -38,6 +43,7 @@ from api.views.utils import (
     build_feed_dict,
     save_request_source,
 )
+from greedybear.consts import SHARE_TOKEN_SALT
 from greedybear.models import IOC, ShareToken
 
 logger = logging.getLogger(__name__)
@@ -49,13 +55,11 @@ RENDERERS_BY_FORMAT = {
     "stix21": Stix21Renderer,
 }
 
-TOKEN_LIST_FIELDS = (
-    "token_hash",
-    "reason",
-    "created_at",
-    "revoked",
-    "revoked_at",
-)
+RESPONSES = {
+    400: OpenApiResponse(description="Invalid feed parameters."),
+    401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+    429: OpenApiResponse(description="Rate limit exceeded."),
+}
 
 PAGE_PARAMETER = OpenApiParameter(
     "page",
@@ -212,7 +216,8 @@ class BaseFeedView(CachedResponseMixin, APIView):
         ],
         responses={
             200: SimpleFeedEnvelopeSerializer,
-            400: OpenApiResponse(description="Invalid feed parameters."),
+            400: RESPONSES[400],
+            429: RESPONSES[429],
         },
     )
 )
@@ -241,7 +246,8 @@ class SimpleFeedView(BaseFeedView):
         parameters=[SimpleFeedRequestSerializer, PAGE_PARAMETER],
         responses={
             200: PaginatedSimpleFeedSerializer,
-            400: OpenApiResponse(description="Invalid feed parameters."),
+            400: RESPONSES[400],
+            429: RESPONSES[429],
         },
     )
 )
@@ -268,8 +274,9 @@ class PaginatedFeedView(BaseFeedView):
         parameters=[AdvancedFeedRequestSerializer, PAGE_PARAMETER],
         responses={
             200: AdvancedFeedEnvelopeSerializer,
-            400: OpenApiResponse(description="Invalid feed parameters."),
-            401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+            400: RESPONSES[400],
+            401: RESPONSES[401],
+            429: RESPONSES[429],
         },
     )
 )
@@ -305,7 +312,6 @@ class AdvancedFeedView(BaseFeedView):
                     distinct=True,
                 )
             )
-
         return iocs
 
 
@@ -320,8 +326,9 @@ class AdvancedFeedView(BaseFeedView):
         parameters=[ASNFeedRequestSerializer],
         responses={
             200: ASNFeedSerializer(many=True),
-            400: OpenApiResponse(description="Invalid feed parameters."),
-            401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+            400: RESPONSES[400],
+            401: RESPONSES[401],
+            429: RESPONSES[429],
         },
     )
 )
@@ -350,16 +357,6 @@ class AsnFeedView(BaseFeedView):
         return Response(ASNFeedSerializer(rows, many=True).data)
 
 
-class TokenError(Exception):
-    """Raised when a share token is missing, revoked, or has an invalid signature.
-
-    Caught by ``ConsumeFeedView.get`` to produce the ``{"error": <message>}`` 400
-    response shape the share/consume API contract expects (matching the sibling
-    ``ShareTokenViewSet.revoke``); a plain DRF ``ValidationError`` would instead
-    render as ``{"errors": [...]}``.
-    """
-
-
 @extend_schema_view(
     get=extend_schema(
         tags=["Feed Sharing"],
@@ -370,7 +367,8 @@ class TokenError(Exception):
         ),
         responses={
             200: AdvancedFeedEnvelopeSerializer,
-            400: OpenApiResponse(description="Token is missing, revoked, or has an invalid signature."),
+            400: OpenApiResponse(description="Token is missing/revoked/badly signed, or its decoded feed parameters are invalid."),
+            429: RESPONSES[429],
         },
     )
 )
@@ -388,26 +386,14 @@ class ConsumeFeedView(AdvancedFeedView):
     throttle_classes = [SharedFeedRateThrottle]
 
     def get_request_data(self, request: Request, **kwargs) -> dict:
-        token = kwargs["token"]
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
-        try:
-            share_token = ShareToken.objects.get(token_hash=token_hash)
-        except ShareToken.DoesNotExist as exc:
-            raise TokenError("Invalid or expired token") from exc
-        if share_token.revoked:
-            raise TokenError("Token has been revoked")
-        try:
-            return signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)  # 30 days validity
-        except signing.BadSignature as exc:
-            raise TokenError("Invalid or expired token") from exc
+        serializer = TokenConsumeRequestSerializer(data={"token": kwargs["token"]})
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data["feed_params"]
 
     def get(self, request: Request, *args, **kwargs) -> HttpResponseBase:
-        try:
-            return super().get(request, *args, **kwargs)
-        except TokenError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return super().get(request, *args, **kwargs)
 
-
+@extend_schema(tags=["Feed Sharing"])
 class ShareTokenViewSet(ViewSet):
     """Create, list and revoke shareable feed tokens.
 
@@ -417,63 +403,70 @@ class ShareTokenViewSet(ViewSet):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [FeedsAdvancedThrottle]
 
     @extend_schema(
-        tags=["Feed Sharing"],
         summary="Create a shareable feed link",
         description=(
             "Encode the supplied advanced-feed query parameters into a signed share token and "
             "return its public consume/revoke URLs. The optional `reason` is stored for auditing only."
         ),
-        parameters=[
-            AdvancedFeedRequestSerializer,
-            OpenApiParameter("reason", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Optional note for auditing (max 256 chars)."),
-        ],
-        responses={200: OpenApiResponse(description="The public consume and revoke URLs for the new share token.")},
+        parameters=[ShareFeedRequestSerializer],
+        responses={
+            200: ShareTokenResponseSerializer,
+            400: RESPONSES[400],
+            401: RESPONSES[401],
+            429: RESPONSES[429],
+        },
     )
     def share(self, request: Request) -> Response:
         safe_params = {k: v for k, v in request.query_params.items() if k != "reason"}
         logger.info(f"request /api/feeds/share with params: {safe_params}")
+
+        request_serializer = ShareFeedRequestSerializer(data=request.query_params)
+        request_serializer.is_valid(raise_exception=True)
+        reason = request_serializer.validated_data["reason"]
+
+        # The raw params (not the typed validated_data) are signed,
+        # so the token format and consume-time replay stay unchanged.
         data = request.query_params.dict()
         data.pop("reason", None)
-        reason = request.query_params.get("reason", "").strip()[:256]
-
-        token = signing.dumps(data, salt="greedybear-feeds")
+        token = signing.dumps(data, salt=SHARE_TOKEN_SALT)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         ShareToken.objects.get_or_create(
             token_hash=token_hash,
             defaults={"user": request.user, "reason": reason},
         )
         host = request.build_absolute_uri("/")
-        return Response(
+        response_serializer = ShareTokenResponseSerializer(
             {
                 "url": f"{host}api/feeds/consume/{token}",
                 "revoke_url": f"{host}api/feeds/revoke/{token}",
             }
         )
+        return Response(response_serializer.data)
 
     @extend_schema(
-        tags=["Feed Sharing"],
         summary="Revoke a shared feed token",
         description="Revoke a previously shared token (`token` path param). Only the creator or a staff user may revoke it.",
-        responses={200: OpenApiResponse(description="Confirmation that the token was revoked (or was already revoked).")},
+        responses={
+            200: OpenApiResponse(description="Confirmation that the token was revoked."),
+            400: OpenApiResponse(description="Token is missing or has an invalid signature."),
+            401: RESPONSES[401],
+            403: OpenApiResponse(description="The caller is not the token's creator."),
+            429: RESPONSES[429],
+        },
     )
     def revoke(self, request: Request, token: str) -> Response:
         logger.info("request /api/feeds/revoke")
-        try:
-            signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)
-        except signing.BadSignature:
-            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
-        try:
-            share_token = ShareToken.objects.get(token_hash=token_hash)
-        except ShareToken.DoesNotExist:
-            return Response({"error": "Token not found. Only the creator can revoke a token."}, status=status.HTTP_403_FORBIDDEN)
-
+        serializer = TokenRequestSerializer(data={"token": token})
+        serializer.is_valid(raise_exception=True)
+        share_token = serializer.validated_data["share_token"]
         if share_token.user != request.user and not request.user.is_staff:
-            return Response({"error": "You do not have permission to revoke this token."}, status=status.HTTP_403_FORBIDDEN)
-
+            return Response(
+                {"errors": {"non_field_errors": ["You do not have permission to revoke this token."]}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if share_token.revoked:
             return Response({"detail": "Token was already revoked."}, status=status.HTTP_200_OK)
         share_token.revoked = True
@@ -482,22 +475,15 @@ class ShareTokenViewSet(ViewSet):
         return Response({"detail": "Token revoked successfully."}, status=status.HTTP_200_OK)
 
     @extend_schema(
-        tags=["Feed Sharing"],
         summary="List the caller's share tokens",
         description="Return the share tokens created by the authenticated user, most recent first.",
-        responses={200: OpenApiResponse(description="The caller's share tokens (metadata only, most recent first).")},
+        responses={
+            200: ShareTokenListItemSerializer(many=True),
+            401: RESPONSES[401],
+            429: RESPONSES[429],
+        },
     )
     def list_tokens(self, request: Request) -> Response:
         logger.info("request /api/feeds/tokens/")
-        tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values(*TOKEN_LIST_FIELDS)
-        results = [
-            {
-                "hash_prefix": t["token_hash"][:12],
-                "reason": t["reason"],
-                "created_at": t["created_at"],
-                "revoked": t["revoked"],
-                "revoked_at": t["revoked_at"],
-            }
-            for t in tokens
-        ]
-        return Response(results)
+        tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values()
+        return Response(ShareTokenListItemSerializer(tokens, many=True).data)
