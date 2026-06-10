@@ -358,7 +358,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         response = self.client.get("/api/feeds/consume/invalid-token-123")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Invalid or expired token")
+        self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
     def test_shareable_feed_expired_token(self):
         """Consuming a tampered/expired token returns 400."""
@@ -386,7 +386,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         response = self.client.get(f"/api/feeds/consume/{tampered}")
         self.assertEqual(response.status_code, 400)
-        self.assertIn("error", response.json())
+        self.assertIn("errors", response.json())
 
     def test_consume_valid_token_without_db_record_is_rejected(self):
         """A valid signed token that was never saved to the DB is rejected (allowlist check)."""
@@ -417,7 +417,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         response = self.client.get(f"/api/feeds/consume/{token}")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Invalid or expired token")
+        self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
     def test_consume_token_deleted_from_db_is_rejected(self):
         """A token whose DB record has been deleted is rejected even though the signature is valid."""
@@ -433,7 +433,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
         response = self.client.get(f"/api/feeds/consume/{token}")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Invalid or expired token")
+        self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
     def test_rate_limiting_consume(self):
         """
@@ -468,7 +468,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         consume_response = self.client.get(f"/api/feeds/consume/{token}")
         self.assertEqual(consume_response.status_code, 400)
-        self.assertEqual(consume_response.json()["error"], "Token has been revoked")
+        self.assertEqual(consume_response.json()["errors"]["non_field_errors"][0], "Token has been revoked")
 
     def test_token_revoke_already_revoked(self):
         """Revoking an already-revoked token returns 200 (idempotent)."""
@@ -484,7 +484,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         """Revoking an invalid/expired token returns 400."""
         revoke_response = self.client.get("/api/feeds/revoke/not-a-valid-token")
         self.assertEqual(revoke_response.status_code, 400)
-        self.assertIn("error", revoke_response.json())
+        self.assertIn("errors", revoke_response.json())
 
     def test_200_format_txt(self):
         """Ensures ?format=txt returns plain text, not JSON."""
