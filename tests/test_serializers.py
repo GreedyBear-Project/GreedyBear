@@ -5,8 +5,8 @@ from rest_framework.serializers import ValidationError
 
 from api.serializers import (
     AdvancedFeedRequestSerializer,
-    FeedResponseSerializer,
     IOCSerializer,
+    SimpleFeedResponseSerializer,
     feed_type_as_list,
 )
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
@@ -259,7 +259,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
                 "attacker_country": "Nepal",
                 "attacker_country_code": "NP",
             }
-            serializer = FeedResponseSerializer(
+            serializer = SimpleFeedResponseSerializer(
                 data=data_,
                 context={"valid_feed_types": frozenset(feed_type_choices)},
             )
@@ -285,7 +285,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
             "expected_interactions": "-1",
             "attacker_country_code": "INV",
         }
-        serializer = FeedResponseSerializer(
+        serializer = SimpleFeedResponseSerializer(
             data=data_,
             context={"valid_feed_types": valid_feed_types},
         )
