@@ -29,6 +29,7 @@ class FeedTextRenderer(BaseRenderer):
     """Plain-text feed: one IOC value per line, prefixed by the license comment."""
 
     media_type = "text/plain"
+    format = "txt"
     charset = None
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
@@ -41,6 +42,7 @@ class FeedCSVRenderer(BaseRenderer):
     """CSV feed: one IOC value per row, prefixed by the license comment."""
 
     media_type = "text/csv"
+    format = "csv"
     charset = None
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
@@ -55,6 +57,7 @@ class Stix21Renderer(BaseRenderer):
     """STIX 2.1 bundle feed (served as application/json)."""
 
     media_type = "application/json"
+    format = "stix21"
     charset = None
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
