@@ -152,8 +152,8 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "GreedyBear API",
     "DESCRIPTION": (
-        "Threat intelligence feeds and IOC enrichment extracted from T-Pot. "
-        "Most feed endpoints are public; advanced filtering, ASN aggregation and share-token "
+        "Threat intelligence feeds and IOC enrichment extracted from T-Pot or injected by other sources. "
+        "Some feed endpoints are public; others like advanced filtering, ASN aggregation and share-token "
         "management require authentication via the `Token` header."
     ),
     "VERSION": VERSION,
