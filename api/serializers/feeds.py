@@ -1,13 +1,16 @@
+import hashlib
 import logging
 from collections.abc import Mapping
 
+from django.core import signing
 from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
 from api.serializers.utils import feed_type_as_list, get_valid_feed_types
+from greedybear.consts import SHARE_TOKEN_MAX_AGE, SHARE_TOKEN_SALT
 from greedybear.enums import IpReputation
-from greedybear.models import IOC
+from greedybear.models import IOC, ShareToken
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ PRIORITIZATION_PRESETS = {
 }
 
 
+### FIELDS ###
 class FeedTypeField(serializers.CharField):
     """CharField for the feed_type query parameter.
     Accepts a single value or a comma-separated list of strings.
@@ -77,6 +81,7 @@ class ReputationListField(serializers.ListField):
         return super().to_internal_value(reputations)
 
 
+### REQUESTS ###
 class BaseFeedRequestSerializer(serializers.Serializer):
     """Shared base for the feed request serializers (simple, advanced, ASN).
     Declares the parameters common to every feed endpoint
@@ -238,8 +243,53 @@ class ASNFeedRequestSerializer(AdvancedFeedRequestSerializer):
 
         return ordering
 
+class ShareFeedRequestSerializer(AdvancedFeedRequestSerializer):
+    """Validate a share request: the advanced-feed params plus an optional reason note."""
 
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Optional free-text note stored for auditing (truncated to 256 chars)."
+    )
+
+    def to_internal_value(self, data: Mapping) -> dict:
+        validated = super().to_internal_value(data)
+        if isinstance(data, Mapping) and "reason" in data:
+            validated["reason"] = data["reason"].strip()[:256]  # keep original case and truncate
+        return validated
+
+
+class TokenRequestSerializer(serializers.Serializer):
+    """Resolve a signed share token to its DB record and decoded feed parameters."""
+
+    token = serializers.CharField(help_text="A valid and signed share token.")
+
+    def validate(self, data: dict) -> dict:
+        logger.debug("Validating share token")
+        token = data["token"]
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        try:
+            data["share_token"] = ShareToken.objects.get(token_hash=token_hash)
+        except ShareToken.DoesNotExist as exc:
+            raise serializers.ValidationError("Invalid or expired token") from exc
+        try:
+            data["feed_params"] = signing.loads(token, salt=SHARE_TOKEN_SALT, max_age=SHARE_TOKEN_MAX_AGE)
+        except signing.BadSignature as exc:
+            raise serializers.ValidationError("Invalid or expired token") from exc
+        return data
+
+
+class TokenConsumeRequestSerializer(TokenRequestSerializer):
+    """Consume additionally rejects revoked tokens (a revoked link must not return data)."""
+
+    def validate(self, data: dict) -> dict:
+        data = super().validate(data)
+        if data["share_token"].revoked:
+            raise serializers.ValidationError("Token has been revoked")
+        return data
+
+### RESPONSES ###
 class ASNFeedSerializer(serializers.Serializer):
+    """Response for the AS endpoint with aggregated IOC data."""
+
     asn = serializers.IntegerField(min_value=1)
     as_name = serializers.CharField(max_length=256, allow_blank=True)
     ioc_count = serializers.IntegerField(min_value=0)
@@ -251,6 +301,28 @@ class ASNFeedSerializer(serializers.Serializer):
     first_seen = serializers.DateTimeField()
     last_seen = serializers.DateTimeField()
     honeypots = serializers.ListField(child=serializers.CharField(max_length=120))
+
+class ShareTokenResponseSerializer(serializers.Serializer):
+    """Response for the share endpoint: the public consume and revoke URLs."""
+
+    url = serializers.URLField(help_text="Public URL that consumes the shared feed.")
+    revoke_url = serializers.URLField(help_text="URL that revokes the share token.")
+
+
+class ShareTokenListItemSerializer(serializers.Serializer):
+    """One row of the caller's share-token list (metadata only, no token value)."""
+
+    hash_prefix = serializers.SerializerMethodField(help_text="First 12 characters of the token hash.")
+    reason = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField()
+    revoked = serializers.BooleanField()
+    revoked_at = serializers.DateTimeField(allow_null=True)
+
+    def get_hash_prefix(self, obj) -> str:
+        return obj["token_hash"][:12]
+
+
+
 
 
 """

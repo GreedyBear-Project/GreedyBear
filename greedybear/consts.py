@@ -70,3 +70,7 @@ IOC_DATA_VERSION_KEY = "ioc_data_version"
 
 # tracking application start time
 START_TIME = time.time()
+
+# shared feeds
+SHARE_TOKEN_SALT = "greedybear-feeds"
+SHARE_TOKEN_MAX_AGE = 86400 * 30  # 30 days
