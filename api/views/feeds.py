@@ -393,6 +393,7 @@ class ConsumeFeedView(AdvancedFeedView):
     def get(self, request: Request, *args, **kwargs) -> HttpResponseBase:
         return super().get(request, *args, **kwargs)
 
+
 @extend_schema(tags=["Feed Sharing"])
 class ShareTokenViewSet(ViewSet):
     """Create, list and revoke shareable feed tokens.

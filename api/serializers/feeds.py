@@ -243,6 +243,7 @@ class ASNFeedRequestSerializer(AdvancedFeedRequestSerializer):
 
         return ordering
 
+
 class ShareFeedRequestSerializer(AdvancedFeedRequestSerializer):
     """Validate a share request: the advanced-feed params plus an optional reason note."""
 
@@ -286,6 +287,7 @@ class TokenConsumeRequestSerializer(TokenRequestSerializer):
             raise serializers.ValidationError("Token has been revoked")
         return data
 
+
 ### RESPONSES ###
 class ASNFeedSerializer(serializers.Serializer):
     """Response for the AS endpoint with aggregated IOC data."""
@@ -301,6 +303,7 @@ class ASNFeedSerializer(serializers.Serializer):
     first_seen = serializers.DateTimeField()
     last_seen = serializers.DateTimeField()
     honeypots = serializers.ListField(child=serializers.CharField(max_length=120))
+
 
 class ShareTokenResponseSerializer(serializers.Serializer):
     """Response for the share endpoint: the public consume and revoke URLs."""
@@ -320,9 +323,6 @@ class ShareTokenListItemSerializer(serializers.Serializer):
 
     def get_hash_prefix(self, obj) -> str:
         return obj["token_hash"][:12]
-
-
-
 
 
 """
