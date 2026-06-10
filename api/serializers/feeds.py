@@ -86,11 +86,13 @@ class BaseFeedRequestSerializer(serializers.Serializer):
     subclasses add their own fields and validation logic.
     """
 
-    feed_type = FeedTypeField(default="all")
-    attack_type = serializers.ChoiceField(choices=["scanner", "payload_request", "all"], default="all")
-    ioc_type = serializers.ChoiceField(choices=["ip", "domain", "all"], default="all")
-    ordering = serializers.CharField(default="-last_seen")
-    format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21"], default="json")
+    feed_type = FeedTypeField(default="all", help_text="Honeypot name (e.g. `cowrie`), a comma-separated list, or `all`.")
+    attack_type = serializers.ChoiceField(
+        choices=["scanner", "payload_request", "all"], default="all", help_text="Restrict to scanners, payload requests, or both."
+    )
+    ioc_type = serializers.ChoiceField(choices=["ip", "domain", "all"], default="all", help_text="Restrict to IPs, domains, or both.")
+    ordering = serializers.CharField(default="-last_seen", help_text="IOC field to order by; prefix with `-` for descending (e.g. `-last_seen`).")
+    format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21"], default="json", help_text="Output representation.")
 
     def to_internal_value(self, data: Mapping) -> dict:
         """Normalize raw query params before field validation:
@@ -125,10 +127,15 @@ class SimpleFeedRequestSerializer(BaseFeedRequestSerializer):
     using presets and default fallbacks.
     """
 
-    prioritize = serializers.ChoiceField(choices=["recent", "persistent", "likely_to_recur", "most_expected_hits"], default="recent")
-    include_mass_scanners = PresenceFlagField(default=False)
-    include_tor_exit_nodes = PresenceFlagField(default=False)
-    ordering = serializers.CharField(required=False)  # allows explicit override of the ordering in PRIORITIZATION_PRESETS
+    prioritize = serializers.ChoiceField(
+        choices=["recent", "persistent", "likely_to_recur", "most_expected_hits"],
+        default="recent",
+        help_text="Preset selecting the age window, minimum days seen and default ordering.",
+    )
+    include_mass_scanners = PresenceFlagField(default=False, help_text="Include IOCs flagged as mass scanners.")
+    include_tor_exit_nodes = PresenceFlagField(default=False, help_text="Include IOCs that are Tor exit nodes.")
+    # allows explicit override of the ordering in PRIORITIZATION_PRESETS
+    ordering = serializers.CharField(required=False, help_text="Override the preset ordering, e.g. `-attack_count`.")
 
     def validate(self, data: dict) -> dict:
         logger.debug("Validating simple feed request")
@@ -153,24 +160,28 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     taking default fallback values from FEED_DEFAULTS.
     """
 
-    max_age = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["max_age"])
-    min_days_seen = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["min_days_seen"])
-    feed_size = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["feed_size"])
-    include_reputation = ReputationListField(child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["include_reputation"])
-    exclude_reputation = ReputationListField(child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["exclude_reputation"])
-    verbose = serializers.BooleanField(default=FEED_DEFAULTS["verbose"])
-    paginate = serializers.BooleanField(default=FEED_DEFAULTS["paginate"])
-    min_credential_count = serializers.IntegerField(required=False, min_value=1)
-    max_credential_count = serializers.IntegerField(required=False, min_value=0)
-    asn = serializers.IntegerField(min_value=1, required=False, allow_null=True)
-    min_score = serializers.FloatField(min_value=0, max_value=1, required=False, allow_null=True)
-    min_expected_interactions = serializers.FloatField(min_value=0, required=False, allow_null=True)
-    port = serializers.IntegerField(min_value=1, max_value=65535, required=False, allow_null=True)
-    start_date = serializers.DateField(format="%Y-%m-%d", required=False, allow_null=True)
-    end_date = serializers.DateField(format="%Y-%m-%d", required=False, allow_null=True)
-    tag_key = serializers.CharField(max_length=128, required=False, allow_blank=True)
-    tag_value = serializers.CharField(max_length=256, required=False, allow_blank=True)
-    country_code = serializers.CharField(max_length=2, required=False, allow_blank=True)
+    max_age = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["max_age"], help_text="Maximum age in days since an IOC was last seen.")
+    min_days_seen = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["min_days_seen"], help_text="Minimum distinct days an IOC has been seen.")
+    feed_size = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["feed_size"], help_text="Maximum number of IOCs to return.")
+    include_reputation = ReputationListField(
+        child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["include_reputation"], help_text="`;`-separated reputations to include."
+    )
+    exclude_reputation = ReputationListField(
+        child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["exclude_reputation"], help_text="`;`-separated reputations to exclude."
+    )
+    verbose = serializers.BooleanField(default=FEED_DEFAULTS["verbose"], help_text="Include extended per-IOC fields in JSON output.")
+    paginate = serializers.BooleanField(default=FEED_DEFAULTS["paginate"], help_text="Paginate the response (forces JSON output).")
+    min_credential_count = serializers.IntegerField(required=False, min_value=1, help_text="Only IOCs with at least this many associated credentials.")
+    max_credential_count = serializers.IntegerField(required=False, min_value=0, help_text="Only IOCs with at most this many associated credentials.")
+    asn = serializers.IntegerField(min_value=1, required=False, allow_null=True, help_text="Filter by autonomous system number.")
+    min_score = serializers.FloatField(min_value=0, max_value=1, required=False, allow_null=True, help_text="Minimum recurrence probability between 0 and 1.")
+    min_expected_interactions = serializers.FloatField(min_value=0, required=False, allow_null=True, help_text="Minimum expected interactions.")
+    port = serializers.IntegerField(min_value=1, max_value=65535, required=False, allow_null=True, help_text="Filter by attacked destination port.")
+    start_date = serializers.DateField(format="%Y-%m-%d", required=False, allow_null=True, help_text="Only IOCs last seen on or after this date (YYYY-MM-DD).")
+    end_date = serializers.DateField(format="%Y-%m-%d", required=False, allow_null=True, help_text="Only IOCs last seen on or before this date (YYYY-MM-DD).")
+    tag_key = serializers.CharField(max_length=128, required=False, allow_blank=True, help_text="Filter by tag key.")
+    tag_value = serializers.CharField(max_length=256, required=False, allow_blank=True, help_text="Filter by tag value.")
+    country_code = serializers.CharField(max_length=2, required=False, allow_blank=True, help_text="Filter by 2-letter attacker country code.")
 
     def validate(self, data: dict) -> dict:
         logger.debug("Validating advanced feed request")
@@ -184,10 +195,10 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
         return data
 
 
-class ASNFeedOrderingSerializer(AdvancedFeedRequestSerializer):
+class ASNFeedRequestSerializer(AdvancedFeedRequestSerializer):
     """Serializer for the ASN-aggregated feed endpoint.
-    Same parameters as the advanced feed, but restricts ordering to the
-    aggregate fields in ALLOWED_ORDERING_FIELDS rather than IOC model fields.
+    Restricts ordering to the aggregated fields in ALLOWED_ORDERING_FIELDS
+    rather than IOC model fields.
     """
 
     ALLOWED_ORDERING_FIELDS = frozenset(
@@ -205,11 +216,21 @@ class ASNFeedOrderingSerializer(AdvancedFeedRequestSerializer):
         }
     )
 
-    ordering = serializers.CharField(default="-ioc_count")
+    # Remove inherited advanced fields that have no effect on the aggregated ASN feed
+    format = None
+    feed_size = None
+    verbose = None
+    paginate = None
+
+    asn = serializers.IntegerField(min_value=1, required=False, allow_null=True, help_text="Only display results of this autonomous system number.")
+    ordering = serializers.CharField(default="-ioc_count", help_text="Aggregate field to order by (e.g. `-ioc_count`, `-total_attack_count`).")
+
+    def validate(self, data: dict) -> dict:
+        return data
 
     def validate_ordering(self, ordering: str) -> str:
         logger.debug(f"Validating ordering: {ordering}")
-        field_name = ordering.lstrip("-").strip()
+        field_name = ordering.removeprefix("-")
         if field_name not in self.ALLOWED_ORDERING_FIELDS:
             raise serializers.ValidationError(
                 f"Invalid ordering field for ASN aggregated feed: '{field_name}'. Allowed fields: {', '.join(sorted(self.ALLOWED_ORDERING_FIELDS))}"
@@ -218,30 +239,44 @@ class ASNFeedOrderingSerializer(AdvancedFeedRequestSerializer):
         return ordering
 
 
-class FeedResponseSerializer(serializers.Serializer):
-    """
-    Serializer for feed response data structure.
+class ASNFeedSerializer(serializers.Serializer):
+    asn = serializers.IntegerField(min_value=1)
+    as_name = serializers.CharField(max_length=256, allow_blank=True)
+    ioc_count = serializers.IntegerField(min_value=0)
+    total_attack_count = serializers.IntegerField(min_value=0)
+    total_interaction_count = serializers.IntegerField(min_value=0)
+    total_login_attempts = serializers.IntegerField(min_value=0)
+    expected_ioc_count = serializers.FloatField(min_value=0)
+    expected_interactions = serializers.FloatField(min_value=0)
+    first_seen = serializers.DateTimeField()
+    last_seen = serializers.DateTimeField()
+    honeypots = serializers.ListField(child=serializers.CharField(max_length=120))
 
-    NOTE: This serializer is currently NOT used in production code (as of #629).
-    It has been kept in the codebase for the following reasons:
 
-    1. **Documentation**: Serves as a clear schema definition for the API response contract
-    2. **Testing**: Validates the expected response structure through unit tests
-    3. **Future-proofing**: Allows easy re-enabling of validation if security requirements change
-    4. **Reference**: Useful for API consumers and developers to understand the response format
+"""
+== Serializers for feed response data structure. ==
+NOTE: The serializers below are currently NOT used in production code (as of #629).
+It has been kept in the codebase for the following reasons:
 
-    Performance Optimization Context:
-    Previously, this serializer was instantiated and validated for each IOC in the response
-    (up to 5000 times per request), causing significant overhead (~1.8s for 5000 IOCs).
-    The optimization removed this per-item validation since the data is constructed internally
-    in api/views/utils.py::feeds_response() and guaranteed to match this schema.
+1. **Documentation**: Serves as a clear schema definition for the API response contract
+2. **Testing**: Validates the expected response structure through unit tests
+3. **Future-proofing**: Allows easy re-enabling of validation if security requirements change
+4. **Reference**: Useful for API consumers and developers to understand the response format
 
-    The response is now built directly without serializer validation, reducing response time
-    to ~0.03s (50-90x speedup) while maintaining the exact same API contract defined here.
+Performance Optimization Context:
+Previously, this serializer was instantiated and validated for each IOC in the response
+(up to 5000 times per request), causing significant overhead (~1.8s for 5000 IOCs).
+The optimization removed this per-item validation since the data is constructed internally
+in api/views/utils.py::feeds_response() and guaranteed to match this schema.
 
-    See: #629 for benchmarking details and discussion.
-    """
+The response is now built directly without serializer validation, reducing response time
+to ~0.03s (50-90x speedup) while maintaining the exact same API contract defined here.
 
+See: #629 for benchmarking details and discussion.
+"""
+
+
+class SimpleFeedResponseSerializer(serializers.Serializer):
     feed_type = serializers.ListField(child=serializers.CharField(max_length=120))
     value = serializers.CharField(max_length=256)
     scanner = serializers.BooleanField()
@@ -251,7 +286,6 @@ class FeedResponseSerializer(serializers.Serializer):
     attack_count = serializers.IntegerField(min_value=1)
     interaction_count = serializers.IntegerField(min_value=1)
     ip_reputation = serializers.CharField(allow_blank=True, max_length=32)
-    firehol_categories = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True)
     asn = serializers.IntegerField(allow_null=True, min_value=1)
     destination_port_count = serializers.IntegerField(min_value=0)
     login_attempts = serializers.IntegerField(min_value=0)
@@ -260,4 +294,29 @@ class FeedResponseSerializer(serializers.Serializer):
     attacker_country = serializers.CharField(allow_null=True, allow_blank=True, max_length=120)
     attacker_country_code = serializers.CharField(allow_null=True, allow_blank=True, max_length=2)
     tags = TagSerializer(many=True, required=False, default=list)
+
+
+class AdvancedFeedResponseSerializer(SimpleFeedResponseSerializer):
+    credential_count = serializers.IntegerField(min_value=0)
     sensors = SensorSerializer(many=True, required=False, default=list)
+    firehol_categories = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True, required=False)
+    destination_ports = serializers.ListField(child=serializers.IntegerField(min_value=1, max_value=65535), required=False)
+    days_seen = serializers.ListField(child=serializers.DateField(format="%Y-%m-%d"), required=False)
+
+
+class BaseFeedEnvelopeSerializer(serializers.Serializer):
+    license = serializers.CharField(required=False, help_text="Feed license text, present when configured.")
+
+
+class SimpleFeedEnvelopeSerializer(BaseFeedEnvelopeSerializer):
+    iocs = SimpleFeedResponseSerializer(many=True)
+
+
+class PaginatedSimpleFeedSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total number of IOCs across all pages.")
+    total_pages = serializers.IntegerField(help_text="Total number of pages.")
+    results = SimpleFeedEnvelopeSerializer()
+
+
+class AdvancedFeedEnvelopeSerializer(BaseFeedEnvelopeSerializer):
+    iocs = AdvancedFeedResponseSerializer(many=True)
