@@ -1,13 +1,13 @@
 from datetime import timedelta
 
 import django_filters
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from greedybear.models import IOC
 
 
 class FeedsFilterSet(django_filters.FilterSet):
-    # --- direct field → lookup mappings (utils.get_queryset:127-142) ---
     asn = django_filters.NumberFilter(field_name="autonomous_system__asn")
     min_score = django_filters.NumberFilter(field_name="recurrence_probability", lookup_expr="gte")
     min_expected_interactions = django_filters.NumberFilter(field_name="expected_interactions", lookup_expr="gte")
@@ -16,7 +16,6 @@ class FeedsFilterSet(django_filters.FilterSet):
     tag_key = django_filters.CharFilter(field_name="tags__key")
     tag_value = django_filters.CharFilter(field_name="tags__value", lookup_expr="icontains")
 
-    # --- derived / method filters ---
     attack_type = django_filters.CharFilter(method="filter_attack_type")
     ioc_type = django_filters.CharFilter(method="filter_ioc_type")
     port = django_filters.NumberFilter(method="filter_port")
@@ -29,43 +28,32 @@ class FeedsFilterSet(django_filters.FilterSet):
         model = IOC
         fields = []  # all filters are declared explicitly above
 
-    def filter_attack_type(self, queryset, name, value):
-        # utils.get_queryset:120-121 — "all" means no filter; otherwise the
-        # attack type is a boolean column on IOC (scanner / payload_request).
+    def filter_attack_type(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         if value and value != "all":
             return queryset.filter(**{value: True})
         return queryset
 
-    def filter_ioc_type(self, queryset, name, value):
-        # utils.get_queryset:123-124
+    def filter_ioc_type(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         if value and value != "all":
             return queryset.filter(type=value)
         return queryset
 
-    def filter_port(self, queryset, name, value):
-        # utils.get_queryset:133-134 — destination_ports is an array column
+    def filter_port(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         return queryset.filter(destination_ports__contains=[int(value)])
 
-    def filter_country_code(self, queryset, name, value):
-        # utils.get_queryset:135-136
+    def filter_country_code(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         return queryset.filter(attacker_country_code=value.upper())
 
-    def filter_min_days_seen(self, queryset, name, value):
-        # utils.get_queryset:148-149 — only narrows when > 1
+    def filter_min_days_seen(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         if value and value > 1:
             return queryset.filter(number_of_days_seen__gte=value)
         return queryset
 
-    def filter_include_reputation(self, queryset, name, value):
-        # utils.get_queryset:150-151 — value is the already-split list
+    def filter_include_reputation(self, queryset: QuerySet, name: str, value: list[str]) -> QuerySet:
         if value:
             return queryset.filter(ip_reputation__in=value)
         return queryset
 
-    def filter_max_age(self, queryset, name, value):
-        # utils.get_queryset:144-146 — last_seen cutoff, applied ONLY when no
-        # explicit date range was given (cross-field rule). Pending: skip when
-        # start_date/end_date present, e.g.
-        #   if self.data.get("start_date") or self.data.get("end_date"): return queryset
+    def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         cutoff = timezone.now() - timedelta(days=int(value))
         return queryset.filter(last_seen__gte=cutoff)
