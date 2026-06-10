@@ -104,6 +104,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     # rest framework libs
     "rest_framework",
+    "drf_spectacular",
     "api.apps.ApiConfig",
     # certego libs
     "durin",
@@ -131,6 +132,8 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "certego_saas.ext.exceptions.custom_exception_handler",
     # Auth
     "DEFAULT_AUTHENTICATION_CLASSES": ["certego_saas.apps.auth.backend.CookieTokenAuthentication"],
+    # OpenAPI schema generation (drf-spectacular)
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Pagination
     "DEFAULT_PAGINATION_CLASS": "certego_saas.ext.pagination.CustomPageNumberPagination",
     "PAGE_SIZE": 10,
@@ -143,6 +146,25 @@ REST_FRAMEWORK = {
     # Disable DRF's format suffix negotiation via ?format= query param,
     # since feeds endpoints handle the format parameter internally.
     "URL_FORMAT_OVERRIDE": None,
+}
+
+# drf-spectacular (OpenAPI 3 schema)
+SPECTACULAR_SETTINGS = {
+    "TITLE": "GreedyBear API",
+    "DESCRIPTION": (
+        "Threat intelligence feeds and IOC enrichment extracted from T-Pot. "
+        "Most feed endpoints are public; advanced filtering, ASN aggregation and share-token "
+        "management require authentication via the `Token` header."
+    ),
+    "VERSION": VERSION,
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SORT_OPERATIONS": False,
+    "SORT_OPERATION_PARAMETERS": False,
+    "TAGS": [
+        {"name": "Feeds", "description": "Public and authenticated threat intelligence feeds."},
+        {"name": "Feed Sharing", "description": "Create, consume, list and revoke shareable feed links."},
+    ],
+    "SCHEMA_PATH_PREFIX": "/api",
 }
 
 # Django-Rest-Durin
