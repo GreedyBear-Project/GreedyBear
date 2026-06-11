@@ -188,7 +188,7 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     port = serializers.IntegerField(min_value=1, max_value=65535, required=False, allow_null=True, help_text="Filter by attacked destination port.")
     start_date = serializers.DateField(format="%Y-%m-%d", required=False, allow_null=True, help_text="Only IOCs last seen on or after this date (YYYY-MM-DD).")
     end_date = serializers.DateField(format="%Y-%m-%d", required=False, allow_null=True, help_text="Only IOCs last seen on or before this date (YYYY-MM-DD).")
-    tag_key = serializers.CharField(max_length=128, required=False, allow_blank=True, help_text="Filter by tag key.")
+    tag_key = serializers.CharField(max_length=128, required=False, allow_blank=True, help_text="Filter by tag key (case-insensitive exact match).")
     tag_value = serializers.CharField(max_length=256, required=False, allow_blank=True, help_text="Filter by tag value.")
     country_code = serializers.CharField(max_length=2, required=False, allow_blank=True, help_text="Filter by 2-letter attacker country code.")
 

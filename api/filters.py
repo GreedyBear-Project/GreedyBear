@@ -13,7 +13,7 @@ class FeedsFilterSet(django_filters.FilterSet):
     min_expected_interactions = django_filters.NumberFilter(field_name="expected_interactions", lookup_expr="gte")
     start_date = django_filters.DateFilter(field_name="last_seen", lookup_expr="gte")
     end_date = django_filters.DateFilter(field_name="last_seen", lookup_expr="lte")
-    tag_key = django_filters.CharFilter(field_name="tags__key")
+    tag_key = django_filters.CharFilter(field_name="tags__key", lookup_expr="iexact")
     tag_value = django_filters.CharFilter(field_name="tags__value", lookup_expr="icontains")
 
     attack_type = django_filters.CharFilter(method="filter_attack_type")
