@@ -700,7 +700,7 @@ def _bulk_create_raw_events(events_data: list[dict], batch: EventStatus, api_sou
 
     Args:
         events_data (list[dict]): A collection of un-persisted, validated event data dictionaries.
-        batch (EventStatus): The tracking tracking batch model instance these events belong to.
+        batch (EventStatus): The tracking batch model instance these events belong to.
         api_source (APISource): The origin provider authority submitting the events.
 
     Returns:
@@ -794,12 +794,14 @@ def increment_and_evaluate_lock(api_source: APISource) -> Response | None:
 
     Returns a 403 Response if locked, otherwise returns None.
     """
-    api_source.invalid_event_count += 1
+    api_source.invalid_event_count = F("invalid_event_count") + 1
+    api_source.save(update_fields=["invalid_event_count"])
+
+    api_source.refresh_from_db()
 
     if api_source.invalid_event_count >= APISOURCE_LOCKED_THRESHOLD:
         api_source.is_active = False
-        api_source.save(update_fields=["invalid_event_count", "is_active"])
+        api_source.save(update_fields=["is_active"])
         return Response({"error": "Your APISource has been automatically locked due to excessive invalid batch submissions."}, status=status.HTTP_403_FORBIDDEN)
 
-    api_source.save(update_fields=["invalid_event_count"])
     return None

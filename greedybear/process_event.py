@@ -184,17 +184,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         logger.debug(f"[task={task_id}] {len(raw_events)} RawEvents fetched")
 
         # normaizing hit dicts
-        hits = []
-        skipped = 0
-        for raw in raw_events:
-            hit = _normalize_raw_event_to_hit(raw)
-            if hit is not None:
-                hits.append(hit)
-            else:
-                skipped += 1
-
-        if skipped:
-            logger.warning(f"[task={task_id}] {skipped} RawEvent(s) skipped (bad data)")
+        hits = [_normalize_raw_event_to_hit(raw) for raw in raw_events]
 
         if not hits:
             error_msg = f"All {len(raw_events)} RawEvents invalid after normalization"

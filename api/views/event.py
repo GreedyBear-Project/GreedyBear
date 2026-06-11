@@ -75,12 +75,6 @@ def events_create_view(request):
         logger.exception("Failed while creating batch & events")
         return Response({"error": "An internal database error occurred while staging events"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    if total_created == 0:
-        batch.status = "failed"
-        batch.last_error = "No valid events could be stored"
-        batch.save(update_fields=["status", "last_error"])
-        return Response({"error": "No valid events could be stored"}, status=status.HTTP_400_BAD_REQUEST)
-
     try:
         # enqueue background task
         async_task(
