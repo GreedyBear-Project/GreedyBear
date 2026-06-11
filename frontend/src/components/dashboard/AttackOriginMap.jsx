@@ -157,7 +157,7 @@ export default function AttackOriginMap() {
         visible: true,
         x: evt.clientX,
         y: evt.clientY,
-        name: geo.properties.name,
+        name: geo.properties.name, // canonical TopoJSON name for display
         count,
       });
     },
