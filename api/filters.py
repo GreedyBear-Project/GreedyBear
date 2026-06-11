@@ -55,5 +55,8 @@ class FeedsFilterSet(django_filters.FilterSet):
         return queryset
 
     def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
+        # drop max_age id an explicit date range replaces is set
+        if self.data.get("start_date") or self.data.get("end_date"):
+            return queryset
         cutoff = timezone.now() - timedelta(days=int(value))
         return queryset.filter(last_seen__gte=cutoff)

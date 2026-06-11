@@ -299,6 +299,18 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         response = self.client.get(f"/api/feeds/advanced/?start_date={future_start}")
         self.assertEqual(response.json()["iocs"], [])
 
+    def test_date_range_overrides_max_age_default(self):
+        """A historical date range must return IOCs older than the max_age default."""
+        old_ioc_date = datetime.now() - timedelta(days=10)
+        self.ioc.last_seen = old_ioc_date
+        self.ioc.save()
+
+        start = (old_ioc_date - timedelta(days=2)).strftime("%Y-%m-%d")
+        end = (old_ioc_date + timedelta(days=2)).strftime("%Y-%m-%d")
+        response = self.client.get(f"/api/feeds/advanced/?start_date={start}&end_date={end}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
     def test_filter_by_country_code(self):
         """Filter by country_code returns only matching IOCs."""
         self.ioc.attacker_country_code = "IT"

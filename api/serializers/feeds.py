@@ -165,7 +165,11 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     taking default fallback values from FEED_DEFAULTS.
     """
 
-    max_age = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["max_age"], help_text="Maximum age in days since an IOC was last seen.")
+    max_age = serializers.IntegerField(
+        min_value=1,
+        default=FEED_DEFAULTS["max_age"],
+        help_text="Maximum age in days since an IOC was last seen. Ignored when `start_date` or `end_date` is given.",
+    )
     min_days_seen = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["min_days_seen"], help_text="Minimum distinct days an IOC has been seen.")
     feed_size = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["feed_size"], help_text="Maximum number of IOCs to return.")
     include_reputation = ReputationListField(
