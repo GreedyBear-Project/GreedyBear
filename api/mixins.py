@@ -3,6 +3,7 @@ import urllib.parse
 from functools import cached_property
 
 from django.http import HttpResponse
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from greedybear.cache import Cache, build_versioned_key
@@ -74,3 +75,15 @@ class CachedResponseMixin:
             timeout=self.cache_timeout,
         )
         return True
+
+
+class RequestLoggingMixin:
+    """Emit a access-log line per request for any APIView/ViewSet it is mixed into."""
+
+    EXCLUDED_LOG_PARAMS = frozenset({"reason"})
+
+    def initial(self, request: Request, *args, **kwargs):
+        route = getattr(getattr(request, "resolver_match", None), "route", None) or request.path.lstrip("/")
+        params = {k: v for k, v in request.query_params.items() if k not in self.EXCLUDED_LOG_PARAMS}
+        logger.info(f"request {request.method} /{route} params: {params}")
+        super().initial(request, *args, **kwargs)

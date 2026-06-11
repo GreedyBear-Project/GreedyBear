@@ -1,7 +1,6 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import hashlib
-import logging
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
@@ -20,8 +19,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
-from api.caching import CachedResponseMixin
 from api.filters import FeedsFilterSet
+from api.mixins import CachedResponseMixin, RequestLoggingMixin
 from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedTextRenderer, Stix21Renderer
 from api.serializers import (
     AdvancedFeedEnvelopeSerializer,
@@ -46,8 +45,6 @@ from api.views.utils import (
 from greedybear.consts import SHARE_TOKEN_SALT
 from greedybear.models import IOC, ShareToken
 
-logger = logging.getLogger(__name__)
-
 RENDERERS_BY_FORMAT = {
     "json": FeedJSONRenderer,
     "txt": FeedTextRenderer,
@@ -69,7 +66,7 @@ PAGE_PARAMETER = OpenApiParameter(
 )
 
 
-class BaseFeedView(CachedResponseMixin, APIView):
+class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     """Shared GET flow:
     validate request params, build the IOC queryset and render (paginating when asked).
 
@@ -395,7 +392,7 @@ class ConsumeFeedView(AdvancedFeedView):
 
 
 @extend_schema(tags=["Feed Sharing"])
-class ShareTokenViewSet(ViewSet):
+class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
     """Create, list and revoke shareable feed tokens.
 
     Share/revoke are intentionally GET-able so the links can be opened directly
@@ -421,9 +418,6 @@ class ShareTokenViewSet(ViewSet):
         },
     )
     def share(self, request: Request) -> Response:
-        safe_params = {k: v for k, v in request.query_params.items() if k != "reason"}
-        logger.info(f"request /api/feeds/share with params: {safe_params}")
-
         request_serializer = ShareFeedRequestSerializer(data=request.query_params)
         request_serializer.is_valid(raise_exception=True)
         reason = request_serializer.validated_data["reason"]
@@ -459,7 +453,6 @@ class ShareTokenViewSet(ViewSet):
         },
     )
     def revoke(self, request: Request, token: str) -> Response:
-        logger.info("request /api/feeds/revoke")
         serializer = TokenRequestSerializer(data={"token": token})
         serializer.is_valid(raise_exception=True)
         share_token = serializer.validated_data["share_token"]
@@ -485,6 +478,5 @@ class ShareTokenViewSet(ViewSet):
         },
     )
     def list_tokens(self, request: Request) -> Response:
-        logger.info("request /api/feeds/tokens/")
         tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values()
         return Response(ShareTokenListItemSerializer(tokens, many=True).data)
