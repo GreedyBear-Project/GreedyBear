@@ -4,14 +4,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import axios from "axios";
 import { AttackOriginCountriesChart } from "../../../src/components/dashboard/utils/charts";
 import { IOC_ATTACKER_COUNTRIES_URI } from "../../../src/constants/api";
-import useAttackerCountriesStore from "../../../src/stores/useAttackerCountriesStore";
+import { clearWidgetDataCache } from "../../../src/hooks/useWidgetData";
 
 vi.mock("axios");
 
 vi.mock("@greedybear/gb-ui", () => ({
   useTimePickerStore: () => ({ range: "7d" }),
   getRandomColorsArray: (n) => Array(n).fill("#aabbcc"),
-  AnyChartWidget: () => <div />,
 }));
 
 // ResponsiveContainer requires a DOM-measured width; give it fixed dimensions in jsdom
@@ -37,7 +36,6 @@ const COUNTRIES_DATA = [
 ];
 
 // 16 entries (one more than the 15-entry limit).
-// Each entry needs a code so the store doesn't skip codeless items.
 const SIXTEEN_COUNTRIES = Array.from({ length: 16 }, (_, i) => ({
   country: `Country${i + 1}`,
   code: `T${String(i + 1).padStart(1, "0")}`.slice(0, 2), // fictional alpha-2
@@ -46,16 +44,8 @@ const SIXTEEN_COUNTRIES = Array.from({ length: 16 }, (_, i) => ({
 
 describe("AttackOriginCountriesChart", () => {
   beforeEach(() => {
-    useAttackerCountriesStore.setState({
-      normalizedData: [],
-      countryDataMap: {},
-      maxCount: 0,
-      loading: false,
-      error: null,
-      lastRange: null,
-      currentController: null,
-    });
     vi.clearAllMocks();
+    clearWidgetDataCache();
   });
 
   test("shows loading state while request is in flight", () => {
@@ -68,9 +58,7 @@ describe("AttackOriginCountriesChart", () => {
     axios.get.mockRejectedValue(new Error("Network error"));
     render(<AttackOriginCountriesChart />);
     await waitFor(() =>
-      expect(
-        screen.getByText("Failed to load attacker countries data."),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("Failed to load data.")).toBeInTheDocument(),
     );
   });
 
@@ -93,7 +81,7 @@ describe("AttackOriginCountriesChart", () => {
       expect(axios.get).toHaveBeenCalledWith(
         IOC_ATTACKER_COUNTRIES_URI,
         expect.objectContaining({
-          params: { range: "7d" },
+          params: expect.objectContaining({ range: "7d" }),
         }),
       ),
     );
@@ -119,7 +107,7 @@ describe("AttackOriginCountriesChart", () => {
 
   test("chart height scales with number of entries", async () => {
     axios.get.mockResolvedValue({ data: COUNTRIES_DATA });
-    const { container } = render(<AttackOriginCountriesChart />);
+    render(<AttackOriginCountriesChart />);
     await waitFor(() =>
       expect(screen.getByTestId("responsive-container")).toBeInTheDocument(),
     );
