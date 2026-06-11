@@ -126,9 +126,10 @@ def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict
         has_sensors_annotation = include_sensors and bool(iocs) and hasattr(iocs[0], "sensors_json")
         has_credential_count = bool(iocs) and hasattr(iocs[0], "credential_count")
     else:
-        has_tags_annotation = "tags_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
-        has_sensors_annotation = include_sensors and "sensors_json" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
-        has_credential_count = "credential_count" in getattr(iocs, "query", type("", (), {"annotations": {}})()).annotations
+        annotations = getattr(getattr(iocs, "query", None), "annotations", {})
+        has_tags_annotation = "tags_json" in annotations
+        has_sensors_annotation = include_sensors and "sensors_json" in annotations
+        has_credential_count = "credential_count" in annotations
     required_fields = tuple(("tags_json" if f == "tags" else f) for f in required_fields if f != "tags" or has_tags_annotation)
     required_fields = tuple(f for f in required_fields if f != "credential_count" or has_credential_count)
     if has_sensors_annotation:

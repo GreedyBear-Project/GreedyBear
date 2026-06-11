@@ -339,7 +339,7 @@ Performance Optimization Context:
 Previously, this serializer was instantiated and validated for each IOC in the response
 (up to 5000 times per request), causing significant overhead (~1.8s for 5000 IOCs).
 The optimization removed this per-item validation since the data is constructed internally
-in api/views/utils.py::feeds_response() and guaranteed to match this schema.
+in api/views/utils.py (build_ioc_json_list / build_feed_dict) and guaranteed to match this schema.
 
 The response is now built directly without serializer validation, reducing response time
 to ~0.03s (50-90x speedup) while maintaining the exact same API contract defined here.
