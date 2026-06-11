@@ -2,12 +2,12 @@ import React from "react";
 import { ContentSection } from "@greedybear/gb-ui";
 import { Spinner } from "reactstrap";
 import { GREEDYBEAR_NEWS_URL } from "../../constants/api";
+export const MAX_NEWS_ITEMS = 3;
 
 export const NewsWidget = React.memo(() => {
   const [data, setData] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(false);
-
   const formatDate = (dateStr) => {
     if (!dateStr) return "";
 
@@ -37,7 +37,7 @@ export const NewsWidget = React.memo(() => {
         return response.json();
       })
 
-      .then(setData)
+      .then((newsData) => setData(newsData.slice(0, MAX_NEWS_ITEMS)))
       .catch((err) => {
         console.error("Error fetching news:", err);
         setError(true);
