@@ -65,3 +65,5 @@ CACHE_TIMEOUT_SECONDS = 60 * 60
 
 # tracking application start time
 START_TIME = time.time()
+
+APISOURCE_LOCKED_THRESHOLD = 10

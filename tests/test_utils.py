@@ -7,6 +7,9 @@ from django.test import SimpleTestCase
 
 from greedybear.consts import DOMAIN, IP
 from greedybear.utils import (
+    PAYLOAD_REQUEST,
+    SCANNER,
+    get_attack_type,
     get_ioc_type,
     is_ip_address,
     is_non_global_ip,
@@ -14,6 +17,7 @@ from greedybear.utils import (
     is_valid_cidr,
     is_valid_domain,
     is_valid_ipv4,
+    is_valid_url,
 )
 
 from . import CustomTestCase
@@ -338,3 +342,37 @@ class UtilsTestCase(SimpleTestCase):
 
         self.assertFalse(is_non_global_ip(ip_address("8.8.8.8")))
         self.assertFalse(is_non_global_ip(ip_address("2001:4860:4860::8888")))
+
+    def test_is_valid_url(self):
+        # Valid URLs (Must have http/https, a domain, and a path)
+        self.assertTrue(is_valid_url("https://example.com/payload.exe"))
+        self.assertTrue(is_valid_url("http://192.168.1.100/malware/sh"))
+
+        # Invalid URLs (Missing path)
+        self.assertFalse(is_valid_url("https://example.com"))
+        self.assertFalse(is_valid_url("https://example.com/"))
+
+        # Invalid URLs (Bad or missing schemes)
+        self.assertFalse(is_valid_url("ftp://example.com/file.zip"))
+        self.assertFalse(is_valid_url("example.com/payload.php"))
+
+        # Invalid URLs (Malformatted/empty netloc)
+        self.assertFalse(is_valid_url("https:///path/to/file"))
+        self.assertFalse(is_valid_url(""))
+
+    def test_get_attack_type(self):
+        scanner_hits = [
+            {"_related_url": "https://example.com/"},  # Invalid: no path
+            {"_related_url": "ftp://badsite.com/payload.exe"},  # Invalid: bad scheme
+            {"something_else": "no_url_key_at_all"},
+        ]
+        self.assertEqual(get_attack_type(scanner_hits), SCANNER)
+
+        payload_hits = [
+            {"_related_url": "https://example.com/"},  # Invalid hit
+            {"_related_url": "https://example.com/download.exe"},  # Valid hit!
+            {"_related_url": "ftp://badsite.com/payload.exe"},  # Invalid hit
+        ]
+        self.assertEqual(get_attack_type(payload_hits), PAYLOAD_REQUEST)
+
+        self.assertEqual(get_attack_type([]), SCANNER)

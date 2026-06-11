@@ -3,6 +3,7 @@ import re
 from functools import cache
 
 from django.core.exceptions import FieldDoesNotExist
+from django.utils import timezone
 from rest_framework import serializers
 
 from greedybear.consts import REGEX_DOMAIN
@@ -299,3 +300,40 @@ class SensorCreateSerializer(serializers.ModelSerializer):
         if not is_ip_address(value):
             raise serializers.ValidationError("Invalid IP address")
         return value
+
+
+class EventSerializer(serializers.Serializer):
+    # required fields
+    src_ip = serializers.IPAddressField(required=True)
+    event_type = serializers.CharField(required=True, max_length=100)
+    timestamp = serializers.DateTimeField(required=True)
+    sensor_id = serializers.IntegerField(required=True, min_value=0)
+
+    # optional string fields
+    session_id = serializers.CharField(default="", max_length=100, allow_blank=True)
+    token_id = serializers.CharField(default="", max_length=100, allow_blank=True)
+    protocol = serializers.CharField(default="", max_length=50, allow_blank=True)
+    service_name = serializers.CharField(default="", max_length=100, allow_blank=True)
+    username = serializers.CharField(default="", max_length=255, allow_blank=True)
+    password = serializers.CharField(default="", max_length=255, allow_blank=True)
+    cve_id = serializers.CharField(default="", max_length=50, allow_blank=True)
+    command = serializers.CharField(default="", allow_blank=True)
+    src_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
+    dest_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
+    related_url = serializers.URLField(default="", max_length=900, allow_blank=True)
+    payload_hash = serializers.CharField(default="", max_length=64, allow_blank=True)
+    data = serializers.JSONField(default=dict)
+
+    def validate_timestamp(self, value):
+        if value > timezone.now():
+            raise serializers.ValidationError("Timestamp cannot be in the future.")
+        return value
+
+
+class InjectionSerializer(serializers.Serializer):
+    events = serializers.ListField(
+        child=EventSerializer(),
+        min_length=1,
+        max_length=10000,
+        error_messages={"min_length": "At least one event is required.", "max_length": "Batch size cannot exceed 10,000 events."},
+    )
