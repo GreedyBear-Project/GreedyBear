@@ -20,7 +20,7 @@ class FeedsFormatParityTestCase(CustomTestCase):
                 return {ioc["value"] for ioc in response.json()["iocs"]}
             case "stix21":
                 return {obj["name"] for obj in response.json()["objects"] if obj.get("type") == "indicator"}
-            case _: # txt and csv
+            case _:  # txt and csv
                 body = response.content.decode("utf-8")
                 return {line.strip() for line in body.splitlines() if line.strip() and not line.startswith("#")}
 
