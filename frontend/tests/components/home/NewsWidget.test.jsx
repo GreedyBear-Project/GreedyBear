@@ -1,6 +1,9 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
-import { NewsWidget } from "../../../src/components/home/NewsWidget";
+import {
+  MAX_NEWS_ITEMS,
+  NewsWidget,
+} from "../../../src/components/home/NewsWidget";
 import { GREEDYBEAR_NEWS_URL } from "../../../src/constants/api";
 import "@testing-library/jest-dom";
 
@@ -196,7 +199,7 @@ describe("NewsWidget", () => {
       expect(await screen.findByText("1st Jan 2024")).toBeInTheDocument();
       expect(screen.getByText("2nd Feb 2024")).toBeInTheDocument();
       expect(screen.getByText("3rd Mar 2024")).toBeInTheDocument();
-      expect(screen.getByText("21st Apr 2024")).toBeInTheDocument();
+      expect(screen.queryByText("21st Apr 2024")).not.toBeInTheDocument();
     });
 
     it("should handle items without date", async () => {
@@ -252,7 +255,7 @@ describe("NewsWidget", () => {
     });
 
     it("should render multiple news items correctly", async () => {
-      const mockNewsData = Array.from({ length: 5 }, (_, i) => ({
+      const mockNewsData = Array.from({ length: MAX_NEWS_ITEMS }, (_, i) => ({
         date: `2024-01-${i + 1}`,
         title: `News Title ${i + 1}`,
         subtext: `Subtext ${i + 1}`,
@@ -265,15 +268,36 @@ describe("NewsWidget", () => {
 
       expect(await screen.findByText("News Title 1")).toBeInTheDocument();
 
-      mockNewsData.forEach((item) => {
+      mockNewsData.slice(0, MAX_NEWS_ITEMS).forEach((item) => {
         expect(screen.getByText(item.title)).toBeInTheDocument();
         expect(screen.getByText(item.subtext)).toBeInTheDocument();
       });
 
-      expect(screen.getAllByText("Read more")).toHaveLength(5);
+      expect(screen.getAllByText("Read more")).toHaveLength(MAX_NEWS_ITEMS);
     });
   });
+  describe("Limits news item to max_news_item", () => {
+    it("should have the MAX_NEWS_ITEMS constraint and hide excess items", async () => {
+      const mockNewsData = Array.from({ length: 10 }, (_, i) => ({
+        date: `2024-01-${10 + i}`,
+        title: `News item ${i + 1}`,
+        subtext: `Text ${i + 1}`,
+        link: `https://example.com${i + 1}`,
+      }));
 
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockNewsData,
+      });
+
+      render(<NewsWidget />);
+
+      await screen.findByText("News item 1");
+
+      const links = screen.getAllByText("Read more");
+      expect(links).toHaveLength(MAX_NEWS_ITEMS);
+    });
+  });
   describe("Memoization", () => {
     it("should be wrapped with React.memo", () => {
       expect(NewsWidget.$$typeof).toBeDefined();

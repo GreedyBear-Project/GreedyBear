@@ -30,6 +30,7 @@ from .serializers import (
     LoginSerializer,
     RegistrationSerializer,
 )
+from .throttles import LoginIdentifierThrottle, LoginIPThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,8 @@ def check_configuration(request):
 
 
 class LoginView(certego_views.LoginView):
+    throttle_classes = [LoginIPThrottle, LoginIdentifierThrottle]
+
     @staticmethod
     def validate_and_return_user(request):
         serializer = LoginSerializer(data=request.data)
