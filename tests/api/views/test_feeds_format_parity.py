@@ -62,3 +62,10 @@ class FeedsFormatParityTestCase(CustomTestCase):
                 first_line = response.content.decode("utf-8").splitlines()[0]
                 self.assertEqual(first_line, "# https://example.com/license")
                 self.assertNotIn("https://example.com/license", self._get_ioc_names(fmt, response))
+
+    def test_invalid_request_returns_400_for_every_accept_header(self):
+        bad_url = "/api/feeds/not_a_honeypot/all/recent.json"
+        for accept in ("application/json", "text/plain", "text/csv", "*/*"):
+            with self.subTest(accept=accept):
+                response = self.client.get(bad_url, HTTP_ACCEPT=accept)
+                self.assertEqual(response.status_code, 400)
