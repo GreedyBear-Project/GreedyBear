@@ -59,10 +59,12 @@ class FeedCSVRenderer(FeedRendererMixin):
     charset = None
 
     def render_feed(self, data, accepted_media_type=None, renderer_context=None):
-        rows = [[f"# {settings.FEEDS_LICENSE}"]] if settings.FEEDS_LICENSE else []
-        rows += [list(row) for row in data.values_list("name")]
         buffer = io.StringIO()
-        csv.writer(buffer, quoting=csv.QUOTE_NONE).writerows(rows)
+        writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
+        if settings.FEEDS_LICENSE:
+            buffer.write("# ")
+            writer.writerow([settings.FEEDS_LICENSE])
+        writer.writerows([list(row) for row in data.values_list("name")])
         return buffer.getvalue().encode("utf-8")
 
 

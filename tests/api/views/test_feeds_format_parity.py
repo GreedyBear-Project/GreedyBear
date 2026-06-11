@@ -69,3 +69,11 @@ class FeedsFormatParityTestCase(CustomTestCase):
             with self.subTest(accept=accept):
                 response = self.client.get(bad_url, HTTP_ACCEPT=accept)
                 self.assertEqual(response.status_code, 400)
+
+    @override_settings(FEEDS_LICENSE="License, but with a comma")
+    def test_csv_does_not_crash_on_license_containing_comma(self):
+        response = self._get_response("csv", self.INCLUDE_ALL)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode("utf-8")
+        self.assertEqual(body.splitlines()[0], '# "License, but with a comma"')
+        self.assertEqual(self._get_ioc_names("csv", response), {self.ioc.name, self.ioc_2.name, self.ioc_3.name, self.ioc_domain.name})
