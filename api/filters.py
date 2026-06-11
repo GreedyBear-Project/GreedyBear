@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import django_filters
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from django.utils import timezone
 
 from greedybear.models import IOC
@@ -23,6 +23,8 @@ class FeedsFilterSet(django_filters.FilterSet):
     min_days_seen = django_filters.NumberFilter(method="filter_min_days_seen")
     max_age = django_filters.NumberFilter(method="filter_max_age")
     include_reputation = django_filters.Filter(method="filter_include_reputation")
+    min_credential_count = django_filters.NumberFilter(method="filter_min_credential_count")
+    max_credential_count = django_filters.NumberFilter(method="filter_max_credential_count")
 
     class Meta:
         model = IOC
@@ -53,6 +55,16 @@ class FeedsFilterSet(django_filters.FilterSet):
         if value:
             return queryset.filter(ip_reputation__in=value)
         return queryset
+
+    def filter_min_credential_count(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
+        return self._filter_by_credential_count(queryset, "gte", value)
+
+    def filter_max_credential_count(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
+        return self._filter_by_credential_count(queryset, "lte", value)
+
+    def _filter_by_credential_count(self, queryset: QuerySet, lookup: str, value: int) -> QuerySet:
+        qualifying = IOC.objects.annotate(cc=Count("credentials", distinct=True)).filter(**{f"cc__{lookup}": value}).values("id")
+        return queryset.filter(id__in=qualifying)
 
     def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         # drop max_age id an explicit date range replaces is set

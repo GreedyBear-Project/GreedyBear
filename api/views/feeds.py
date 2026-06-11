@@ -292,13 +292,6 @@ class AdvancedFeedView(BaseFeedView):
         iocs = super().get_queryset()
 
         iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
-        if "min_credential_count" in self.request_params:
-            iocs = iocs.filter(credential_count__gte=self.request_params["min_credential_count"])
-        if "max_credential_count" in self.request_params:
-            iocs = iocs.filter(credential_count__lte=self.request_params["max_credential_count"])
-
-        if self.is_aggregated:
-            return iocs
 
         if self.request_params["format"] == "json":
             iocs = iocs.annotate(
@@ -340,14 +333,6 @@ class AsnFeedView(BaseFeedView):
     throttle_classes = [FeedsAdvancedThrottle]
     serializer_class = ASNFeedRequestSerializer
     is_aggregated = True
-
-    def get_queryset(self) -> QuerySet:
-        """Filter the base IOC queryset by the validated ASN, when provided."""
-        iocs = super().get_queryset()
-        asn = self.request_params.get("asn")
-        if asn:
-            iocs = iocs.filter(autonomous_system__asn=asn)
-        return iocs
 
     def render_response(self, request: Request, iocs_queryset: QuerySet) -> Response:
         rows = aggregate_iocs_by_asn(iocs_queryset, self.request_params["ordering"])

@@ -195,7 +195,8 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     def validate(self, data: dict) -> dict:
         logger.debug("Validating advanced feed request")
         data = super().validate(data)
-        if data["paginate"]:
+        # .get() instead of [] so subclasses without the paginate field (ASN) can reuse this
+        if data.get("paginate"):
             data["format"] = "json"
         min_cc = data.get("min_credential_count")
         max_cc = data.get("max_credential_count")
@@ -233,9 +234,6 @@ class ASNFeedRequestSerializer(AdvancedFeedRequestSerializer):
 
     asn = serializers.IntegerField(min_value=1, required=False, allow_null=True, help_text="Only display results of this autonomous system number.")
     ordering = serializers.CharField(default="-ioc_count", help_text="Aggregate field to order by (e.g. `-ioc_count`, `-total_attack_count`).")
-
-    def validate(self, data: dict) -> dict:
-        return data
 
     def validate_ordering(self, ordering: str) -> str:
         logger.debug(f"Validating ordering: {ordering}")
