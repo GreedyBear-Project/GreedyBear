@@ -111,7 +111,7 @@ def event_status_view(request, task_id: str):
     """
     Retrieve the execution and processing status of a specific event batch using its task ID.
 
-    This endpoint safely exposes the processing lifecycle phase (e.g., pending, running, success, failed)
+    This endpoint safely exposes the processing lifecycle phase (e.g., pending, processing, completed, failed)
     of an asynchronous background extraction task triggered by Django-Q.
 
     **Authentication:**
