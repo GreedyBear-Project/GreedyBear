@@ -4,7 +4,7 @@ from rest_framework.test import APIClient
 
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
-from greedybear.models import IOC, AutonomousSystem, Honeypot
+from greedybear.models import IOC, AutonomousSystem, Credential, Honeypot
 from tests import CustomTestCase
 
 
@@ -141,6 +141,42 @@ class FeedsASNViewTestCase(CustomTestCase):
         results = self._get_results(response)
         self.assertEqual(len(results), 1)
         self.assertEqual(str(results[0]["asn"]), self.high_asn)
+
+    def test_200_asn_feed_min_credential_count_filter(self):
+        """Only IOCs meeting min_credential_count contribute to the aggregation."""
+        cred = Credential.objects.create(username="admin", password="admin")
+        self.ioc_high1.credentials.add(cred)
+
+        response = self.client.get(self.url + "?min_credential_count=1")
+        self.assertEqual(response.status_code, 200)
+        results = self._get_results(response)
+        self.assertEqual(len(results), 1)
+        high_item = results[0]
+        self.assertEqual(str(high_item["asn"]), self.high_asn)
+        # ioc_high2 has no credentials, so only ioc_high1 is aggregated;
+        # the sum also guards against join-induced row multiplication
+        self.assertEqual(high_item["ioc_count"], 1)
+        self.assertEqual(high_item["total_attack_count"], self.ioc_high1.attack_count)
+
+    def test_200_asn_feed_max_credential_count_filter(self):
+        """IOCs above max_credential_count are excluded from the aggregation."""
+        cred = Credential.objects.create(username="root", password="1234")
+        self.ioc_high1.credentials.add(cred)
+
+        response = self.client.get(self.url + "?max_credential_count=0")
+        self.assertEqual(response.status_code, 200)
+        results = self._get_results(response)
+        high_item = next((item for item in results if str(item["asn"]) == self.high_asn), None)
+        self.assertIsNotNone(high_item)
+        self.assertEqual(high_item["ioc_count"], 1)  # only ioc_high2 remains
+        low_item = next((item for item in results if str(item["asn"]) == self.low_asn), None)
+        self.assertIsNotNone(low_item)
+        self.assertEqual(low_item["ioc_count"], 1)
+
+    def test_400_asn_feed_invalid_credential_count_range(self):
+        """min_credential_count greater than max_credential_count returns 400."""
+        response = self.client.get(self.url + "?min_credential_count=10&max_credential_count=5")
+        self.assertEqual(response.status_code, 400)
 
     def test_400_asn_feed_invalid_ordering_honeypots(self):
         response = self.client.get(self.url + "?ordering=honeypots")
