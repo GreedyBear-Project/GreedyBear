@@ -90,6 +90,9 @@ FEEDS_THROTTLE_RATE=30/minute
 FEEDS_ADVANCED_THROTTLE_RATE=100/minute
 FEEDS_SHARED_THROTTLE_RATE=10/minute
 
+# Rate limiting for authentication endpoints (format: number/period, e.g. 30/minute)
+LOGIN_THROTTLE_RATE=10/minute
+
 # Trending attackers settings
 # Max API window in minutes (must be >= 60 and multiple of 60)
 TRENDING_MAX_WINDOW_MINUTES=22320

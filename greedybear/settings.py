@@ -139,6 +139,7 @@ REST_FRAMEWORK = {
         "feeds": os.environ.get("FEEDS_THROTTLE_RATE", "30/minute"),
         "feeds_advanced": os.environ.get("FEEDS_ADVANCED_THROTTLE_RATE", "100/minute"),
         "feeds_shared": os.environ.get("FEEDS_SHARED_THROTTLE_RATE", "10/minute"),
+        "login": os.environ.get("LOGIN_THROTTLE_RATE", "10/minute"),
     },
     # Disable DRF's format suffix negotiation via ?format= query param,
     # since feeds endpoints handle the format parameter internally.
