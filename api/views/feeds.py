@@ -387,9 +387,6 @@ class ConsumeFeedView(AdvancedFeedView):
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data["feed_params"]
 
-    def get(self, request: Request, *args, **kwargs) -> HttpResponseBase:
-        return super().get(request, *args, **kwargs)
-
 
 @extend_schema(tags=["Feed Sharing"])
 class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
