@@ -156,6 +156,15 @@ class UpdateScores(Cronjob):
         self.data = None
         self.ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
 
+    def _flush_updates(self, iocs_to_update: list[IOC], score_names: list[str]) -> int:
+        """Flush pending IOC updates to the database and clear the buffer."""
+        if not iocs_to_update:
+            return 0
+        self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
+        result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
+        iocs_to_update.clear()
+        return result
+
     def update_db(self, df: pd.DataFrame, iocs: set[IOC] | None = None) -> int:
         """
         Update IOC scores in the database based on new data from a DataFrame.
@@ -209,15 +218,9 @@ class UpdateScores(Cronjob):
                 iocs_to_update.append(ioc)
 
             if len(iocs_to_update) >= BULK_UPDATE_BATCH_SIZE:
-                self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
-                result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
-                total_result += result
-                iocs_to_update.clear()
+                total_result += self._flush_updates(iocs_to_update, score_names)
 
-        if iocs_to_update:
-            self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
-            result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
-            total_result += result
+        total_result += self._flush_updates(iocs_to_update, score_names)
 
         self.log.info(f"{total_result} IoCs were updated")
         return total_result
