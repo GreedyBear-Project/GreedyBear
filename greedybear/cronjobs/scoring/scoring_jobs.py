@@ -20,6 +20,7 @@ from greedybear.settings import ML_MODEL_DIRECTORY
 
 SCORERS = [RFClassifier(), RFRegressor()]
 TRAINING_DATA_FILENAME = "training_data.json"
+BULK_UPDATE_BATCH_SIZE = 2000
 
 
 class TrainingDataError(Exception):
@@ -181,7 +182,7 @@ class UpdateScores(Cronjob):
         # If no IoCs were passed as an argument, fetch all IoCs via repository
         if iocs is None:
             query_set = self.ioc_repo.get_scanners_for_scoring(score_names)
-            iocs_iterable = query_set.iterator(chunk_size=2000) if hasattr(query_set, "iterator") else query_set
+            iocs_iterable = query_set.iterator(chunk_size=BULK_UPDATE_BATCH_SIZE) if hasattr(query_set, "iterator") else query_set
             self.log.info("checking IoCs via iterator")
         else:
             iocs_iterable = iocs
@@ -208,7 +209,7 @@ class UpdateScores(Cronjob):
             if updated:
                 iocs_to_update.append(ioc)
 
-            if len(iocs_to_update) >= 2000:
+            if len(iocs_to_update) >= BULK_UPDATE_BATCH_SIZE:
                 self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
                 result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
                 total_result += result
