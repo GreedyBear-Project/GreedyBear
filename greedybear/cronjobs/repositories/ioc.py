@@ -172,7 +172,7 @@ class IocRepository:
         ioc.save()
         return ioc
 
-    def get_scanners_for_scoring(self, score_fields: list[str], chunk_size: int = 2000):
+    def get_scanners_for_scoring(self, score_fields: list[str], chunk_size: int | None = None):
         """
         Get all scanners associated with active honeypots for scoring.
 
@@ -187,6 +187,11 @@ class IocRepository:
         Returns:
             Iterator of IOC objects with only name and score fields loaded.
         """
+        if chunk_size is None:
+            from greedybear.cronjobs.scoring.scoring_jobs import BULK_UPDATE_BATCH_SIZE
+
+            chunk_size = BULK_UPDATE_BATCH_SIZE
+
         return IOC.objects.filter(honeypots__active=True).filter(scanner=True).distinct().only("name", *score_fields).iterator(chunk_size=chunk_size)
 
     def get_scanners_by_pks(self, primary_keys: set[int]):
