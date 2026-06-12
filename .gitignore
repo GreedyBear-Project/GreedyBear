@@ -23,3 +23,7 @@ coverage.xml
 
 # gbctl configuration file
 .gbctl.conf
+
+# OS generated files
+.DS_Store
+**/.DS_Store
