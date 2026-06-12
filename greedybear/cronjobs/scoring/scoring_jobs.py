@@ -181,8 +181,7 @@ class UpdateScores(Cronjob):
         scores_by_ip = df.set_index("value")[score_names].to_dict("index")
         # If no IoCs were passed as an argument, fetch all IoCs via repository
         if iocs is None:
-            query_set = self.ioc_repo.get_scanners_for_scoring(score_names)
-            iocs_iterable = query_set.iterator(chunk_size=BULK_UPDATE_BATCH_SIZE) if hasattr(query_set, "iterator") else query_set
+            iocs_iterable = self.ioc_repo.get_scanners_for_scoring(score_names)
             self.log.info("checking IoCs via iterator")
         else:
             iocs_iterable = iocs

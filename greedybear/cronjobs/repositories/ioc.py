@@ -172,20 +172,28 @@ class IocRepository:
         ioc.save()
         return ioc
 
-    def get_scanners_for_scoring(self, score_fields: list[str]) -> list[IOC]:
+    def get_scanners_for_scoring(self, score_fields: list[str], chunk_size: int = 2000):
         """
         Get all scanners associated with active honeypots for scoring.
 
         Retrieves IOCs that are marked as scanners and are associated with any
-        active honeypot. Returns only the name field and specified score fields for efficiency.
+        active honeypot. Returns only the name field and specified score fields
+        as a server-side iterator to avoid loading the entire table into memory.
 
         Args:
             score_fields: List of score field names to retrieve (e.g., ['recurrence_probability']).
+            chunk_size: Number of rows to fetch per database round-trip.
 
         Returns:
-            QuerySet of IOC objects with only name and score fields loaded.
+            Iterator of IOC objects with only name and score fields loaded.
         """
-        return IOC.objects.filter(honeypots__active=True).filter(scanner=True).distinct().only("name", *score_fields)
+        return (
+            IOC.objects.filter(honeypots__active=True)
+            .filter(scanner=True)
+            .distinct()
+            .only("name", *score_fields)
+            .iterator(chunk_size=chunk_size)
+        )
 
     def get_scanners_by_pks(self, primary_keys: set[int]):
         """
