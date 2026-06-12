@@ -187,13 +187,7 @@ class IocRepository:
         Returns:
             Iterator of IOC objects with only name and score fields loaded.
         """
-        return (
-            IOC.objects.filter(honeypots__active=True)
-            .filter(scanner=True)
-            .distinct()
-            .only("name", *score_fields)
-            .iterator(chunk_size=chunk_size)
-        )
+        return IOC.objects.filter(honeypots__active=True).filter(scanner=True).distinct().only("name", *score_fields).iterator(chunk_size=chunk_size)
 
     def get_scanners_by_pks(self, primary_keys: set[int]):
         """
