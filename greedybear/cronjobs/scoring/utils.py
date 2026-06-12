@@ -4,7 +4,7 @@ from functools import cache
 import numpy as np
 import pandas as pd
 
-from api.views.utils import FeedRequestParams, feeds_response
+from api.views.utils import build_ioc_json_list
 from greedybear.cronjobs.repositories import IocRepository
 
 
@@ -134,15 +134,9 @@ def serialize_iocs(iocs: list[dict]) -> list[dict]:
 
     Returns:
         list: Serialized IOC data including associated honeypot names.
-              Processed through feeds_response API method.
+              Processed through build_ioc_json_list.
     """
-    return feeds_response(
-        iocs=iocs,
-        feed_params=FeedRequestParams({}),  # using defaults from FeedRequestParams
-        valid_feed_types={},  # not required as check is skipped due to the verbose argument
-        dict_only=True,
-        verbose=True,
-    )["iocs"]
+    return build_ioc_json_list(iocs, verbose=True)
 
 
 def get_data_by_pks(primary_keys: set, ioc_repo=None) -> list[dict]:
@@ -155,7 +149,7 @@ def get_data_by_pks(primary_keys: set, ioc_repo=None) -> list[dict]:
 
     Returns:
         list: Serialized IOC data including associated honeypot names.
-              Processed through feeds_response API method.
+              Processed through build_ioc_json_list.
     """
     ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
     iocs = ioc_repo.get_scanners_by_pks(primary_keys)
@@ -178,7 +172,7 @@ def get_current_data(days_lookback: int = 30, ioc_repo=None) -> list[dict]:
 
     Returns:
         list: Serialized IOC data including associated honeypot names.
-              Processed through feeds_response API method.
+              Processed through build_ioc_json_list.
     """
     ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
     cutoff_date = datetime.now() - timedelta(days=days_lookback)

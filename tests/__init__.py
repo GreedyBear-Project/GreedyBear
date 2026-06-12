@@ -3,9 +3,12 @@ from hashlib import sha256
 from unittest.mock import Mock
 
 from certego_saas.apps.user.models import User
+from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase
 from django_test_migrations.migrator import Migrator
 
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS
 from greedybear.enums import IpReputation
 from greedybear.models import (
     IOC,
@@ -212,6 +215,12 @@ class CustomTestCase(TestCase):
             cls.regular_user = User.objects.get(is_superuser=False)
         except User.DoesNotExist:
             cls.regular_user = User.objects.create_user(username="regular", email="regular@greedybear.com", password="regular")
+
+    def setUp(self):
+        super().setUp()
+        # Clear caches
+        cache.clear()
+        Cache(API_CACHE_ALIAS).clear()
 
 
 class ExtractionTestCase(CustomTestCase):

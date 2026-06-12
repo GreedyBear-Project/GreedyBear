@@ -1,373 +1,464 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import hashlib
-import logging
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
+from django.db.models import Count, F, Q, QuerySet, Value
+from django.db.models.functions import JSONObject
+from django.http import HttpResponseBase
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.decorators import (
-    api_view,
-    authentication_classes,
-    permission_classes,
-    throttle_classes,
-)
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
-from api.serializers import ASNFeedsOrderingSerializer
+from api.filters import FeedsFilterSet
+from api.mixins import CachedResponseMixin, RequestLoggingMixin
+from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedTextRenderer, Stix21Renderer
+from api.serializers import (
+    AdvancedFeedEnvelopeSerializer,
+    AdvancedFeedRequestSerializer,
+    ASNFeedRequestSerializer,
+    ASNFeedSerializer,
+    PaginatedSimpleFeedSerializer,
+    ShareFeedRequestSerializer,
+    ShareTokenListItemSerializer,
+    ShareTokenResponseSerializer,
+    SimpleFeedEnvelopeSerializer,
+    SimpleFeedRequestSerializer,
+    TokenConsumeRequestSerializer,
+    TokenRequestSerializer,
+)
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
-    FeedRequestParams,
-    asn_aggregated_queryset,
-    feeds_response,
-    get_queryset,
-    get_valid_feed_types,
+    aggregate_iocs_by_asn,
+    build_feed_dict,
+    save_request_source,
 )
-from greedybear.consts import GET
-from greedybear.models import ShareToken
+from greedybear.consts import SHARE_TOKEN_SALT
+from greedybear.models import IOC, ShareToken
 
-logger = logging.getLogger(__name__)
+RENDERERS_BY_FORMAT = {
+    "json": FeedJSONRenderer,
+    "txt": FeedTextRenderer,
+    "csv": FeedCSVRenderer,
+    "stix21": Stix21Renderer,
+}
 
-ALLOWED_UNAUTHENTICATED_QUERY_PARAMS = [
-    "feed_type",
-    "attack_type",
-    "ioc_type",
-    "ordering",
-    "include_mass_scanners",
-    "include_tor_exit_nodes",
-    "prioritize",
-]
+RESPONSES = {
+    400: OpenApiResponse(description="Invalid feed parameters."),
+    401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+    429: OpenApiResponse(description="Rate limit exceeded."),
+}
 
-_TOKEN_LIST_FIELDS = (
-    "token_hash",
-    "reason",
-    "created_at",
-    "revoked",
-    "revoked_at",
+PAGE_PARAMETER = OpenApiParameter(
+    "page",
+    OpenApiTypes.INT,
+    OpenApiParameter.QUERY,
+    description="1-based page number. Only meaningful when the response is paginated.",
 )
 
 
-@api_view([GET])
-@throttle_classes([FeedsThrottle])
-def feeds(request, feed_type, attack_type, prioritize, format_):
-    """
-    Handle requests for IOC feeds with specific parameters and format the response accordingly.
+class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
+    """Shared GET flow:
+    validate request params, build the IOC queryset and render (paginating when asked).
 
-    Args:
-        request: The incoming request object.
-        feed_type (str): Type of feed (e.g. cowrie, honeytrap, etc.).
-        attack_type (str): Type of attack (e.g., all, specific attack types).
-        prioritize (str): Prioritization mechanism to use (e.g., recent, persistent).
-        format_ (str): Desired format of the response (e.g., json, csv, txt).
-        include_mass_scanners (bool): query parameter flag to include IOCs that are known mass scanners.
-        include_tor_exit_nodes (bool): query parameter flag to include IOCs that are known tor exit nodes.
+    Subclasses represent the actual endpoints and are typically attribute-only.
+    They set the usual DRF class attributes and the feed-specific toggles
+    overriding the defaults below.
 
-    Returns:
-        Response: The HTTP response with formatted IOC data.
-    """
-    logger.info(f"request /api/feeds with params: feed type: {feed_type}, attack_type: {attack_type}, prioritization: {prioritize}, format: {format_}")
-
-    filtered_query_params = {key: request.query_params.get(key) for key in ALLOWED_UNAUTHENTICATED_QUERY_PARAMS if key in request.query_params}
-
-    feed_params_data = filtered_query_params.copy()
-    feed_params_data.update({"feed_type": feed_type, "attack_type": attack_type, "format": format_})
-    feed_params = FeedRequestParams(feed_params_data)
-    feed_params.apply_default_filters(filtered_query_params)
-    feed_params.set_prioritization(prioritize)
-
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(request, feed_params, valid_feed_types)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types)
-
-
-@api_view([GET])
-@throttle_classes([FeedsThrottle])
-def feeds_pagination(request):
-    """
-    Handle requests for paginated IOC feeds based on query parameters.
-
-    Args:
-        request: The incoming request object.
-
-    Returns:
-        Response: The paginated HTTP response with IOC data.
+    Responses are cached via CachedResponseMixin
+    The extraction pipeline invalidates them on every run.
     """
 
-    logger.info(f"request /api/feeds with params: {request.query_params}")
+    # ACCESS CONTROL
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [FeedsThrottle]
+    renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer]
 
-    filtered_query_params = {key: request.query_params.get(key) for key in ALLOWED_UNAUTHENTICATED_QUERY_PARAMS if key in request.query_params}
+    # REQUEST HANDLING
+    serializer_class = None
+    pagination_class = None
 
-    feed_params = FeedRequestParams(filtered_query_params)
-    feed_params.format = "json"
-    feed_params.apply_default_filters(filtered_query_params)
-    feed_params.set_prioritization(filtered_query_params.get("prioritize"))
+    # QUERYSET SHAPE
+    include_sensors = False
+    is_aggregated = False
 
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(request, feed_params, valid_feed_types)
-    paginator = CustomPageNumberPagination()
-    iocs = paginator.paginate_queryset(iocs_queryset, request)
-    resp_data = feeds_response(request, iocs, feed_params, valid_feed_types, dict_only=True)
-    return paginator.get_paginated_response(resp_data)
+    # VALIDATED REQUEST PARAMETERS - populated in get()
+    request_params = None
+
+    # OUTPUT SHAPE - set dynamically, depending on the requested format
+    build_feed_envelope = False
+
+    # RESPONSE CACHING - do not override in subclasses
+    cache_namespace = "feeds"
+
+    def get_request_data(self, request, **kwargs) -> dict:
+        """Raw input mapping handed to the serializer.
+        Defaults to the query params.
+        Override to merge path parameters or token data."""
+        return request.query_params.dict()
+
+    def validate_request(self, request: Request, **kwargs) -> dict:
+        """Run the request data through a serializer and return the validated params,
+        raising ValidationError (HTTP 400) on bad input."""
+        serializer = self.serializer_class(data=self.get_request_data(request, **kwargs))
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    def should_paginate(self, request_data: dict) -> bool:
+        """Whether to paginate this response.
+        Requires a pagination_class and the validated paginate flag."""
+        return self.pagination_class is not None and request_data.get("paginate", False)
+
+    def get_renderer_context(self) -> dict:
+        """Publish the render-time flags the feed renderers need, so they read
+        explicit context keys instead of reaching into view internals."""
+        context = super().get_renderer_context()
+        context["verbose"] = (self.request_params or {}).get("verbose", False)
+        context["include_sensors"] = self.include_sensors
+        context["build_feed_envelope"] = self.build_feed_envelope
+        return context
+
+    def get_queryset(self) -> QuerySet:
+        """Build the IOC queryset from the validated request parameters."""
+        iocs = IOC.objects.annotate(value=F("name"))
+        iocs = FeedsFilterSet(self.request_params, queryset=iocs, request=self.request).qs
+
+        iocs = iocs.exclude(ip_reputation__in=self.request_params.get("exclude_reputation", [])).distinct()
+
+        if "all" not in self.request_params["feed_type"]:
+            type_filter = Q()
+            for ft in self.request_params["feed_type"]:
+                type_filter |= Q(honeypots__name__iexact=ft)
+            iocs = iocs.filter(type_filter)
+
+        if self.is_aggregated:
+            return iocs
+
+        iocs = iocs.filter(honeypots__active=True)
+        iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
+        if self.request_params["format"] == "json":
+            iocs = iocs.annotate(
+                tags_json=ArrayAgg(
+                    JSONObject(key=F("tags__key"), value=F("tags__value"), source=F("tags__source")),
+                    filter=Q(tags__isnull=False),
+                    default=Value([]),
+                    distinct=True,
+                )
+            )
+        return iocs
+
+    def sort_and_slice_queryset(self, qs: QuerySet) -> QuerySet:
+        """Apply the requested ordering and cap the result at feed_size.
+        Aggregated views are returned untouched."""
+        if self.is_aggregated:
+            return qs
+        return qs.order_by(self.request_params["ordering"])[: self.request_params["feed_size"]]
+
+    def render_response(self, request: Request, iocs_queryset: QuerySet) -> HttpResponseBase:
+        """Select the renderer for the validated format and hand it the prepared data."""
+        if self.should_paginate(self.request_params):
+            verbose = self.request_params.get("verbose", False)
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(iocs_queryset, request)
+            resp_data = build_feed_dict(page, verbose=verbose, include_sensors=self.include_sensors)
+            request.accepted_renderer = FeedJSONRenderer()
+            request.accepted_media_type = FeedJSONRenderer.media_type
+            return paginator.get_paginated_response(resp_data)
+
+        # Hand the raw queryset to the renderer and flag it for envelope shaping.
+        # Set only here so error/exception responses (which bypass render_response)
+        # and the pre-built paginated/ASN payloads are left as plain JSON.
+        renderer = RENDERERS_BY_FORMAT[self.request_params["format"]]()
+        request.accepted_renderer = renderer
+        request.accepted_media_type = renderer.media_type
+        self.build_feed_envelope = True
+        return Response(iocs_queryset)
+
+    def get(self, request: Request, *args, **kwargs) -> HttpResponseBase:
+        """Validate the request, build and sort the IOC queryset,
+        render it in the requested format, and optionally paginate."""
+        self.request_params = self.validate_request(request, **kwargs)
+        save_request_source(request)
+        cached_response = self.get_cached_response()
+        if cached_response is not None:
+            return cached_response
+        iocs_queryset = self.get_queryset()
+        iocs_queryset = self.sort_and_slice_queryset(iocs_queryset)
+        return self.render_response(request, iocs_queryset)
 
 
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-@throttle_classes([FeedsAdvancedThrottle])
-def feeds_advanced(request):
-    """
-    Handle requests for IOC feeds based on query parameters and format the response accordingly.
-
-    Args:
-        request: The incoming request object.
-        feed_type (str): Type of feed to retrieve. (supported: `cowrie`, `honeytrap`, etc.; default: `all`)
-        attack_type (str): Type of attack to filter. (supported: `scanner`, `payload_request`, `all`; default: `all`)
-        max_age (int): Maximum number of days since last occurrence. E.g. an IOC that was last seen 4 days ago is excluded by default. (default: 3)
-        min_days_seen (int): Minimum number of days on which an IOC must have been seen. (default: 1)
-        min_credential_count (int, optional): Filter IOCs with at least this many distinct credentials. (default: no filter)
-        max_credential_count (int, optional): Filter IOCs with at most this many distinct credentials. (default: no filter)
-        include_reputation (str): `;`-separated list of reputation values to include, e.g. `known attacker` or `known attacker;` to include IOCs without reputation. (default: include all)
-        exclude_reputation (str): `;`-separated list of reputation values to exclude, e.g. `mass scanner` or `mass scanner;bot, crawler`. (default: exclude none)
-        feed_size (int): Number of IOC items to return. (default: 5000)
-        ordering (str): Field to order results by, with optional `-` prefix for descending. (default: `-last_seen`)
-        verbose (bool): `true` to include IOC properties that contain a lot of data, e.g. the list of days it was seen. (default: `false`)
-        paginate (bool): `true` to paginate results. This forces the json format. (default: `false`)
-        format (str): Response format type. Besides `json`, `txt` and `csv` are supported but the response will only contain IOC values (e.g. IP addresses) without further information. (default: `json`)
-        tag_key (str, optional): Filter IOCs by tag key, e.g. `malware` or `confidence_of_abuse`. Only IOCs with at least one matching tag are returned.
-        tag_value (str, optional): Filter IOCs by tag value (case-insensitive substring match), e.g. `mirai`. Can be used alone or combined with `tag_key`.
-
-    Returns:
-        Response: The HTTP response with formatted IOC data.
-    """
-    logger.info(f"request /api/feeds/advanced/ with params: {request.query_params}")
-    feed_params = FeedRequestParams(request.query_params)
-    verbose = feed_params.verbose == "true"
-    paginate = feed_params.paginate == "true"
-    if paginate:
-        feed_params.format = "json"
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(
-        request,
-        feed_params,
-        valid_feed_types,
-        tag_key=request.query_params.get("tag_key", "").strip(),
-        tag_value=request.query_params.get("tag_value", "").strip(),
-        include_sensors=True,
-        include_credential_count=True,
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Feeds"],
+        summary="Public feed (path-parameter form)",
+        description="Public threat feed addressed through the URL path.",
+        auth=[],
+        parameters=[
+            SimpleFeedRequestSerializer,
+            # drop the URL path params the serializer would otherwise generate
+            OpenApiParameter("feed_type", exclude=True),
+            OpenApiParameter("attack_type", exclude=True),
+            OpenApiParameter("prioritize", exclude=True),
+            OpenApiParameter("format", exclude=True),
+        ],
+        responses={
+            200: SimpleFeedEnvelopeSerializer,
+            400: RESPONSES[400],
+            429: RESPONSES[429],
+        },
     )
-    if paginate:
-        paginator = CustomPageNumberPagination()
-        iocs = paginator.paginate_queryset(iocs_queryset, request)
-        resp_data = feeds_response(request, iocs, feed_params, valid_feed_types, dict_only=True, verbose=verbose, include_sensors=True)
-        return paginator.get_paginated_response(resp_data)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types, verbose=verbose, include_sensors=True)
+)
+class SimpleFeedView(BaseFeedView):
+    """Public feed endpoint with path parameters:
+    /feeds/<feed_type>/<attack_type>/<prioritize>.<format_>"""
 
+    serializer_class = SimpleFeedRequestSerializer
 
-@api_view(["GET"])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-@throttle_classes([FeedsAdvancedThrottle])
-def feeds_asn(request):
-    """
-    Retrieve aggregated IOC feed data grouped by ASN (Autonomous System Number).
-
-    Args:
-        request: The HTTP request object.
-        feed_type (str): Filter by feed type (e.g. 'cowrie', 'honeytrap'). Default: 'all'.
-        attack_type (str): Filter by attack type (e.g., 'scanner', 'payload_request'). Default: 'all'.
-        max_age (int): Maximum age of IOCs in days. Default: 3.
-        min_days_seen (int): Minimum days an IOC must have been observed. Default: 1.
-        exclude_reputation (str): ';'-separated reputations to exclude (e.g., 'mass scanner'). Default: none.
-        ordering (str): Aggregation ordering field (e.g., 'total_attack_count', 'asn'). Default: '-ioc_count'.
-        asn (str, optional): Filter results to a single ASN.
-
-    Returns:
-     Response: HTTP response with a JSON list of ASN aggregation objects.
-     Each object contains:
-            asn (int): ASN number.
-            ioc_count (int): Number of IOCs for this ASN.
-            total_attack_count (int): Sum of attack_count for all IOCs.
-            total_interaction_count (int): Sum of interaction_count for all IOCs.
-            total_login_attempts (int): Sum of login_attempts for all IOCs.
-            honeypots (List[str]): Sorted list of unique honeypots that observed these IOCs.
-            expected_ioc_count (float): Sum of recurrence_probability for all IOCs, rounded to 4 decimals.
-            expected_interactions (float): Sum of expected_interactions for all IOCs, rounded to 4 decimals.
-            first_seen (DateTime): Earliest first_seen timestamp among IOCs.
-            last_seen (DateTime): Latest last_seen timestamp among IOCs.
-    """
-    logger.info(f"request /api/feeds/asn/ with params: {request.query_params}")
-    feed_params = FeedRequestParams(request.query_params)
-    valid_feed_types = get_valid_feed_types()
-
-    iocs_qs = get_queryset(request, feed_params, valid_feed_types, is_aggregated=True, serializer_class=ASNFeedsOrderingSerializer)
-
-    asn_aggregates = asn_aggregated_queryset(iocs_qs, request, feed_params)
-    data = list(asn_aggregates)
-    return Response(data)
-
-
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def feeds_share(request):
-    """
-    Generate a shareable link for the current feed configuration.
-
-    Args:
-        request: The incoming request object.
-        feed_type (str): Type of feed to retrieve.
-        attack_type (str): Type of attack to filter.
-        max_age (int): Maximum number of days since last occurrence.
-        min_days_seen (int): Minimum number of days on which an IOC must have been seen.
-        include_reputation (str): `;`-separated list of reputation values to include.
-        exclude_reputation (str): `;`-separated list of reputation values to exclude.
-        ordering (str): Field to order results by.
-        verbose (bool): `true` to include IOC properties that contain a lot of data.
-        asn (int): Filter by ASN.
-        min_score (float): Filter by minimum recurrence_probability (0-1).
-        port (int): Filter by destination port.
-        start_date (str): Filter by start date (YYYY-MM-DD).
-        end_date (str): Filter by end date (YYYY-MM-DD).
-        reason (str): Optional human-readable label for this share token (max 256 chars).
-
-    Returns:
-        Response: A JSON object containing the signed shareable URL.
-    """
-    safe_params = {k: v for k, v in request.query_params.items() if k != "reason"}
-    logger.info(f"request /api/feeds/share with params: {safe_params}")
-    feed_params = FeedRequestParams(request.query_params)
-    data = vars(feed_params)
-    # Remove internal or non-serializable objects if any
-    data.pop("feed_type_sorting", None)
-
-    reason = request.query_params.get("reason", "").strip()[:256]
-
-    # Generate signed token and persist a ShareToken record
-    token = signing.dumps(data, salt="greedybear-feeds")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    ShareToken.objects.get_or_create(
-        token_hash=token_hash,
-        defaults={"user": request.user, "reason": reason},
-    )
-
-    host = request.build_absolute_uri("/")
-    share_url = f"{host}api/feeds/consume/{token}"
-    revoke_url = f"{host}api/feeds/revoke/{token}"
-    return Response({"url": share_url, "revoke_url": revoke_url})
-
-
-@api_view([GET])
-@authentication_classes([])
-@permission_classes([])
-@throttle_classes([SharedFeedRateThrottle])
-def feeds_consume(request, token):
-    """
-    Consume a shared feed using a signed token.
-    This endpoint is publicly accessible but strictly rate-limited.
-
-    Args:
-        request: The incoming request object.
-        token (str): The signed token containing feed configuration.
-
-    Returns:
-        Response: The HTTP response with formatted IOC data in JSON/CSV/TXT/STIX2.1.
-    """
-    logger.info("request /api/feeds/consume with token")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    try:
-        share_token = ShareToken.objects.get(token_hash=token_hash)
-    except ShareToken.DoesNotExist:
-        return Response(
-            {"error": "Invalid or expired token"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if share_token.revoked:
-        return Response(
-            {"error": "Token has been revoked"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    try:
-        data = signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)  # 30 days validity
-    except signing.BadSignature:
-        return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Reconstruct params
-    feed_params = FeedRequestParams(data)
-
-    valid_feed_types = get_valid_feed_types()
-    iocs_queryset = get_queryset(request, feed_params, valid_feed_types)
-    return feeds_response(request, iocs_queryset, feed_params, valid_feed_types)
-
-
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def feeds_revoke(request, token):
-    """
-    Revoke a previously generated shareable feed token.
-
-    Once revoked, any attempt to consume the feed via that token will return a 400 error.
-    This is intentionally a GET endpoint so the revoke link can be opened directly in a browser.
-    Only the user who created the token (or staff) can revoke it.
-
-    Args:
-        request: The incoming request object.
-        token (str): The raw signed token to revoke.
-
-    Returns:
-        Response: 200 on successful revocation, 400/403 if invalid, expired, or not authorized.
-    """
-    logger.info("request /api/feeds/revoke")
-    try:
-        signing.loads(token, salt="greedybear-feeds", max_age=86400 * 30)
-    except signing.BadSignature:
-        return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    try:
-        share_token = ShareToken.objects.get(token_hash=token_hash)
-    except ShareToken.DoesNotExist:
-        return Response({"error": "Token not found. Only the creator can revoke a token."}, status=status.HTTP_403_FORBIDDEN)
-
-    if share_token.user != request.user and not request.user.is_staff:
-        return Response({"error": "You do not have permission to revoke this token."}, status=status.HTTP_403_FORBIDDEN)
-
-    if share_token.revoked:
-        return Response({"detail": "Token was already revoked."}, status=status.HTTP_200_OK)
-    share_token.revoked = True
-    share_token.revoked_at = timezone.now()
-    share_token.save(update_fields=["revoked", "revoked_at"])
-    return Response({"detail": "Token revoked successfully."}, status=status.HTTP_200_OK)
-
-
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def feeds_tokens(request):
-    """
-    List the calling user's share tokens with safe metadata.
-
-    Returns only non-sensitive fields: a truncated hash prefix (first 12 hex
-    chars), the reason label, creation timestamp, and revocation status.
-    The raw token is never stored and therefore cannot be returned.
-
-    Returns:
-        Response: A JSON list of token metadata objects.
-    """
-    logger.info("request /api/feeds/tokens/")
-    tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values(*_TOKEN_LIST_FIELDS)
-    results = [
-        {
-            "hash_prefix": t["token_hash"][:12],
-            "reason": t["reason"],
-            "created_at": t["created_at"],
-            "revoked": t["revoked"],
-            "revoked_at": t["revoked_at"],
+    def get_request_data(self, request: Request, **kwargs) -> dict:
+        return request.query_params.dict() | {
+            "feed_type": kwargs["feed_type"],
+            "attack_type": kwargs["attack_type"],
+            "prioritize": kwargs["prioritize"],
+            "format": kwargs["format_"],
         }
-        for t in tokens
-    ]
-    return Response(results)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Feeds"],
+        summary="Public paginated feed",
+        description="Public query-parameter feed, always paginated and always JSON.",
+        # Public endpoint: suppress the optional token scheme so it renders without a lock.
+        auth=[],
+        parameters=[SimpleFeedRequestSerializer, PAGE_PARAMETER],
+        responses={
+            200: PaginatedSimpleFeedSerializer,
+            400: RESPONSES[400],
+            429: RESPONSES[429],
+        },
+    )
+)
+class PaginatedFeedView(BaseFeedView):
+    """Public paginated feed endpoint (query params only). Forces JSON output."""
+
+    serializer_class = SimpleFeedRequestSerializer
+    pagination_class = CustomPageNumberPagination
+
+    def should_paginate(self, request_data: dict) -> bool:
+        """This endpoint always paginates."""
+        return True
+
+    def get_request_data(self, request: Request, **kwargs) -> dict:
+        """Pagination requires JSON response."""
+        return request.query_params.dict() | {"format": "json"}
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Feeds"],
+        summary="Authenticated advanced feed",
+        description=("Authenticated feed with the full set of filtering, scoring and credential parameters and optional pagination."),
+        parameters=[AdvancedFeedRequestSerializer, PAGE_PARAMETER],
+        responses={
+            200: AdvancedFeedEnvelopeSerializer,
+            400: RESPONSES[400],
+            401: RESPONSES[401],
+            429: RESPONSES[429],
+        },
+    )
+)
+class AdvancedFeedView(BaseFeedView):
+    """Authenticated advanced feed endpoint with full filtering and optional pagination."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [FeedsAdvancedThrottle]
+    serializer_class = AdvancedFeedRequestSerializer
+    pagination_class = CustomPageNumberPagination
+    include_sensors = True
+
+    def get_queryset(self) -> QuerySet:
+        """Overrides base class to include credential count
+        and sensor information."""
+        iocs = super().get_queryset()
+
+        iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
+
+        if self.request_params["format"] == "json":
+            iocs = iocs.annotate(
+                sensors_json=ArrayAgg(
+                    JSONObject(address=F("sensors__address"), label=F("sensors__label")),
+                    filter=Q(sensors__isnull=False),
+                    default=Value([]),
+                    distinct=True,
+                )
+            )
+        return iocs
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Feeds"],
+        summary="Authenticated feed aggregated by ASN",
+        description=(
+            "Authenticated feed that aggregates the filtered IOCs into per-ASN metric rows. "
+            "Accepts the same filters as the advanced feed, but `ordering` is restricted to the aggregate fields."
+        ),
+        parameters=[ASNFeedRequestSerializer],
+        responses={
+            200: ASNFeedSerializer(many=True),
+            400: RESPONSES[400],
+            401: RESPONSES[401],
+            429: RESPONSES[429],
+        },
+    )
+)
+class AsnFeedView(BaseFeedView):
+    """Authenticated feed endpoint aggregated by ASN.
+
+    Reuses the shared base flow (validation, queryset building, statistics
+    recording) and only swaps the render step for the ASN aggregation.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [FeedsAdvancedThrottle]
+    serializer_class = ASNFeedRequestSerializer
+    is_aggregated = True
+
+    def render_response(self, request: Request, iocs_queryset: QuerySet) -> Response:
+        rows = aggregate_iocs_by_asn(iocs_queryset, self.request_params["ordering"])
+        return Response(ASNFeedSerializer(rows, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Feed Sharing"],
+        summary="Consume a shared feed token",
+        description=(
+            "Public, rate-limited endpoint that replays the advanced-feed request encoded in a signed "
+            "share token (`token` path param), so no query string is needed."
+        ),
+        responses={
+            200: AdvancedFeedEnvelopeSerializer,
+            400: OpenApiResponse(description="Token is missing/revoked/badly signed, or its decoded feed parameters are invalid."),
+            429: RESPONSES[429],
+        },
+    )
+)
+class ConsumeFeedView(AdvancedFeedView):
+    """Public, rate-limited endpoint that consumes a signed share token.
+
+    Inherits AdvancedFeedView's queryset shaping (credential counts, sensors,
+    pagination) so a consumed token produces the same response as the advanced
+    feed. Only access control and the input source differ: it is public and
+    decodes the request from the token instead of the query string.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [SharedFeedRateThrottle]
+
+    def get_request_data(self, request: Request, **kwargs) -> dict:
+        serializer = TokenConsumeRequestSerializer(data={"token": kwargs["token"]})
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data["feed_params"]
+
+
+@extend_schema(tags=["Feed Sharing"])
+class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
+    """Create, list and revoke shareable feed tokens.
+
+    Share/revoke are intentionally GET-able so the links can be opened directly
+    in a browser. Share stores the raw query params in the signed token so
+    FeedsConsumeView can replay them through AdvancedFeedRequestSerializer.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [FeedsAdvancedThrottle]
+
+    @extend_schema(
+        summary="Create a shareable feed link",
+        description=(
+            "Encode the supplied advanced-feed query parameters into a signed share token and "
+            "return its public consume/revoke URLs. The optional `reason` is stored for auditing only."
+        ),
+        parameters=[ShareFeedRequestSerializer],
+        responses={
+            200: ShareTokenResponseSerializer,
+            400: RESPONSES[400],
+            401: RESPONSES[401],
+            429: RESPONSES[429],
+        },
+    )
+    def share(self, request: Request) -> Response:
+        request_serializer = ShareFeedRequestSerializer(data=request.query_params)
+        request_serializer.is_valid(raise_exception=True)
+        reason = request_serializer.validated_data["reason"]
+
+        # The raw params (not the typed validated_data) are signed,
+        # so the token format and consume-time replay stay unchanged.
+        data = request.query_params.dict()
+        data.pop("reason", None)
+        token = signing.dumps(data, salt=SHARE_TOKEN_SALT)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        ShareToken.objects.get_or_create(
+            token_hash=token_hash,
+            defaults={"user": request.user, "reason": reason},
+        )
+        host = request.build_absolute_uri("/")
+        response_serializer = ShareTokenResponseSerializer(
+            {
+                "url": f"{host}api/feeds/consume/{token}",
+                "revoke_url": f"{host}api/feeds/revoke/{token}",
+            }
+        )
+        return Response(response_serializer.data)
+
+    @extend_schema(
+        summary="Revoke a shared feed token",
+        description="Revoke a previously shared token (`token` path param). Only the creator or a staff user may revoke it.",
+        responses={
+            200: OpenApiResponse(description="Confirmation that the token was revoked."),
+            400: OpenApiResponse(description="Token is missing or has an invalid signature."),
+            401: RESPONSES[401],
+            403: OpenApiResponse(description="The caller is not the token's creator."),
+            429: RESPONSES[429],
+        },
+    )
+    def revoke(self, request: Request, token: str) -> Response:
+        serializer = TokenRequestSerializer(data={"token": token})
+        serializer.is_valid(raise_exception=True)
+        share_token = serializer.validated_data["share_token"]
+        if share_token.user != request.user and not request.user.is_staff:
+            return Response(
+                {"errors": {"non_field_errors": ["You do not have permission to revoke this token."]}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if share_token.revoked:
+            return Response({"detail": "Token was already revoked."}, status=status.HTTP_200_OK)
+        share_token.revoked = True
+        share_token.revoked_at = timezone.now()
+        share_token.save(update_fields=["revoked", "revoked_at"])
+        return Response({"detail": "Token revoked successfully."}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="List the caller's share tokens",
+        description="Return the share tokens created by the authenticated user, most recent first.",
+        responses={
+            200: ShareTokenListItemSerializer(many=True),
+            401: RESPONSES[401],
+            429: RESPONSES[429],
+        },
+    )
+    def list_tokens(self, request: Request) -> Response:
+        tokens = ShareToken.objects.filter(user=request.user).order_by("-created_at").values()
+        return Response(ShareTokenListItemSerializer(tokens, many=True).data)
