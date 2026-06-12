@@ -179,11 +179,17 @@ class UpdateScores(Cronjob):
         score_names = [s.score_name for s in SCORERS]
         scores_by_ip = df.set_index("value")[score_names].to_dict("index")
         # If no IoCs were passed as an argument, fetch all IoCs via repository
-        iocs = self.ioc_repo.get_scanners_for_scoring(score_names) if iocs is None else iocs
-        iocs_to_update = []
+        if iocs is None:
+            iocs_iterable = self.ioc_repo.get_scanners_for_scoring(score_names).iterator(chunk_size=2000)
+            self.log.info("checking IoCs via iterator")
+        else:
+            iocs_iterable = iocs
+            self.log.info(f"checking {len(iocs)} IoCs")
 
-        self.log.info(f"checking {len(iocs)} IoCs")
-        for ioc in iocs:
+        iocs_to_update = []
+        total_result = 0
+
+        for ioc in iocs_iterable:
             updated = False
             # Update scores if IP exists in new data
             if ioc.name in scores_by_ip:
@@ -200,10 +206,20 @@ class UpdateScores(Cronjob):
                         updated = True
             if updated:
                 iocs_to_update.append(ioc)
-        self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
-        result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
-        self.log.info(f"{result} IoCs were updated")
-        return result
+
+            if len(iocs_to_update) >= 2000:
+                self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
+                result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
+                total_result += result
+                iocs_to_update.clear()
+
+        if iocs_to_update:
+            self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
+            result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
+            total_result += result
+
+        self.log.info(f"{total_result} IoCs were updated")
+        return total_result
 
     def score_only(self, iocs: list[IOC]) -> int:
         """
