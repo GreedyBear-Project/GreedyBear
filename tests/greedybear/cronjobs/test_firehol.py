@@ -9,7 +9,7 @@ from tests import CustomTestCase
 
 
 class FireHolCronTestCase(CustomTestCase):
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_creates_all_firehol_entries(self, mock_get):
         # Setup mock responses
         mock_response_blocklist_de = MagicMock()
@@ -53,20 +53,17 @@ class FireHolCronTestCase(CustomTestCase):
         self.assertIn("blocklist_de", sources)
         self.assertIn("bruteforceblocker", sources)
 
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_creates_some_firehol_entries(self, mock_get):
         # Setup mock response
         mock_response_blocklist_de = MagicMock()
         mock_response_blocklist_de.text = "# blocklist_de\n1.1.1.1\n2.2.2.2"
 
-        mock_response_bruteforceblocker = MagicMock()
-        mock_response_bruteforceblocker.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error")
-
-        # Side effect for multiple calls
+        # Side effect for multiple calls — bruteforceblocker raises HTTPError
         mock_get.side_effect = self._firehol_get_side_effect(
             {
                 "blocklist_de": mock_response_blocklist_de,
-                "bruteforceblocker": mock_response_bruteforceblocker,
+                "bruteforceblocker": requests.exceptions.HTTPError("404 Client Error"),
             }
         )
 
@@ -80,20 +77,17 @@ class FireHolCronTestCase(CustomTestCase):
         self.assertTrue(FireHolList.objects.filter(ip_address="2.2.2.2", source="blocklist_de").exists())
         self.assertFalse(FireHolList.objects.filter(source="bruteforceblocker").exists())
 
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_creates_no_firehol_entries(self, mock_get):
         # Setup mock response
         mock_response_blocklist_de = MagicMock()
         mock_response_blocklist_de.text = "# blocklist_de\n"
 
-        mock_response_bruteforceblocker = MagicMock()
-        mock_response_bruteforceblocker.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error")
-
-        # Side effect for multiple calls
+        # Side effect for multiple calls — bruteforceblocker raises HTTPError
         mock_get.side_effect = self._firehol_get_side_effect(
             {
                 "blocklist_de": mock_response_blocklist_de,
-                "bruteforceblocker": mock_response_bruteforceblocker,
+                "bruteforceblocker": requests.exceptions.HTTPError("404 Client Error"),
             }
         )
 
@@ -106,7 +100,7 @@ class FireHolCronTestCase(CustomTestCase):
         self.assertFalse(FireHolList.objects.filter(source="blocklist_de").exists())
         self.assertFalse(FireHolList.objects.filter(source="bruteforceblocker").exists())
 
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_handles_network_errors(self, mock_get):
         # Setup mock to raise a network error
         mock_get.side_effect = requests.exceptions.RequestException("Network error")
@@ -119,12 +113,10 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log.exception.assert_called()
         self.assertEqual(FireHolList.objects.count(), 0)
 
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_handles_raise_for_status_errors(self, mock_get):
-        # Setup mock to raise a 404 error
-        mock_response = MagicMock()
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error")
-        mock_get.return_value = mock_response
+        # Setup mock to raise a 404 error (HttpClient raises this automatically)
+        mock_get.side_effect = requests.exceptions.HTTPError("404 Client Error")
 
         # Run the cronjob
         cronjob = FireHolCron()
@@ -133,7 +125,7 @@ class FireHolCronTestCase(CustomTestCase):
 
         cronjob.log.exception.assert_called()
 
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_handles_invalid_ip(self, mock_get):
         # Setup mock response
         mock_response = MagicMock()
@@ -148,7 +140,7 @@ class FireHolCronTestCase(CustomTestCase):
         self.assertFalse(FireHolList.objects.filter(ip_address="256.1.1.1", source="blocklist_de").exists())
         self.assertFalse(FireHolList.objects.filter(ip_address="999.999.999.999", source="blocklist_de").exists())
 
-    @patch("greedybear.cronjobs.firehol.requests.get")
+    @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_handles_invalid_cidr(self, mock_get):
         # Setup mock response
         mock_response = MagicMock()
@@ -186,10 +178,12 @@ class FireHolCronTestCase(CustomTestCase):
         self.assertTrue(FireHolList.objects.filter(id=new_entry.id).exists())
 
     def _firehol_get_side_effect(self, side_effect_map):
-        def _side_effect(url, timeout):
-            for key, response in side_effect_map.items():
+        def _side_effect(url, **kwargs):
+            for key, response_or_error in side_effect_map.items():
                 if key in url:
-                    return response
+                    if isinstance(response_or_error, Exception):
+                        raise response_or_error
+                    return response_or_error
             raise requests.exceptions.HTTPError(f"Unhandled URL: {url}")
 
         return _side_effect
