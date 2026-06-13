@@ -1,7 +1,7 @@
 import requests
 
 from greedybear.cronjobs.base import Cronjob
-from greedybear.cronjobs.client import HttpClient
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.models import IOC, WhatsMyIPDomain
 
 
@@ -12,8 +12,8 @@ class WhatsMyIPCron(Cronjob):
         try:
             with HttpClient() as client:
                 r = client.get("https://raw.githubusercontent.com/MISP/misp-warninglists/refs/heads/main/lists/whats-my-ip/list.json")
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch whats-my-ip list: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch whats-my-ip list")
             raise
 
         try:

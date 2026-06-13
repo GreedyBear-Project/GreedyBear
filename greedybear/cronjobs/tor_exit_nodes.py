@@ -3,7 +3,7 @@ import re
 import requests
 
 from greedybear.cronjobs.base import Cronjob
-from greedybear.cronjobs.client import HttpClient
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import IocRepository
 from greedybear.cronjobs.repositories.tor import TorRepository
 from greedybear.enums import IpReputation
