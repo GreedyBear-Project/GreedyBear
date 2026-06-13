@@ -34,41 +34,47 @@ const colors = getRandomColorsArray(30, true);
 /**
  * Creates an area chart component to avoid duplicating chart setup code.
  *
- * @param {string} name - Display name for the generated chart component.
  * @param {string} url - API endpoint used to fetch chart data.
  * @param {Object} colorMap - Map of data keys to color values.
  * @param {number} start - Start index for slicing the color map.
  * @param {number} end - End index for slicing the color map.
  */
+export const AreaChartWidget = React.memo(({ url, colorMap, start, end }) => {
+  const chartProps = React.useMemo(
+    () => ({
+      url,
+      accessorFnAggregation: (d) => d,
+      composedChartProps: {
+        chartProps: { margin: { top: 0, right: 0, left: 0, bottom: 0 } },
+      },
+      componentsFn: () =>
+        Object.entries(colorMap)
+          .slice(start, end)
+          .map(([key, color]) => (
+            <Area
+              key={key}
+              type="monotone"
+              dataKey={key}
+              fill={color}
+              stroke={color}
+            />
+          )),
+    }),
+    [url, colorMap, start, end],
+  );
+
+  return <AnyChartWidget {...chartProps} />;
+});
+AreaChartWidget.displayName = "AreaChartWidget";
+
 export const createAreaChart = (name, url, colorMap, start, end) => {
   const Component = React.memo(() => {
     console.debug(`${name} rendered!`);
-
-    const chartProps = React.useMemo(
-      () => ({
-        url,
-        accessorFnAggregation: (d) => d,
-        componentsFn: () =>
-          Object.entries(colorMap)
-            .slice(start, end)
-            .map(([key, color]) => (
-              <Area
-                key={key}
-                type="monotone"
-                dataKey={key}
-                fill={color}
-                stroke={color}
-              />
-            )),
-      }),
-      [url, colorMap, start, end],
+    return (
+      <AreaChartWidget url={url} colorMap={colorMap} start={start} end={end} />
     );
-
-    return <AnyChartWidget {...chartProps} />;
   });
-
   Component.displayName = name;
-
   return Component;
 };
 
@@ -95,6 +101,7 @@ export const EnrichmentSourcesChart = createAreaChart(
   0,
   1,
 );
+
 export const EnrichmentRequestsChart = createAreaChart(
   "EnrichmentRequestsChart",
   ENRICHMENT_STATISTICS_REQUESTS_URI,
@@ -110,11 +117,14 @@ export const FeedsTypesChart = React.memo(() => {
     () => ({
       url: FEEDS_STATISTICS_TYPES_URI,
       accessorFnAggregation: (d) => d,
+      composedChartProps: {
+        chartProps: { margin: { top: 0, right: 0, left: 0, bottom: 0 } },
+      },
       componentsFn: (respData) => {
         console.debug("respData", respData);
         if (!respData || !respData?.length) return null;
 
-        // Exctract keys only from respData[0]:
+        // Extract keys only from respData[0]:
         // feed types are the same for all elements of respData.
         // Slice "date" field: we are only interested in feeds types.
         const feedsTypes = [];
@@ -133,6 +143,7 @@ export const FeedsTypesChart = React.memo(() => {
 
   return <AnyChartWidget {...chartProps} />;
 });
+FeedsTypesChart.displayName = "FeedsTypesChart";
 
 export const AttackOriginCountriesChart = React.memo(() => {
   console.debug("AttackOriginCountriesChart rendered!");
@@ -217,3 +228,4 @@ export const AttackOriginCountriesChart = React.memo(() => {
     </ResponsiveContainer>
   );
 });
+AttackOriginCountriesChart.displayName = "AttackOriginCountriesChart";

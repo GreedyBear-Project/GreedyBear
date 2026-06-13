@@ -5,8 +5,7 @@ do
     echo "Waiting for server volume..."
 done
 
-# Apply database migrations
-# Create cache table for Django Q monitoring (idempotent)
+# Create DB cache tables for all DatabaseCache backends in settings.CACHES (idempotent)
 python manage.py createcachetable
 
 # Make durin migrations and migrate

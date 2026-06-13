@@ -2,21 +2,24 @@ import React from "react";
 import { ContentSection } from "@greedybear/gb-ui";
 import { Spinner } from "reactstrap";
 import { GREEDYBEAR_NEWS_URL } from "../../constants/api";
+export const MAX_NEWS_ITEMS = 3;
 
 export const NewsWidget = React.memo(() => {
   const [data, setData] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(false);
-
   const formatDate = (dateStr) => {
     if (!dateStr) return "";
 
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
+    if (isNaN(date.getTime())) return String(dateStr);
 
-    const day = date.getDate();
-    const month = date.toLocaleDateString("en-US", { month: "short" });
-    const year = date.getFullYear();
+    const day = date.getUTCDate();
+    const month = date.toLocaleDateString("en-US", {
+      month: "short",
+      timeZone: "UTC",
+    });
+    const year = date.getUTCFullYear();
 
     const ordinals = ["th", "st", "nd", "rd"];
     const v = day % 100;
@@ -33,7 +36,8 @@ export const NewsWidget = React.memo(() => {
         }
         return response.json();
       })
-      .then(setData)
+
+      .then((newsData) => setData(newsData.slice(0, MAX_NEWS_ITEMS)))
       .catch((err) => {
         console.error("Error fetching news:", err);
         setError(true);

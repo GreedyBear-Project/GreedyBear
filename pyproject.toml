@@ -13,16 +13,18 @@ dependencies = [
     "django-rest-email-auth==5.0.0",
     "django-ses~=4.7",
     "django-q2~=1.10",
+    "django-filter~=25.2",
+    "drf-spectacular~=0.29.0",
     "croniter~=6.2",
     "certego-saas==0.7.12",
     # Server Gateway Interface
     "gunicorn~=26.0",
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
-    "elasticsearch==9.4.0",
+    "elasticsearch==9.4.1",
     "psycopg[c]~=3.3",
     # ML / data science
-    "scikit-learn~=1.8.0",
+    "scikit-learn~=1.9.0",
     "pandas~=3.0",
     "numpy~=2.4",
     "joblib~=1.5",
@@ -45,11 +47,11 @@ dev = [
     "django-watchfiles~=1.4",
 ]
 test = [
-    "coverage==7.14.0",
+    "coverage==7.14.1",
     "django-test-migrations==1.5.0",
 ]
 lint = [
-    "ruff==0.15.13",
+    "ruff==0.15.16",
 ]
 
 [tool.uv]

@@ -3,6 +3,8 @@ from collections import defaultdict
 
 from django.core.cache import caches
 
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.bucket_updater import BucketUpdater
 from greedybear.cronjobs.extraction.strategies.factory import ExtractionStrategyFactory
 from greedybear.cronjobs.repositories import (
@@ -117,16 +119,12 @@ class ExtractionPipeline:
             self.log.info("Updating activity buckets")
             bucket_updater.update()
 
-        # 6. Invalidate API caches only if any IOC records were processed
+        # 6. Invalidate API caches only if any IOC records were processed.
+        # Bumping the version orphans every cached feed response at once; the
+        # bump lands in the shared DB-backed cache so gunicorn workers see it.
         if ioc_record_count > 0:
-            # Use the shared DB-backed cache so the version bump is visible to
-            # gunicorn API workers (LocMemCache is per-process).
-            self.log.info("Invalidating feeds ASN cache")
-            shared_cache = caches["django-q"]
-            try:
-                shared_cache.incr("asn_feeds_version")
-            except ValueError:
-                shared_cache.set("asn_feeds_version", 2, timeout=None)
+            self.log.info("Invalidating feeds cache")
+            Cache(API_CACHE_ALIAS).bump_data_version(IOC_DATA_VERSION_KEY)
 
         if bucket_updater.total_update_count > 0:
             self.log.info("Invalidating feeds trending cache")
