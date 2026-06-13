@@ -3,18 +3,24 @@ from hashlib import sha256
 from unittest.mock import Mock
 
 from certego_saas.apps.user.models import User
+from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase
 from django_test_migrations.migrator import Migrator
 
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS
 from greedybear.enums import IpReputation
 from greedybear.models import (
     IOC,
+    APISource,
     AutonomousSystem,
     CommandSequence,
     CowrieSession,
     Credential,
     Honeypot,
     IocType,
+    Sensor,
+    SourceType,
 )
 
 
@@ -210,6 +216,12 @@ class CustomTestCase(TestCase):
         except User.DoesNotExist:
             cls.regular_user = User.objects.create_user(username="regular", email="regular@greedybear.com", password="regular")
 
+    def setUp(self):
+        super().setUp()
+        # Clear caches
+        cache.clear()
+        Cache(API_CACHE_ALIAS).clear()
+
 
 class ExtractionTestCase(CustomTestCase):
     def setUp(self):
@@ -332,3 +344,30 @@ class E2ETestCase(ExtractionTestCase):
             from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
 
             return ExtractionPipeline()
+
+
+# shared helper fx
+def make_user(username="testuser", password="pass1234!"):
+    return User.objects.create_user(username=username, password=password)
+
+
+def make_api_source(user, name="TestSource"):
+    return APISource.objects.create(user=user, name=name)
+
+
+def make_sensor(api_source, address="192.168.1.100", label="sensor-a", **kwargs):
+    """
+    Helper to create a Sensor for testing.
+    """
+    defaults = {
+        "label": label,
+        "source_type": SourceType.EXTERNAL,
+    }
+    defaults.update(kwargs)
+
+    sensor, _ = Sensor.objects.get_or_create(
+        address=address,
+        api_source=api_source,
+        defaults=defaults,
+    )
+    return sensor

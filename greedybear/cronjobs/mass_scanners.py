@@ -46,8 +46,8 @@ class MassScannersCron(Cronjob):
         try:
             with HttpClient() as client:
                 r = client.get("https://raw.githubusercontent.com/stamparm/maltrail/master/trails/static/mass_scanner.txt")
-        except requests.RequestException as e:
-            self.log.error(f"Failed to fetch mass scanner list: {e}")
+        except requests.RequestException:
+            self.log.exception("Failed to fetch mass scanner list")
             raise
 
         for line_bytes in r.iter_lines():

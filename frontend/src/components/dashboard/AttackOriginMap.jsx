@@ -235,7 +235,7 @@ export default function AttackOriginMap() {
           projection="geoNaturalEarth1"
           width={800}
           height={420}
-          style={{ width: "100%", height: "auto" }}
+          style={{ width: "100%", height: "auto", maxHeight: 440 }}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >

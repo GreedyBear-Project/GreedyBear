@@ -44,17 +44,10 @@ class FireHolCron(Cronjob):
             self.log.info(f"Processing {source} from {url}")
             try:
                 try:
-<<<<<<< refactor/migrate-batch2-1214
                     with HttpClient() as client:
                         response = client.get(url, timeout=60)
-                except requests.RequestException as e:
-                    self.log.error(f"Network error fetching {source}: {e}")
-=======
-                    response = requests.get(url, timeout=60)
-                    response.raise_for_status()
                 except requests.RequestException:
                     self.log.exception(f"Network error fetching {source}")
->>>>>>> develop
                     continue
 
                 lines = response.text.splitlines()

@@ -3,6 +3,7 @@ import re
 import requests
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import IocRepository
 from greedybear.cronjobs.repositories.tor import TorRepository
 from greedybear.enums import IpReputation
@@ -24,11 +25,8 @@ class TorExitNodesCron(Cronjob):
         try:
             self.log.info("Starting download of Tor exit node list from torproject.org")
 
-            r = requests.get(
-                "https://check.torproject.org/exit-addresses",
-                timeout=10,
-            )
-            r.raise_for_status()
+            with HttpClient() as client:
+                r = client.get("https://check.torproject.org/exit-addresses")
 
             findings = ip_regex.findall(r.text)
 
