@@ -28,7 +28,6 @@ vi.mock("@greedybear/gb-ui", () => ({
   getRandomColorsArray: (n) => Array(n).fill("#aabbcc"),
 }));
 
-
 vi.mock("recharts", async (importOriginal) => {
   const original = await importOriginal();
   const ResponsiveContainer = ({ children, height }) => (
@@ -41,7 +40,6 @@ vi.mock("recharts", async (importOriginal) => {
   );
   return { ...original, ResponsiveContainer };
 });
-
 
 const ONE_DAY_FEED = [{ date: "2024-01-01", Sources: 10, Downloads: 5 }];
 const ONE_DAY_TYPES = [{ date: "2024-01-01", cowrie: 100, honeytrap: 50 }];
