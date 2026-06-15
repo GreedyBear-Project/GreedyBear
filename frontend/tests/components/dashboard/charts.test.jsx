@@ -30,15 +30,29 @@ vi.mock("@greedybear/gb-ui", () => ({
 
 vi.mock("recharts", async (importOriginal) => {
   const original = await importOriginal();
-  const ResponsiveContainer = ({ children, height }) => (
-    <div data-testid="responsive-container" style={{ width: 800, height }}>
-      {React.cloneElement(React.Children.only(children), {
-        width: 800,
-        height,
-      })}
-    </div>
-  );
-  return { ...original, ResponsiveContainer };
+  return {
+    ...original,
+    ResponsiveContainer: ({ children, height }) => (
+      <div data-testid="responsive-container" style={{ width: 800, height }}>
+        {React.cloneElement(React.Children.only(children), {
+          width: 800,
+          height,
+        })}
+      </div>
+    ),
+    ComposedChart: ({ children }) => (
+      <div data-testid="composed-chart">{children}</div>
+    ),
+    BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
+    Bar: ({ dataKey }) => <div data-testid={`bar-${dataKey}`} />,
+    Area: ({ dataKey }) => <div data-testid={`area-${dataKey}`} />,
+    XAxis: () => null,
+    YAxis: () => null,
+    CartesianGrid: () => null,
+    Legend: () => null,
+    Tooltip: () => null,
+    Cell: () => null,
+  };
 });
 
 const ONE_DAY_FEED = [{ date: "2024-01-01", Sources: 10, Downloads: 5 }];
@@ -121,12 +135,41 @@ describe("Charts Components", () => {
     );
   });
 
+  test("FeedsSourcesChart renders an Area for each colorMap key in its slice", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
+    render(<FeedsSourcesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("responsive-container")).toBeInTheDocument(),
+    );
+    // FEED_COLOR_MAP slice [0,1] => first key is "Sources"
+    expect(screen.getByTestId("area-Sources")).toBeInTheDocument();
+  });
+
+  test("FeedsDownloadsChart renders an Area for its colorMap slice", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
+    render(<FeedsDownloadsChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("responsive-container")).toBeInTheDocument(),
+    );
+    // FEED_COLOR_MAP slice [1,2] => second key is "Downloads"
+    expect(screen.getByTestId("area-Downloads")).toBeInTheDocument();
+  });
+
   test("FeedsSourcesChart renders a chart after data loads", async () => {
     axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
     render(<FeedsSourcesChart />);
     await waitFor(() =>
       expect(screen.getByTestId("responsive-container")).toBeInTheDocument(),
     );
+  });
+
+  test("FeedsTypesChart renders a Bar for each feed type key", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_TYPES });
+    render(<FeedsTypesChart />);
+    await waitFor(() => {
+      expect(screen.getByTestId("bar-cowrie")).toBeInTheDocument();
+      expect(screen.getByTestId("bar-honeytrap")).toBeInTheDocument();
+    });
   });
 
   test("FeedsTypesChart renders a chart after data loads", async () => {
@@ -148,7 +191,8 @@ describe("Charts Components", () => {
   });
 
   test("FeedsTypesChart only reads feed types from first element of respData", async () => {
-    // Second element has an extra key (telnet) — it must NOT appear as a Bar
+    // Second element introduces a "telnet" key absent from the first element.
+    // The chart must only create Bars for keys found in respData[0] (excluding "date").
     axios.get.mockResolvedValue({
       data: [
         { date: "2024-01-01", ssh: 5 },
@@ -157,13 +201,8 @@ describe("Charts Components", () => {
     });
     render(<FeedsTypesChart />);
     await waitFor(() =>
-      expect(screen.getByTestId("responsive-container")).toBeInTheDocument(),
+      expect(screen.getByTestId("bar-ssh")).toBeInTheDocument(),
     );
-    // ssh bar present, telnet bar absent
-    // (recharts renders Bar children in the DOM with their dataKey as the data-testid via our mock)
-    // Since we're not mocking individual recharts components here, just assert the chart rendered
-    expect(
-      screen.queryByText("No data in the selected range."),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bar-telnet")).not.toBeInTheDocument();
   });
 });

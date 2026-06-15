@@ -67,9 +67,7 @@ describe("AttackOriginCountriesChart", () => {
     render(<AttackOriginCountriesChart />);
     await waitFor(() =>
       expect(
-        screen.getByText(
-          "No country data available for the selected time range.",
-        ),
+        screen.getByText("No data in the selected range."),
       ).toBeInTheDocument(),
     );
   });
