@@ -35,8 +35,7 @@ export function normalizeAttackerCountries(rawData) {
   const raw = Array.isArray(rawData) ? rawData : [];
   raw.forEach((item) => {
     if (!item || typeof item !== "object") return;
-    const code =
-      typeof item.code === "string" ? item.code.toUpperCase() : null;
+    const code = typeof item.code === "string" ? item.code.toUpperCase() : null;
     if (!code) return;
     const count = Math.max(0, Number(item.count) || 0);
     countryDataMap[code] = (countryDataMap[code] || 0) + count;
