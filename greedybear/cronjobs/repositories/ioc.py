@@ -6,6 +6,8 @@ from django.db.models import F
 
 from greedybear.models import IOC, Honeypot
 
+BULK_UPDATE_BATCH_SIZE = 2000
+
 
 class IocRepository:
     """
@@ -188,8 +190,6 @@ class IocRepository:
             Iterator of IOC objects with only name and score fields loaded.
         """
         if chunk_size is None:
-            from greedybear.cronjobs.scoring.scoring_jobs import BULK_UPDATE_BATCH_SIZE
-
             chunk_size = BULK_UPDATE_BATCH_SIZE
 
         return IOC.objects.filter(honeypots__active=True).filter(scanner=True).distinct().only("name", *score_fields).iterator(chunk_size=chunk_size)

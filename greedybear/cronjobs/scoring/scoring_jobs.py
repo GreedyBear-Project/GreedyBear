@@ -8,6 +8,7 @@ from django.core.files.storage import FileSystemStorage
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories import IocRepository
+from greedybear.cronjobs.repositories.ioc import BULK_UPDATE_BATCH_SIZE
 from greedybear.cronjobs.scoring.random_forest import RFClassifier, RFRegressor
 from greedybear.cronjobs.scoring.utils import (
     correlated_features,
@@ -20,7 +21,6 @@ from greedybear.settings import ML_MODEL_DIRECTORY
 
 SCORERS = [RFClassifier(), RFRegressor()]
 TRAINING_DATA_FILENAME = "training_data.json"
-BULK_UPDATE_BATCH_SIZE = 2000
 
 
 class TrainingDataError(Exception):
