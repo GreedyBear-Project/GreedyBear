@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import axios from "axios";
 import AttackOriginMap from "../../../src/components/dashboard/AttackOriginMap";
 import { IOC_ATTACKER_COUNTRIES_URI } from "../../../src/constants/api";
-import useAttackerCountriesStore from "../../../src/stores/useAttackerCountriesStore";
+import { clearWidgetDataCache } from "../../../src/hooks/useWidgetData";
 
 vi.mock("axios");
 
@@ -19,7 +19,7 @@ globalThis.fetch = vi.fn(() =>
 
 // Mock the map library. Each mock geography carries a numeric ISO id
 // (geo.id) so that AttackOriginMap can resolve it to an alpha-2 code via
-// i18n-iso-countries, matching the alpha-2-keyed countryDataMap from the store.
+// i18n-iso-countries, matching the alpha-2-keyed countryDataMap.
 vi.mock("@vnedyalk0v/react19-simple-maps", () => ({
   ComposableMap: ({ children, onMouseMove, onMouseLeave }) => (
     <div
@@ -61,16 +61,8 @@ const COUNTRIES_DATA = [
 
 describe("AttackOriginMap", () => {
   beforeEach(() => {
-    useAttackerCountriesStore.setState({
-      normalizedData: [],
-      countryDataMap: {},
-      maxCount: 0,
-      loading: false,
-      error: null,
-      lastRange: null,
-      currentController: null,
-    });
     vi.clearAllMocks();
+    clearWidgetDataCache();
   });
 
   test("shows loading state while request is in flight", () => {
@@ -83,9 +75,7 @@ describe("AttackOriginMap", () => {
     axios.get.mockRejectedValue(new Error("Network error"));
     render(<AttackOriginMap />);
     await waitFor(() =>
-      expect(
-        screen.getByText("Failed to load attacker countries data."),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("Failed to load data.")).toBeInTheDocument(),
     );
   });
 
@@ -96,7 +86,7 @@ describe("AttackOriginMap", () => {
       expect(axios.get).toHaveBeenCalledWith(
         IOC_ATTACKER_COUNTRIES_URI,
         expect.objectContaining({
-          params: { range: "7d" },
+          params: expect.objectContaining({ range: "7d" }),
         }),
       ),
     );
