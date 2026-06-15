@@ -5,9 +5,10 @@ import {
   Geography,
   ZoomableGroup,
 } from "@vnedyalk0v/react19-simple-maps";
-import { useTimePickerStore } from "@greedybear/gb-ui";
 import countries from "i18n-iso-countries";
-import useWidgetData from "../../hooks/useWidgetData";
+import useWidgetData, {
+  normalizeAttackerCountries,
+} from "../../hooks/useWidgetData";
 import { IOC_ATTACKER_COUNTRIES_URI } from "../../constants/api";
 
 const WORLD_ATLAS_GEO_URL = `${import.meta.env.BASE_URL}countries-110m.json`;
@@ -72,21 +73,10 @@ export default function AttackOriginMap() {
     error,
   } = useWidgetData(IOC_ATTACKER_COUNTRIES_URI);
 
-  const { countryDataMap, maxCount } = React.useMemo(() => {
-    const countryDataMap = {};
-    let maxCount = 0;
-    const raw = Array.isArray(rawData) ? rawData : [];
-    raw.forEach((item) => {
-      if (!item || typeof item !== "object") return;
-      const code =
-        typeof item.code === "string" ? item.code.toUpperCase() : null;
-      if (!code) return;
-      const count = Number(item.count) || 0;
-      countryDataMap[code] = (countryDataMap[code] || 0) + count;
-      if (countryDataMap[code] > maxCount) maxCount = countryDataMap[code];
-    });
-    return { countryDataMap, maxCount };
-  }, [rawData]);
+  const { countryDataMap, maxCount } = React.useMemo(
+    () => normalizeAttackerCountries(rawData),
+    [rawData],
+  );
 
   // TopoJSON is loaded here (bypassing the library's broken URL validator)
   // and passed as an object to <Geographies>.

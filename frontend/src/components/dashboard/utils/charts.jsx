@@ -23,7 +23,9 @@ import {
   IOC_ATTACKER_COUNTRIES_URI,
 } from "../../../constants/api";
 import { FEED_COLOR_MAP, ENRICHMENT_COLOR_MAP } from "../../../constants";
-import useWidgetData from "../../../hooks/useWidgetData";
+import useWidgetData, {
+  normalizeAttackerCountries,
+} from "../../../hooks/useWidgetData";
 
 const COUNTRY_BAR_COLOR = "#e05252";
 const CHART_HEIGHT = 250;
@@ -200,23 +202,10 @@ export const AttackOriginCountriesChart = React.memo(() => {
     error,
   } = useWidgetData(IOC_ATTACKER_COUNTRIES_URI);
 
-  // Normalise: build sorted array of { country, count, code }
-  const data = React.useMemo(() => {
-    const raw = Array.isArray(rawData) ? rawData : [];
-    const countryMap = {};
-    const nameMap = {};
-    raw.forEach((item) => {
-      if (!item || typeof item !== "object") return;
-      const code =
-        typeof item.code === "string" ? item.code.toUpperCase() : null;
-      if (!code) return;
-      countryMap[code] = (countryMap[code] || 0) + (Number(item.count) || 0);
-      if (!nameMap[code]) nameMap[code] = item.country || code;
-    });
-    return Object.entries(countryMap)
-      .map(([code, count]) => ({ country: nameMap[code], count, code }))
-      .sort((a, b) => b.count - a.count);
-  }, [rawData]);
+  const { normalizedData: data } = React.useMemo(
+    () => normalizeAttackerCountries(rawData),
+    [rawData],
+  );
 
   if (loading) {
     return (
@@ -237,7 +226,7 @@ export const AttackOriginCountriesChart = React.memo(() => {
   if (!data || data.length === 0) {
     return (
       <div className="d-flex justify-content-center align-items-center py-4 text-muted">
-        No country data available for the selected time range.
+        No data in the selected range.
       </div>
     );
   }
