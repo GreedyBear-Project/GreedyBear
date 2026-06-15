@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# checking if DJANGO_SECRET is set and not empty
+if [ -z "$DJANGO_SECRET" ]; then
+    echo "ERROR: DJANGO_SECRET environment variable is not set!" >&2
+    echo "Aborting startup." >&2
+    exit 1
+fi
+
 until cd /opt/deploy/greedybear
 do
     echo "Waiting for server volume..."

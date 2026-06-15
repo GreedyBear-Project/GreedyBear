@@ -470,6 +470,48 @@ init_env_files() {
     fi
 }
 
+# ensures a  DJANGO_SECRET exists in the env file to secure cross-container task signing
+ensure_django_secret() {
+    local env_file="${SCRIPT_DIR}/docker/env_file"
+
+    if [ ! -f "$env_file" ]; then
+        log_error "docker/env_file not found. Run './gbctl init' first."
+        exit 1
+    fi
+
+    local existing
+    existing=$(grep -E '^DJANGO_SECRET=' "$env_file" | cut -d'=' -f2- | tr -d '[:space:]\r')
+
+    if [ -n "$existing" ]; then
+        log_info "DJANGO_SECRET already set, skipping generation."
+        return
+    fi
+
+    local new_secret
+    new_secret=$(python3 -c "import secrets; print(secrets.token_hex(64))" 2>/dev/null \
+        || openssl rand -hex 64 2>/dev/null \
+        || dd if=/dev/urandom bs=1 count=500 2>/dev/null | tr -dc 'a-f0-9' | head -c 128)
+
+    if [ -z "$new_secret" ]; then
+        log_error "Failed to generate a secret key. Please set DJANGO_SECRET manually in docker/env_file."
+        exit 1
+    fi
+
+    # using sed if the line exists,  only append if truly absent
+    if grep -qE '^DJANGO_SECRET=\s*$' "$env_file"; then
+        # line exists but value is empty, fill it in-place
+        sed -i "s|^DJANGO_SECRET=.*|DJANGO_SECRET=${new_secret}|" "$env_file"
+        log_success "Generated and saved DJANGO_SECRET to docker/env_file."
+    elif grep -qE '^DJANGO_SECRET=' "$env_file"; then
+        # line exists and has a value
+        log_info "DJANGO_SECRET already set, skipping generation."
+    else
+        # line is completely absent
+        echo "DJANGO_SECRET=${new_secret}" >> "$env_file"
+        log_success "Generated and saved DJANGO_SECRET to docker/env_file."
+    fi
+}
+
 # Execute docker compose command
 # --project-directory points to docker/ so that relative env_file paths
 # in compose files resolve correctly. --env-file loads .env from the
@@ -618,7 +660,8 @@ cmd_up() {
     
     check_downgrade
     check_git_version_mismatch
-    
+
+    ensure_django_secret
     execute_compose up -d "$@"
     log_success "GreedyBear services started successfully!"
 }
