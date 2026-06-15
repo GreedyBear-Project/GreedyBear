@@ -1,6 +1,7 @@
 import requests
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import FireHolRepository
 from greedybear.utils import is_valid_cidr, is_valid_ipv4
 
@@ -43,8 +44,8 @@ class FireHolCron(Cronjob):
             self.log.info(f"Processing {source} from {url}")
             try:
                 try:
-                    response = requests.get(url, timeout=60)
-                    response.raise_for_status()
+                    with HttpClient() as client:
+                        response = client.get(url, timeout=60)
                 except requests.RequestException:
                     self.log.exception(f"Network error fetching {source}")
                     continue

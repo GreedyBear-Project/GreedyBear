@@ -3,6 +3,7 @@ import json
 import requests
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import FireHolRepository
 from greedybear.utils import is_valid_cidr, is_valid_ipv4
 
@@ -31,8 +32,8 @@ class SpamhausDropCron(Cronjob):
         """Fetch and process Spamhaus DROP v4 feed (JSON Lines format)."""
         try:
             self.log.info(f"Fetching from {FEED_URL}")
-            response = requests.get(FEED_URL, timeout=60)
-            response.raise_for_status()
+            with HttpClient() as client:
+                response = client.get(FEED_URL, timeout=60)
 
             lines = response.text.strip().splitlines()
             self.log.info(f"Retrieved {len(lines)} entries from Spamhaus DROP v4")

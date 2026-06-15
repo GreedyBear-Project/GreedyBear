@@ -3,6 +3,7 @@ import re
 import requests
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import IocRepository, MassScannerRepository
 from greedybear.enums import IpReputation
 from greedybear.utils import is_valid_ipv4
@@ -43,11 +44,8 @@ class MassScannersCron(Cronjob):
         comment_regex = re.compile(r"#\s*(.+)")
 
         try:
-            r = requests.get(
-                "https://raw.githubusercontent.com/stamparm/maltrail/master/trails/static/mass_scanner.txt",
-                timeout=10,
-            )
-            r.raise_for_status()
+            with HttpClient() as client:
+                r = client.get("https://raw.githubusercontent.com/stamparm/maltrail/master/trails/static/mass_scanner.txt")
         except requests.RequestException:
             self.log.exception("Failed to fetch mass scanner list")
             raise

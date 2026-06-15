@@ -22,7 +22,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_parses_ip_with_comment(self):
         """Test parsing IP address with comment after #"""
         lines = ["192.168.1.100 # normal comment"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -34,7 +34,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_parses_plain_ip_without_comment(self):
         """Test parsing plain IP address without any comment"""
         lines = ["45.83.67.252"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -46,7 +46,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_parses_ip_with_multiple_hash_signs(self):
         """Test parsing IP with comment containing # symbols"""
         lines = ["1.1.1.1 # comment with # spaces"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -56,7 +56,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_parses_ip_without_space_before_comment(self):
         """Test parsing IP with comment but no space before #"""
         lines = ["1.1.1.1#comment_without_space"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -70,7 +70,7 @@ class TestMassScannersCron(CustomTestCase):
             "2001:db8::1 # compressed IPv6",
             "fe80::1ff:fe23:4567:890a # link-local",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -86,7 +86,7 @@ class TestMassScannersCron(CustomTestCase):
             "<w00tw00t.at.blackhats.romanian.anti-sec:>",
             "abc.def.ghi.jkl",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -96,7 +96,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_skips_invalid_ip_out_of_range(self):
         """Test that IPs with octets >255 are skipped"""
         lines = ["999.999.999.999 # structurally matches but invalid IP"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -109,7 +109,7 @@ class TestMassScannersCron(CustomTestCase):
             "# This is a comment",
             "## Another comment",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -120,7 +120,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_skips_empty_lines(self):
         """Test that empty lines are skipped"""
         lines = ["", "  ", "\n"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -138,7 +138,7 @@ class TestMassScannersCron(CustomTestCase):
             "999.999.999.999",
             "193.142.146.101",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -157,7 +157,7 @@ class TestMassScannersCron(CustomTestCase):
         MassScanner.objects.create(ip_address="1.2.3.4", reason="existing")
 
         lines = ["1.2.3.4 # new comment"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -175,7 +175,7 @@ class TestMassScannersCron(CustomTestCase):
             "127.0.0.1 # localhost",
             "0.0.0.0 # all interfaces",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -192,7 +192,7 @@ class TestMassScannersCron(CustomTestCase):
             "123.456.78",
             "1.2",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -203,7 +203,7 @@ class TestMassScannersCron(CustomTestCase):
     def test_extracts_ip_from_beginning_of_line(self):
         """Test that IP is correctly extracted when at start of line"""
         lines = ["45.83.67.252"]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -216,7 +216,7 @@ class TestMassScannersCron(CustomTestCase):
             "C91.196.152.28 # probe.onyphe.net",
             "C91.196.152.38 # probe.onyphe.net",
         ]
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.return_value = self._create_mock_response(lines)
             self.cron.run()
 
@@ -230,10 +230,8 @@ class TestMassScannersCron(CustomTestCase):
 
     def test_raises_on_http_error(self):
         """Test that HTTP errors (4xx/5xx) are raised instead of silently ignored."""
-        mock_response = Mock()
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error")
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
-            mock_get.return_value = mock_response
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
+            mock_get.side_effect = requests.exceptions.HTTPError("404 Client Error")
             with self.assertRaises(requests.exceptions.HTTPError):
                 self.cron.run()
 
@@ -242,7 +240,7 @@ class TestMassScannersCron(CustomTestCase):
 
     def test_raises_on_network_error(self):
         """Test that network errors (DNS failure, timeout) are raised."""
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.side_effect = requests.exceptions.ConnectionError("DNS resolution failed")
             with self.assertRaises(requests.exceptions.ConnectionError):
                 self.cron.run()
@@ -252,7 +250,7 @@ class TestMassScannersCron(CustomTestCase):
 
     def test_raises_on_timeout(self):
         """Test that request timeouts are raised."""
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
             mock_get.side_effect = requests.exceptions.Timeout("Connection timed out")
             with self.assertRaises(requests.exceptions.Timeout):
                 self.cron.run()
@@ -262,10 +260,8 @@ class TestMassScannersCron(CustomTestCase):
 
     def test_execute_sets_success_false_on_http_error(self):
         """Test that base class execute() propagates HTTPError."""
-        mock_response = Mock()
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
-        with patch("greedybear.cronjobs.mass_scanners.requests.get") as mock_get:
-            mock_get.return_value = mock_response
+        with patch("greedybear.cronjobs.mass_scanners.HttpClient.get") as mock_get:
+            mock_get.side_effect = requests.exceptions.HTTPError("500 Server Error")
             # Expect exception to be raised now
             with self.assertRaises(requests.exceptions.HTTPError):
                 self.cron.execute()
