@@ -8,6 +8,7 @@ from django.core.files.storage import FileSystemStorage
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories import IocRepository
+from greedybear.cronjobs.repositories.ioc import BULK_UPDATE_BATCH_SIZE
 from greedybear.cronjobs.scoring.random_forest import RFClassifier, RFRegressor
 from greedybear.cronjobs.scoring.utils import (
     correlated_features,
@@ -155,6 +156,15 @@ class UpdateScores(Cronjob):
         self.data = None
         self.ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
 
+    def _flush_updates(self, iocs_to_update: list[IOC], score_names: list[str]) -> int:
+        """Flush pending IOC updates to the database and clear the buffer."""
+        if not iocs_to_update:
+            return 0
+        self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
+        result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
+        iocs_to_update.clear()
+        return result
+
     def update_db(self, df: pd.DataFrame, iocs: set[IOC] | None = None) -> int:
         """
         Update IOC scores in the database based on new data from a DataFrame.
@@ -179,11 +189,17 @@ class UpdateScores(Cronjob):
         score_names = [s.score_name for s in SCORERS]
         scores_by_ip = df.set_index("value")[score_names].to_dict("index")
         # If no IoCs were passed as an argument, fetch all IoCs via repository
-        iocs = self.ioc_repo.get_scanners_for_scoring(score_names) if iocs is None else iocs
-        iocs_to_update = []
+        if iocs is None:
+            iocs_iterable = self.ioc_repo.get_scanners_for_scoring(score_names)
+            self.log.info("checking IoCs via iterator")
+        else:
+            iocs_iterable = iocs
+            self.log.info(f"checking {len(iocs)} IoCs")
 
-        self.log.info(f"checking {len(iocs)} IoCs")
-        for ioc in iocs:
+        iocs_to_update = []
+        total_result = 0
+
+        for ioc in iocs_iterable:
             updated = False
             # Update scores if IP exists in new data
             if ioc.name in scores_by_ip:
@@ -200,10 +216,14 @@ class UpdateScores(Cronjob):
                         updated = True
             if updated:
                 iocs_to_update.append(ioc)
-        self.log.info(f"writing updated scores for {len(iocs_to_update)} IoCs to DB")
-        result = self.ioc_repo.bulk_update_scores(iocs_to_update, score_names)
-        self.log.info(f"{result} IoCs were updated")
-        return result
+
+            if len(iocs_to_update) >= BULK_UPDATE_BATCH_SIZE:
+                total_result += self._flush_updates(iocs_to_update, score_names)
+
+        total_result += self._flush_updates(iocs_to_update, score_names)
+
+        self.log.info(f"{total_result} IoCs were updated")
+        return total_result
 
     def score_only(self, iocs: list[IOC]) -> int:
         """

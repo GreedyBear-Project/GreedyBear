@@ -618,6 +618,44 @@ class TestScoringIntegration(CustomTestCase):
         mock_repo.bulk_update_scores.assert_called_once()
         self.assertEqual(result, 1)
 
+    def test_update_db_batches_bulk_updates_for_large_sets(self):
+        """Feeding >2000 IOCs must trigger bulk_update_scores multiple times."""
+        import pandas as pd
+
+        from greedybear.cronjobs.scoring.scoring_jobs import BULK_UPDATE_BATCH_SIZE, UpdateScores
+
+        total_iocs = BULK_UPDATE_BATCH_SIZE + 500  # e.g. 2500
+
+        # Build mock IOCs whose scores will change so they all land in the update buffer
+        mock_iocs = []
+        ip_addresses = []
+        for i in range(total_iocs):
+            m = Mock()
+            m.name = f"10.0.{i // 256}.{i % 256}"
+            m.recurrence_probability = 0.0
+            m.expected_interactions = 0.0
+            mock_iocs.append(m)
+            ip_addresses.append(m.name)
+
+        mock_repo = Mock()
+        mock_repo.get_scanners_for_scoring.return_value = iter(mock_iocs)
+        mock_repo.bulk_update_scores.side_effect = lambda iocs, _fields: len(iocs)
+
+        df = pd.DataFrame(
+            {
+                "value": ip_addresses,
+                "recurrence_probability": [0.75] * total_iocs,
+                "expected_interactions": [10.0] * total_iocs,
+            }
+        )
+
+        job = UpdateScores(ioc_repo=mock_repo)
+        result = job.update_db(df)
+
+        # Must have been called at least twice (batch flush + remainder)
+        self.assertGreaterEqual(mock_repo.bulk_update_scores.call_count, 2)
+        self.assertEqual(result, total_iocs)
+
 
 class TestIocRepositoryCleanup(CustomTestCase):
     """Tests for cleanup-related methods in IocRepository."""
