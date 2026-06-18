@@ -1,6 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import hashlib
+import json
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
@@ -8,7 +9,7 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
 from django.db.models import Count, F, Q, QuerySet, Value
 from django.db.models.functions import JSONObject
-from django.http import HttpResponseBase
+from django.http import HttpResponseBase, StreamingHttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -21,7 +22,7 @@ from rest_framework.viewsets import ViewSet
 
 from api.filters import FeedsFilterSet
 from api.mixins import CachedResponseMixin, RequestLoggingMixin
-from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedTextRenderer, Stix21Renderer
+from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedNDJSONRenderer, FeedTextRenderer, Stix21Renderer
 from api.serializers import (
     AdvancedFeedEnvelopeSerializer,
     AdvancedFeedRequestSerializer,
@@ -50,6 +51,7 @@ RENDERERS_BY_FORMAT = {
     "txt": FeedTextRenderer,
     "csv": FeedCSVRenderer,
     "stix21": Stix21Renderer,
+    "ndjson": FeedNDJSONRenderer,
 }
 
 RESPONSES = {
@@ -82,7 +84,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     authentication_classes = [CookieTokenAuthentication]
     permission_classes = [AllowAny]
     throttle_classes = [FeedsThrottle]
-    renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer]
+    renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer, FeedNDJSONRenderer]
 
     # REQUEST HANDLING
     serializer_class = None
@@ -146,7 +148,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
 
         iocs = iocs.filter(honeypots__active=True)
         iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
-        if self.request_params["format"] == "json":
+        if self.request_params["format"] in ["json", "ndjson"]:
             iocs = iocs.annotate(
                 tags_json=ArrayAgg(
                     JSONObject(key=F("tags__key"), value=F("tags__value"), source=F("tags__source")),
@@ -166,6 +168,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
 
     def render_response(self, request: Request, iocs_queryset: QuerySet) -> HttpResponseBase:
         """Select the renderer for the validated format and hand it the prepared data."""
+        requested_format = self.request_params.get("format")
         if self.should_paginate(self.request_params):
             verbose = self.request_params.get("verbose", False)
             paginator = self.pagination_class()
@@ -174,10 +177,15 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
             request.accepted_renderer = FeedJSONRenderer()
             request.accepted_media_type = FeedJSONRenderer.media_type
             return paginator.get_paginated_response(resp_data)
+        if requested_format == "ndjson" or request.accepted_media_type == "application/x-ndjson":
+            verbose = self.request_params.get("verbose", False)
 
-        # Hand the raw queryset to the renderer and flag it for envelope shaping.
-        # Set only here so error/exception responses (which bypass render_response)
-        # and the pre-built paginated/ASN payloads are left as plain JSON.
+            def stream_iocs():
+                feed = build_feed_dict(iocs_queryset, verbose, include_sensors=self.include_sensors)
+                for ioc in feed["iocs"]:
+                    yield json.dumps(ioc, default=str) + "\n"
+
+            return StreamingHttpResponse(stream_iocs(), content_type="application/x-ndjson")
         renderer = RENDERERS_BY_FORMAT[self.request_params["format"]]()
         request.accepted_renderer = renderer
         request.accepted_media_type = renderer.media_type
@@ -259,7 +267,7 @@ class PaginatedFeedView(BaseFeedView):
         return True
 
     def get_request_data(self, request: Request, **kwargs) -> dict:
-        """Pagination requires JSON response."""
+        """Pagination requires JSON response"""
         return request.query_params.dict() | {"format": "json"}
 
 
@@ -293,7 +301,7 @@ class AdvancedFeedView(BaseFeedView):
 
         iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
 
-        if self.request_params["format"] == "json":
+        if self.request_params["format"] in ["json", "ndjson"]:
             iocs = iocs.annotate(
                 sensors_json=ArrayAgg(
                     JSONObject(address=F("sensors__address"), label=F("sensors__label")),
@@ -302,6 +310,7 @@ class AdvancedFeedView(BaseFeedView):
                     distinct=True,
                 )
             )
+
         return iocs
 
 

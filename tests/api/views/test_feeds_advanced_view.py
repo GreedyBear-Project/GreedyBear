@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -36,6 +37,24 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertEqual(target_ioc["payload_request"], True)
         self.assertEqual(target_ioc["recurrence_probability"], self.ioc.recurrence_probability)
         self.assertEqual(target_ioc["expected_interactions"], self.ioc.expected_interactions)
+
+    def test_verbose_field(self):
+        response = self.client.get("/api/feeds/advanced/?format=ndjson&verbose=true")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        iocs = [json.loads(line) for line in lines]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIn("days_seen", target_ioc)
+        self.assertIn("firehol_categories", target_ioc)
+
+    def test_delimeter(self):
+        response = self.client.get("/api/feeds/advanced/?format=ndjson&include_mass_scanners")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        value = 1
+        self.assertGreater(len(lines), value)
+        for line in lines:
+            json.loads(line)
 
     def test_200_general_feeds(self):
         response = self.client.get("/api/feeds/advanced/?feed_type=heralding")
