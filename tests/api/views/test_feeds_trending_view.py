@@ -1,9 +1,11 @@
 from datetime import datetime
 from unittest.mock import patch
 
-from django.core.cache import cache, caches
+from django.core.cache import cache
 
 from api.throttles import FeedsThrottle
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.models import AttackerActivityBucket
 from tests import CustomTestCase
 
@@ -12,7 +14,7 @@ class FeedsTrendingViewTestCase(CustomTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
-        caches["django-q"].clear()
+        Cache(API_CACHE_ALIAS).clear()
         self.url = "/api/feeds/trending/"
 
     def test_200_trending_returns_ranked_attackers(self):
@@ -115,16 +117,26 @@ class FeedsTrendingViewTestCase(CustomTestCase):
             ]
             with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
                 first = self.client.get(f"{self.url}?feed_type=all&window_minutes=60&limit=10")
-                shared_cache = caches["django-q"]
-                try:
-                    shared_cache.incr("trending_feeds_version")
-                except ValueError:
-                    shared_cache.set("trending_feeds_version", 2, timeout=None)
+                Cache(API_CACHE_ALIAS).bump_data_version(TRENDING_FEEDS_DATA_VERSION_KEY)
                 second = self.client.get(f"{self.url}?feed_type=all&window_minutes=60&limit=10")
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(mock_get_counts.call_count, 4)
+
+    def test_trending_normalizes_feed_type_case(self):
+        AttackerActivityBucket.objects.create(
+            attacker_ip="7.7.7.7",
+            feed_type="cowrie",
+            bucket_start=datetime(2026, 3, 20, 9, 0),
+            interaction_count=4,
+        )
+
+        with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            response = self.client.get(f"{self.url}?feed_type=Cowrie&window_minutes=60&limit=10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({entry['attacker_ip'] for entry in response.json()["attackers"]}, {"7.7.7.7"})
 
     def test_trending_endpoint_uses_feeds_throttle(self):
         cache.clear()

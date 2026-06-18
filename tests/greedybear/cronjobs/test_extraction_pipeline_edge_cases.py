@@ -14,6 +14,7 @@ from the E2E tests which use real strategies for happy-path testing.
 
 from unittest.mock import MagicMock, patch
 
+from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY
 from tests import E2ETestCase, MockElasticHit
 
 
@@ -89,11 +90,11 @@ class TestEdgeCases(E2ETestCase):
         bucket_updater.collect_hits.assert_called_once()
         bucket_updater.update.assert_called_once()
 
-    @patch("greedybear.cronjobs.extraction.pipeline.caches")
+    @patch("greedybear.cronjobs.extraction.pipeline.Cache.bump_data_version")
     @patch("greedybear.cronjobs.extraction.pipeline.BucketUpdater")
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
-    def test_bucket_updates_invalidate_trending_cache(self, mock_factory, mock_scores, mock_bucket_updater_cls, mock_caches):
+    def test_bucket_updates_invalidate_trending_cache(self, mock_factory, mock_scores, mock_bucket_updater_cls, mock_bump_data_version):
         pipeline = self._create_pipeline_with_real_factory()
         pipeline.log = MagicMock()
 
@@ -111,15 +112,12 @@ class TestEdgeCases(E2ETestCase):
         mock_strategy.ioc_records = []
         mock_factory.return_value.get_strategy.return_value = mock_strategy
 
-        shared_cache = MagicMock()
-        mock_caches.__getitem__.return_value = shared_cache
-
         result = pipeline.execute()
 
         self.assertEqual(result, 0)
         bucket_updater.collect_hits.assert_called_once()
         bucket_updater.update.assert_called_once()
-        shared_cache.incr.assert_called_once_with("trending_feeds_version")
+        mock_bump_data_version.assert_called_once_with(TRENDING_FEEDS_DATA_VERSION_KEY)
         mock_scores.return_value.score_only.assert_not_called()
 
     @patch("greedybear.cronjobs.extraction.pipeline.caches")

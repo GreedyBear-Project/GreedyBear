@@ -267,6 +267,11 @@ class TrendingFeedRequestSerializer(serializers.Serializer):
     window_minutes = serializers.IntegerField(min_value=60, default=24 * 60, help_text="Completed comparison window size in minutes.")
     limit = serializers.IntegerField(min_value=1, max_value=1000, default=10, help_text="Maximum number of attackers to return.")
 
+    def to_internal_value(self, data: Mapping) -> dict:
+        if isinstance(data, Mapping):
+            data = {key: value.lower() if isinstance(value, str) else value for key, value in data.items()}
+        return super().to_internal_value(data)
+
     def validate_window_minutes(self, value: int) -> int:
         return validate_window_minutes(value, settings.TRENDING_MAX_WINDOW_MINUTES)
 

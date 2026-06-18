@@ -1,14 +1,12 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import hashlib
-import urllib.parse
 from datetime import timedelta
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
-from django.core.cache import caches
 from django.db.models import Count, F, Q, QuerySet, Value
 from django.db.models.functions import JSONObject
 from django.http import HttpResponseBase
@@ -47,7 +45,7 @@ from api.views.utils import (
     build_feed_dict,
     save_request_source,
 )
-from greedybear.consts import SHARE_TOKEN_SALT
+from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
 from greedybear.models import IOC, ShareToken
@@ -97,13 +95,6 @@ def _build_trending_response(
         "data_source": data_source,
         "attackers": attackers,
     }
-
-
-def _trending_cache_key(validated_data: dict, version: int, current_window_end) -> str:
-    sorted_params = sorted(validated_data.items())
-    params_string = urllib.parse.urlencode(sorted_params, doseq=True)
-    param_hash = hashlib.sha256(params_string.encode("utf-8")).hexdigest()
-    return f"trending_feeds_v{version}_{current_window_end.isoformat()}_{param_hash}"
 
 
 class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
@@ -396,27 +387,25 @@ class AsnFeedView(BaseFeedView):
         },
     )
 )
-class TrendingFeedView(RequestLoggingMixin, APIView):
+class TrendingFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [FeedsThrottle]
+    cache_namespace = "trending_feeds"
+    cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
 
     def get(self, request: Request) -> Response:
         serializer = TrendingFeedRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
+        cached_response = self.get_cached_response()
+        if cached_response is not None:
+            return cached_response
 
         current_window_end = timezone.now().replace(minute=0, second=0, microsecond=0)
         current_window_start = current_window_end - timedelta(minutes=validated["window_minutes"])
         previous_window_end = current_window_start
         previous_window_start = previous_window_end - timedelta(minutes=validated["window_minutes"])
-
-        shared_cache = caches["django-q"]
-        version = shared_cache.get("trending_feeds_version", 1)
-        cache_key = _trending_cache_key(request, version, current_window_end)
-        cached_result = shared_cache.get(cache_key)
-        if cached_result is not None:
-            return Response(cached_result)
 
         bucket_repo = TrendingBucketRepository()
         current_counts = bucket_repo.get_counts_in_window(current_window_start, current_window_end, validated["feed_type"])
@@ -432,7 +421,6 @@ class TrendingFeedView(RequestLoggingMixin, APIView):
             attackers,
             "aggregated",
         )
-        shared_cache.set(cache_key, response_payload, timeout=3600)
         return Response(response_payload)
 
 

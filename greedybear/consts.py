@@ -67,6 +67,7 @@ CACHE_TIMEOUT_SECONDS = 60 * 60
 API_CACHE_ALIAS = "api"
 API_CACHE_TIMEOUT_SECONDS = 60 * 60
 IOC_DATA_VERSION_KEY = "ioc_data_version"
+TRENDING_FEEDS_DATA_VERSION_KEY = "trending_feeds_version"
 
 # tracking application start time
 START_TIME = time.time()
