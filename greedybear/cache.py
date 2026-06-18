@@ -1,5 +1,4 @@
 import hashlib
-import time
 from typing import Any
 
 from django.core.cache import caches
@@ -46,7 +45,4 @@ class Cache:
         try:
             cache.incr(version_key)
         except ValueError:
-            # If the version row is missing but old response rows still exist,
-            # resetting back to 2 can collide with stale `*_v2_*` keys.
-            # Jump to a fresh monotonic value instead.
-            cache.set(version_key, max(2, time.time_ns()), timeout=None)
+            cache.set(version_key, 2, timeout=None)

@@ -273,7 +273,10 @@ class TrendingFeedRequestSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate_window_minutes(self, value: int) -> int:
-        return validate_window_minutes(value, settings.TRENDING_MAX_WINDOW_MINUTES)
+        try:
+            return validate_window_minutes(value, settings.TRENDING_MAX_WINDOW_MINUTES)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class TokenRequestSerializer(serializers.Serializer):
