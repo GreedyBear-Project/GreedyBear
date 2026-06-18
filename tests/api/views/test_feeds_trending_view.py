@@ -136,7 +136,7 @@ class FeedsTrendingViewTestCase(CustomTestCase):
             response = self.client.get(f"{self.url}?feed_type=Cowrie&window_minutes=60&limit=10")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual({entry['attacker_ip'] for entry in response.json()["attackers"]}, {"7.7.7.7"})
+        self.assertEqual({entry["attacker_ip"] for entry in response.json()["attackers"]}, {"7.7.7.7"})
 
     def test_trending_endpoint_uses_feeds_throttle(self):
         cache.clear()
