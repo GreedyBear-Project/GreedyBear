@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -8,14 +9,20 @@ from rest_framework.renderers import BaseRenderer, JSONRenderer
 from api.views.utils import build_feed_dict, build_stix_bundle
 
 
-class FeedJSONRenderer(JSONRenderer):
+class FeedNDJSONRenderer(BaseRenderer):
     """JSON feed renderer.
     When the `build_feed_envelope` context flag is set, it shapes the raw IOC
     rows into the {"iocs": [...], "license": ...} envelope.
-    Any other payload (ASN list, pagination envelope) is rendered as plain JSON.
+    Any other payload (ASN list, pagination envelope) is rendered as plain NDJSON.
     """
 
+    media_type = "application/x-ndjson"
+    format = "ndjson"
+    charset = "utf-8"
+
     def render(self, data, accepted_media_type=None, renderer_context=None):
+        if data is None:
+            return b""
         context = renderer_context or {}
         if context.get("build_feed_envelope"):
             data = build_feed_dict(
@@ -23,7 +30,18 @@ class FeedJSONRenderer(JSONRenderer):
                 verbose=context.get("verbose", False),
                 include_sensors=context.get("include_sensors", False),
             )
-        return super().render(data, accepted_media_type, renderer_context)
+        if isinstance(data, list):
+            ndjson_lines = [json.dumps(item) for item in data]
+            ndjson_string = "\n".join(ndjson_lines) + "\n"
+            return ndjson_string.encode(self.charset)
+
+        if isinstance(data, dict):
+            if "iocs" in data and isinstance(data["iocs"], list):
+                ndjson_lines = [json.dumps(item) for item in data["iocs"]]
+                ndjson_string = "\n".join(ndjson_lines) + "\n"
+                return ndjson_string.encode(self.charset)
+            return (json.dumps(data) + "\n").encode(self.charset)
+        return str(data).encode(self.charset)
 
 
 class FeedRendererMixin(BaseRenderer):
