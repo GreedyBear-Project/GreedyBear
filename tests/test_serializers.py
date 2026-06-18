@@ -8,8 +8,8 @@ from api.serializers import (
     AdvancedFeedRequestSerializer,
     IOCSerializer,
     SimpleFeedResponseSerializer,
-    feed_type_as_list,
     TrendingFeedRequestSerializer,
+    feed_type_as_list,
 )
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
 from greedybear.enums import IpReputation

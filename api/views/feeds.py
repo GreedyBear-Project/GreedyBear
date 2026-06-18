@@ -34,10 +34,10 @@ from api.serializers import (
     ShareTokenResponseSerializer,
     SimpleFeedEnvelopeSerializer,
     SimpleFeedRequestSerializer,
-    TrendingFeedRequestSerializer,
-    TrendingFeedResponseSerializer,
     TokenConsumeRequestSerializer,
     TokenRequestSerializer,
+    TrendingFeedRequestSerializer,
+    TrendingFeedResponseSerializer,
 )
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
@@ -69,6 +69,7 @@ PAGE_PARAMETER = OpenApiParameter(
     OpenApiParameter.QUERY,
     description="1-based page number. Only meaningful when the response is paginated.",
 )
+
 
 def _build_trending_response(
     window_minutes: int,
@@ -374,10 +375,7 @@ class AsnFeedView(BaseFeedView):
     get=extend_schema(
         tags=["Feeds"],
         summary="Public trending feed",
-        description=(
-            "Public endpoint that compares two consecutive completed windows of attacker activity "
-            "and returns the top-ranked trending attackers."
-        ),
+        description=("Public endpoint that compares two consecutive completed windows of attacker activity and returns the top-ranked trending attackers."),
         auth=[],
         parameters=[TrendingFeedRequestSerializer],
         responses={
