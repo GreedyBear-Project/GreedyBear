@@ -1,7 +1,7 @@
 from django.db import IntegrityError
 
 from greedybear.enums import IpReputation
-from greedybear.models import Credential, IocType, Sensor, Statistics, Tag, ViewType
+from greedybear.models import Credential, HoneypotPayload, IocType, Sensor, Statistics, Tag, ViewType
 
 from . import CustomTestCase
 
@@ -113,3 +113,12 @@ class ModelsTestCase(CustomTestCase):
         Credential.objects.create(username="proto_user", password="proto_pass", protocol="ftp")
 
         self.assertEqual(Credential.objects.filter(username="proto_user", password="proto_pass").count(), 3)
+
+    def test_honeypot_payload_model(self):
+        payload = HoneypotPayload.objects.create(
+            sha256="1234567890abcdef", mime_type="application/x-executable", size=9000, source_honeypot=self.heralding, ioc=self.ioc
+        )
+
+        self.assertEqual(payload.sha256, "1234567890abcdef")
+        self.assertEqual(payload.source_honeypot.name, "Heralding")
+        self.assertEqual(str(payload), "Payload 1234567890abcdef")

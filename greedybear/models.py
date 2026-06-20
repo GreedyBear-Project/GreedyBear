@@ -6,6 +6,7 @@ from django.db.models.functions import Lower, Now
 
 from greedybear.enums import IpReputation
 from greedybear.settings import AUTH_USER_MODEL
+from greedybear.storage import QuarantineStorage
 
 
 class ViewType(models.TextChoices):
@@ -481,3 +482,24 @@ class RawEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type} from {self.src_ip} @ {self.timestamp}"
+
+
+class HoneypotPayload(models.Model):
+    """
+    Model for the payload that would be recevied by the Tpot Payload server to quarantine it in the Quarantine directory.
+    """
+
+    payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
+    md5 = models.CharField(max_length=32, blank=True, default="")
+    sha1 = models.CharField(max_length=40, blank=True, default="")
+    sha256 = models.CharField(max_length=64, blank=True, default="")
+    mime_type = models.CharField(max_length=32, blank=True, default="")
+    size = models.PositiveIntegerField(null=True, blank=True)
+    locator = models.CharField(max_length=1024, blank=True, default="")
+    mtime = models.FloatField(blank=True, null=True)
+    source_honeypot = models.ForeignKey("Honeypot", on_delete=models.SET_NULL, null=True, blank=True)
+    ioc = models.ForeignKey("IOC", on_delete=models.SET_NULL, null=True, blank=True, related_name="payloads")
+    cowrie_session = models.ForeignKey("CowrieSession", on_delete=models.SET_NULL, null=True, blank=True, related_name="payloads")
+
+    def __str__(self):
+        return f"Payload {self.sha256}"

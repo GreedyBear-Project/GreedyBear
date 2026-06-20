@@ -19,6 +19,7 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET", None) or get_random_secret_key()
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
+QUARANTINE_DIR = "/var/lib/greedybear/quarantine"
 ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
 ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"
 MOCK_CONNECTIONS = os.environ.get("MOCK_CONNECTIONS", "False") == "True"
