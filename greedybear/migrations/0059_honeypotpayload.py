@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                 ('md5', models.CharField(blank=True, default='', max_length=32)),
                 ('sha1', models.CharField(blank=True, default='', max_length=40)),
                 ('sha256', models.CharField(blank=True, default='', max_length=64)),
-                ('mime_type', models.CharField(blank=True, default='', max_length=32)),
+                ('mime_type', models.CharField(blank=True, default='', max_length=255)),
                 ('size', models.PositiveIntegerField(blank=True, null=True)),
                 ('locator', models.CharField(blank=True, default='', max_length=1024)),
                 ('mtime', models.FloatField(blank=True, null=True)),

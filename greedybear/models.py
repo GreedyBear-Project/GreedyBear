@@ -486,14 +486,14 @@ class RawEvent(models.Model):
 
 class HoneypotPayload(models.Model):
     """
-    Model for the payload that would be recevied by the Tpot Payload server to quarantine it in the Quarantine directory.
+    Model for the payload that would be received by the Tpot Payload server to quarantine it in the Quarantine directory.
     """
 
     payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
     md5 = models.CharField(max_length=32, blank=True, default="")
     sha1 = models.CharField(max_length=40, blank=True, default="")
     sha256 = models.CharField(max_length=64, blank=True, default="")
-    mime_type = models.CharField(max_length=32, blank=True, default="")
+    mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
     locator = models.CharField(max_length=1024, blank=True, default="")
     mtime = models.FloatField(blank=True, null=True)
