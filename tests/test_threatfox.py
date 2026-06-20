@@ -24,7 +24,7 @@ class TestThreatFoxCron(CustomTestCase):
 
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 0)
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_enriches_matching_iocs(self, mock_settings, mock_post):
         """Should create tags for IOCs that match feed IPs."""
@@ -45,7 +45,6 @@ class TestThreatFoxCron(CustomTestCase):
                 }
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
@@ -61,7 +60,7 @@ class TestThreatFoxCron(CustomTestCase):
         malware_tag = tags.get(key="malware")
         self.assertEqual(malware_tag.value, "Mirai")
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_no_tags_for_non_matching_iocs(self, mock_settings, mock_post):
         """Should not create tags for IPs not in our IOC table."""
@@ -80,14 +79,13 @@ class TestThreatFoxCron(CustomTestCase):
                 }
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 0)
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_replaces_stale_tags(self, mock_settings, mock_post):
         """Tags should be replaced on each run, not accumulated."""
@@ -110,7 +108,6 @@ class TestThreatFoxCron(CustomTestCase):
                 }
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
@@ -121,7 +118,7 @@ class TestThreatFoxCron(CustomTestCase):
         self.assertEqual(malware_tags.count(), 1)
         self.assertEqual(malware_tags.first().value, "NewMalware")
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_clears_tags_when_ip_delisted(self, mock_settings, mock_post):
         """Tags should be removed when an IP is no longer in the feed."""
@@ -136,7 +133,6 @@ class TestThreatFoxCron(CustomTestCase):
             "query_status": "ok",
             "data": [],
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
@@ -144,7 +140,7 @@ class TestThreatFoxCron(CustomTestCase):
         # Tags should be gone
         self.assertEqual(Tag.objects.filter(source="threatfox", ioc=self.ioc).count(), 0)
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_skips_private_ips(self, mock_settings, mock_post):
         """Should filter out private, loopback, and reserved IPs."""
@@ -170,14 +166,13 @@ class TestThreatFoxCron(CustomTestCase):
                 },
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 0)
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_handles_non_ok_status(self, mock_settings, mock_post):
         """Should handle non-OK API response gracefully."""
@@ -188,14 +183,13 @@ class TestThreatFoxCron(CustomTestCase):
             "query_status": "no_result",
             "data": [],
         }
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 0)
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_handles_request_exception(self, mock_settings, mock_post):
         """Should raise on network errors."""
@@ -220,7 +214,7 @@ class TestThreatFoxCron(CustomTestCase):
         ip = ThreatFoxCron._extract_ip("evil.example.com", "domain")
         self.assertIsNone(ip)
 
-    @patch("greedybear.cronjobs.threatfox_feed.requests.post")
+    @patch("greedybear.cronjobs.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.threatfox_feed.settings")
     def test_does_not_affect_abuseipdb_tags(self, mock_settings, mock_post):
         """ThreatFox enrichment should not touch tags from other sources."""
@@ -231,7 +225,6 @@ class TestThreatFoxCron(CustomTestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {"query_status": "ok", "data": []}
-        mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
         self.cron.run()
