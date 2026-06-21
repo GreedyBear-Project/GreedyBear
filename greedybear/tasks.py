@@ -118,6 +118,7 @@ def detect_credential_reuse():
 
     CredentialReuseCron().execute()
 
+
 def reset_invalid_count():
     from greedybear.cronjobs.invalid_event_retention import InvalidEventRetentionCron
 

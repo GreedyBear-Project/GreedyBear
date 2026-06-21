@@ -4,7 +4,7 @@ from greedybear.cronjobs.invalid_event_retention import (
     InvalidEventRetentionCron,
 )
 from greedybear.models import APISource
-from tests import CustomTestCase, make_user, make_api_source
+from tests import CustomTestCase, make_api_source, make_user
 
 
 class APISourceRetentionCronTestCase(CustomTestCase):
@@ -50,6 +50,4 @@ class APISourceRetentionCronTestCase(CustomTestCase):
 
         cronjob.execute()
 
-        self.assertTrue(
-            APISource.objects.filter(invalid_event_count=0).count() >= 1
-        )
+        self.assertTrue(APISource.objects.filter(invalid_event_count=0).count() >= 1)

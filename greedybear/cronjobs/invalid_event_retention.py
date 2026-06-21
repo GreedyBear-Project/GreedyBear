@@ -9,10 +9,6 @@ class InvalidEventRetentionCron(Cronjob):
     """
 
     def run(self) -> None:
-        updated = APISource.objects.filter(invalid_event_count__gt=0).update(
-            invalid_event_count=0
-        )
+        updated = APISource.objects.filter(invalid_event_count__gt=0).update(invalid_event_count=0)
 
-        self.log.info(
-            f"Reset invalid_event_count to 0 for {updated} APISources"
-        )
+        self.log.info(f"Reset invalid_event_count to 0 for {updated} APISources")
