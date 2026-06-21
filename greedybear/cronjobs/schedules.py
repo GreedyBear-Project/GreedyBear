@@ -120,6 +120,12 @@ def setup_schedules():
             "func": "greedybear.tasks.detect_credential_reuse",
             "cron": "7 2 * * *",
         },
+        # 15. APISource invalid_event_count retention: Daily at 03:07
+        {
+            "name": "reset_invalid_count",
+            "func": "greedybear.tasks.reset_invalid_count",
+            "cron": "7 3 * * *",
+        }
     ]
 
     # create or update schedules
