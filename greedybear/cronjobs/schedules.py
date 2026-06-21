@@ -125,7 +125,7 @@ def setup_schedules():
             "name": "reset_invalid_count",
             "func": "greedybear.tasks.reset_invalid_count",
             "cron": "7 3 * * *",
-        }
+        },
     ]
 
     # create or update schedules
