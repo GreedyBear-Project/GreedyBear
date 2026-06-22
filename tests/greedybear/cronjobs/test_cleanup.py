@@ -3,11 +3,13 @@ from unittest.mock import MagicMock, patch
 
 from greedybear.cronjobs.cleanup import CleanUp
 from greedybear.cronjobs.repositories import (
+    APISourceRepository,
     CowrieSessionRepository,
     IocRepository,
     StatisticsRepository,
 )
-from tests import CustomTestCase
+from greedybear.models import APISource
+from tests import CustomTestCase, make_api_source, make_user
 
 
 class TestCleanUp(CustomTestCase):
@@ -17,9 +19,11 @@ class TestCleanUp(CustomTestCase):
         self.assertIsNotNone(cleanup_job.ioc_repo)
         self.assertIsNotNone(cleanup_job.cowrie_repo)
         self.assertIsNotNone(cleanup_job.stats_repo)
+        self.assertIsNotNone(cleanup_job.api_source_repo)
         self.assertIsInstance(cleanup_job.ioc_repo, IocRepository)
         self.assertIsInstance(cleanup_job.cowrie_repo, CowrieSessionRepository)
         self.assertIsInstance(cleanup_job.stats_repo, StatisticsRepository)
+        self.assertIsInstance(cleanup_job.api_source_repo, APISourceRepository)
 
     @patch("greedybear.cronjobs.cleanup.IOC_RETENTION", 100)
     @patch("greedybear.cronjobs.cleanup.COMMAND_SEQUENCE_RETENTION", 90)
@@ -31,6 +35,7 @@ class TestCleanUp(CustomTestCase):
         ioc_repo = MagicMock()
         cowrie_repo = MagicMock()
         stats_repo = MagicMock()
+        api_source_repo = MagicMock()
 
         # Setup return values for logging purposes
         ioc_repo.delete_old_iocs.return_value = 10
@@ -39,9 +44,15 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo.delete_sessions_without_login.return_value = 15
         cowrie_repo.delete_sessions_without_commands.return_value = 8
         stats_repo.delete_old_statistics.return_value = 3
+        api_source_repo.reset_invalid_counts.return_value = 4
 
         # Initialize CleanUp with mocks
-        cleanup_job = CleanUp(ioc_repo=ioc_repo, cowrie_repo=cowrie_repo, stats_repo=stats_repo)
+        cleanup_job = CleanUp(
+            ioc_repo=ioc_repo,
+            cowrie_repo=cowrie_repo,
+            stats_repo=stats_repo,
+            api_source_repo=api_source_repo,
+        )
 
         # Mock the logger to verify logging calls
         cleanup_job.log = MagicMock()
@@ -95,10 +106,13 @@ class TestCleanUp(CustomTestCase):
         time_diff = abs((actual_date - expected_stats_date).total_seconds())
         self.assertLess(time_diff, 1, f"Date difference ({time_diff}s) exceeds 1 second tolerance")
 
+        # Verify interactions with APISourceRepository
+        api_source_repo.reset_invalid_counts.assert_called_once()
+
         # Verify logging messages
-        # We expect 6 pairs of logs (start + result)
-        # 12 calls to info level
-        self.assertEqual(cleanup_job.log.info.call_count, 12)
+        # We expect 7 pairs/entries of logs (including your new retention entries)
+        # 14 total calls to info level
+        self.assertEqual(cleanup_job.log.info.call_count, 14)
 
         # Check specific log messages to ensure counts are logged
         cleanup_job.log.info.assert_any_call("10 objects deleted")
@@ -107,12 +121,14 @@ class TestCleanUp(CustomTestCase):
         cleanup_job.log.info.assert_any_call("15 objects deleted")
         cleanup_job.log.info.assert_any_call("8 objects deleted")
         cleanup_job.log.info.assert_any_call("3 objects deleted")
+        cleanup_job.log.info.assert_any_call("Reset invalid_event_count to 0 for 4 APISources")
 
     def test_run_handles_zero_deletions(self):
         """Test that run method handles cases where no objects are deleted."""
         ioc_repo = MagicMock()
         cowrie_repo = MagicMock()
         stats_repo = MagicMock()
+        api_source_repo = MagicMock()
 
         # Setup return values as 0
         ioc_repo.delete_old_iocs.return_value = 0
@@ -121,8 +137,14 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo.delete_sessions_without_login.return_value = 0
         cowrie_repo.delete_sessions_without_commands.return_value = 0
         stats_repo.delete_old_statistics.return_value = 0
+        api_source_repo.reset_invalid_counts.return_value = 0
 
-        cleanup_job = CleanUp(ioc_repo=ioc_repo, cowrie_repo=cowrie_repo, stats_repo=stats_repo)
+        cleanup_job = CleanUp(
+            ioc_repo=ioc_repo,
+            cowrie_repo=cowrie_repo,
+            stats_repo=stats_repo,
+            api_source_repo=api_source_repo,
+        )
         cleanup_job.log = MagicMock()
 
         cleanup_job.run()
@@ -134,6 +156,44 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo.delete_sessions_without_login.assert_called_once()
         cowrie_repo.delete_sessions_without_commands.assert_called_once()
         stats_repo.delete_old_statistics.assert_called_once()
+        api_source_repo.reset_invalid_counts.assert_called_once()
 
         # Verify zero counts are logged
         cleanup_job.log.info.assert_any_call("0 objects deleted")
+        cleanup_job.log.info.assert_any_call("Reset invalid_event_count to 0 for 0 APISources")
+
+    def test_apisource_invalid_event_count_reset(self):
+        """Integration test verifying database values for APISource are successfully reset to 0."""
+        # Create users
+        user1 = make_user(username="user1")
+        user2 = make_user(username="user2")
+        user3 = make_user(username="user3")
+
+        # Create API sources linked to users
+        source_1 = make_api_source(user1, name="source_1")
+        source_2 = make_api_source(user2, name="source_2")
+        source_3 = make_api_source(user3, name="source_3")
+
+        # Adjust the counters directly via the DB layer
+        APISource.objects.filter(id=source_1.id).update(invalid_event_count=5)
+        APISource.objects.filter(id=source_2.id).update(invalid_event_count=10)
+        APISource.objects.filter(id=source_3.id).update(invalid_event_count=0)
+
+        # Initialize real cleanup class but stub out unrelated repos so they don't break on missing data
+        cleanup_job = CleanUp()
+        cleanup_job.log = MagicMock()
+        cleanup_job.ioc_repo = MagicMock()
+        cleanup_job.cowrie_repo = MagicMock()
+        cleanup_job.stats_repo = MagicMock()
+
+        # Execute
+        cleanup_job.execute()
+
+        # Check data fields
+        source_1.refresh_from_db()
+        source_2.refresh_from_db()
+        source_3.refresh_from_db()
+
+        self.assertEqual(source_1.invalid_event_count, 0)
+        self.assertEqual(source_2.invalid_event_count, 0)
+        self.assertEqual(source_3.invalid_event_count, 0)
