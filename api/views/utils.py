@@ -5,7 +5,6 @@ import uuid
 from datetime import timedelta
 
 import feedparser
-import requests
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
@@ -16,6 +15,7 @@ from rest_framework.response import Response
 from stix2 import Bundle, ExternalReference, Indicator
 
 from greedybear.consts import APISOURCE_LOCKED_THRESHOLD, CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.models import APISource, AutonomousSystem, EventStatus, EventStatusType, RawEvent, Sensor, SourceType, Statistics
 from greedybear.utils import is_ip_address, is_valid_domain
 
@@ -294,8 +294,8 @@ def get_greedybear_news() -> list[dict]:
         return cached
 
     try:
-        response = requests.get(RSS_FEED_URL, timeout=5)
-        response.raise_for_status()
+        with HttpClient() as client:
+            response = client.get(RSS_FEED_URL, timeout=5)
         feed = feedparser.parse(response.content)
 
         filtered_entries = sorted(
