@@ -24,7 +24,7 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_enriches_matching_iocs(self, mock_settings, mock_get):
         """Should create tags for IOCs that match blocklist IPs."""
@@ -39,7 +39,6 @@ class TestAbuseIPDBCron(CustomTestCase):
                 }
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()
@@ -53,7 +52,7 @@ class TestAbuseIPDBCron(CustomTestCase):
         confidence_tag = tags.get(key="confidence_of_abuse")
         self.assertEqual(confidence_tag.value, "84%")
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_no_tags_for_non_matching_iocs(self, mock_settings, mock_get):
         """Should not create tags for IPs not in our IOC table."""
@@ -68,14 +67,13 @@ class TestAbuseIPDBCron(CustomTestCase):
                 }
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_replaces_stale_tags(self, mock_settings, mock_get):
         """Tags should be replaced on each run, not accumulated."""
@@ -94,7 +92,6 @@ class TestAbuseIPDBCron(CustomTestCase):
                 }
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()
@@ -104,7 +101,7 @@ class TestAbuseIPDBCron(CustomTestCase):
         self.assertEqual(confidence_tags.count(), 1)
         self.assertEqual(confidence_tags.first().value, "95%")
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_clears_tags_when_ip_delisted(self, mock_settings, mock_get):
         """Tags should be removed when an IP is no longer in the blocklist."""
@@ -116,14 +113,13 @@ class TestAbuseIPDBCron(CustomTestCase):
         # New run with empty blocklist (IP delisted)
         mock_response = Mock()
         mock_response.json.return_value = {"data": []}
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb", ioc=self.ioc).count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_handles_request_exception(self, mock_settings, mock_get):
         """Should raise on network errors."""
@@ -133,7 +129,7 @@ class TestAbuseIPDBCron(CustomTestCase):
         with self.assertRaises(requests.RequestException):
             self.cron.run()
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_skips_invalid_ips(self, mock_settings, mock_get):
         """Should skip entries with invalid IP addresses."""
@@ -152,14 +148,13 @@ class TestAbuseIPDBCron(CustomTestCase):
                 },
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_does_not_affect_threatfox_tags(self, mock_settings, mock_get):
         """AbuseIPDB enrichment should not touch tags from other sources."""
@@ -170,7 +165,6 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {"data": []}
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()
@@ -178,7 +172,7 @@ class TestAbuseIPDBCron(CustomTestCase):
         # ThreatFox tag should still exist
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.requests.get")
+    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
     @patch("greedybear.cronjobs.abuseipdb_feed.settings")
     def test_enriches_multiple_iocs(self, mock_settings, mock_get):
         """Should enrich multiple IOCs from a single feed download."""
@@ -197,7 +191,6 @@ class TestAbuseIPDBCron(CustomTestCase):
                 },
             ],
         }
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         self.cron.run()

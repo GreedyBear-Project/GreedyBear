@@ -5,6 +5,7 @@ import requests
 from django.conf import settings
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC
 from greedybear.utils import is_valid_ipv4
@@ -60,8 +61,8 @@ class ThreatFoxCron(Cronjob):
             }
             data = {"query": "get_iocs", "days": 7}
 
-            response = requests.post(url, json=data, headers=headers, timeout=30)
-            response.raise_for_status()
+            with HttpClient() as client:
+                response = client.post(url, json=data, headers=headers, timeout=30)
 
             json_data = response.json()
 

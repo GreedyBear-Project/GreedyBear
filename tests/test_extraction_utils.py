@@ -536,7 +536,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         threatfox_submission(ioc_record, ["http://malicious.com", "http://evil.com/"], self.mock_log)
         self.assertTrue(any("skipping" in str(call) for call in self.mock_log.info.call_args_list))
 
-    @patch("greedybear.cronjobs.extraction.utils.requests.post")
+    @patch("greedybear.cronjobs.extraction.utils.HttpClient.post")
     @patch("greedybear.cronjobs.extraction.utils.settings")
     def test_submits_urls_with_path(self, mock_settings, mock_post):
         mock_settings.THREATFOX_API_KEY = "test-key"
@@ -551,7 +551,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         self.assertEqual(call_kwargs["headers"]["Auth-Key"], "test-key")
         self.assertIn("http://malicious.com/payload.sh", call_kwargs["json"]["iocs"])
 
-    @patch("greedybear.cronjobs.extraction.utils.requests.post")
+    @patch("greedybear.cronjobs.extraction.utils.HttpClient.post")
     @patch("greedybear.cronjobs.extraction.utils.settings")
     def test_includes_honeypot_names_in_comment(self, mock_settings, mock_post):
         mock_settings.THREATFOX_API_KEY = "test-key"
@@ -571,7 +571,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         self.assertIn("Log4pot", comment)
         self.assertIn("Dionaea", comment)
 
-    @patch("greedybear.cronjobs.extraction.utils.requests.post")
+    @patch("greedybear.cronjobs.extraction.utils.HttpClient.post")
     @patch("greedybear.cronjobs.extraction.utils.settings")
     def test_logs_successful_submission(self, mock_settings, mock_post):
         mock_settings.THREATFOX_API_KEY = "test-key"
@@ -585,7 +585,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         mock_settings.THREATFOX_API_KEY = "test-key"
         ioc_record = self._create_mock_payload_request()
 
-        with patch("greedybear.cronjobs.extraction.utils.requests.post") as mock_post:
+        with patch("greedybear.cronjobs.extraction.utils.HttpClient.post") as mock_post:
             mock_post.return_value = Mock(text='{"status": "ok"}')
             urls = [
                 "http://malicious.com",  # No path - skip
