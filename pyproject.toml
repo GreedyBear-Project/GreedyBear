@@ -26,7 +26,7 @@ dependencies = [
     # ML / data science
     "scikit-learn~=1.9.0",
     "pandas~=3.0",
-    "numpy~=2.4",
+    "numpy~=2.5",
     "joblib~=1.5",
     "datasketch~=1.10",
     # File Format Support
