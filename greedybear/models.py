@@ -492,14 +492,14 @@ class HoneypotPayload(models.Model):
     payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
     md5 = models.CharField(max_length=32, blank=True, default="")
     sha1 = models.CharField(max_length=40, blank=True, default="")
-    sha256 = models.CharField(max_length=64, blank=True, default="")
+    sha256 = models.CharField(max_length=64, blank=True, default="", unique=True)
     mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
     locator = models.CharField(max_length=1024, blank=True, default="")
     mtime = models.FloatField(blank=True, null=True)
-    source_honeypot = models.ForeignKey("Honeypot", on_delete=models.SET_NULL, null=True, blank=True)
-    ioc = models.ForeignKey("IOC", on_delete=models.SET_NULL, null=True, blank=True, related_name="payloads")
-    cowrie_session = models.ForeignKey("CowrieSession", on_delete=models.SET_NULL, null=True, blank=True, related_name="payloads")
+    source_honeypots = models.ManyToManyField("Honeypot", blank=True)
+    iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
+    cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
 
     def __str__(self):
         return f"Payload {self.sha256}"

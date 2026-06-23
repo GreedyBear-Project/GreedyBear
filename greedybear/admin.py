@@ -370,9 +370,12 @@ class HoneypotPayloadAdmin(admin.ModelAdmin):
         "sha256",
         "mime_type",
         "size",
-        "source_honeypot",
-        "ioc",
+        "get_source_honeypots",
     ]
     search_fields = ["sha256", "md5", "sha1", "mime_type"]
-    list_filter = ["source_honeypot", "mime_type"]
+    list_filter = ["source_honeypots", "mime_type"]
     readonly_fields = ["payload_file"]
+
+    @admin.display(description="Source Honeypots")
+    def get_source_honeypots(self, obj):
+        return ", ".join([h.name for h in obj.source_honeypots.all()])
