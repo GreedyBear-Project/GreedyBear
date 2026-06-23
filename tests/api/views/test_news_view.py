@@ -125,7 +125,7 @@ class NewsTestCase(CustomTestCase):
         self.assertEqual(result1, result2)
         mock_parse.assert_not_called()
 
-    @patch("api.views.utils.requests.get")
+    @patch("api.views.utils.HttpClient.get")
     def test_feed_request_timeout_returns_empty_list(self, mock_get):
         mock_get.side_effect = requests.Timeout()
 
