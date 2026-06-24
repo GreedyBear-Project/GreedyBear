@@ -328,10 +328,13 @@ class ASNFeedSerializer(serializers.Serializer):
 
 class TrendingAttackerSerializer(serializers.Serializer):
     attacker_ip = serializers.IPAddressField()
-    current = serializers.IntegerField(min_value=0)
-    previous = serializers.IntegerField(min_value=0)
-    delta = serializers.IntegerField()
-    percent_change = serializers.FloatField()
+    current_interactions = serializers.IntegerField(min_value=0)
+    previous_interactions = serializers.IntegerField(min_value=0)
+    interaction_delta = serializers.IntegerField()
+    growth_score = serializers.FloatField()
+    current_rank = serializers.IntegerField(min_value=1, allow_null=True)
+    previous_rank = serializers.IntegerField(min_value=1, allow_null=True)
+    rank_delta = serializers.IntegerField(allow_null=True)
 
 
 class TrendingWindowSerializer(serializers.Serializer):
