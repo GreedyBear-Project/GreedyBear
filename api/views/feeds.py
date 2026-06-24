@@ -71,33 +71,6 @@ PAGE_PARAMETER = OpenApiParameter(
 )
 
 
-def _build_trending_response(
-    window_minutes: int,
-    feed_types: list[str],
-    current_window_start,
-    current_window_end,
-    previous_window_start,
-    previous_window_end,
-    attackers: list[dict],
-    data_source: str,
-):
-    return {
-        "window_minutes": window_minutes,
-        "feed_type": feed_types,
-        "current_window": {
-            "start": current_window_start,
-            "end": current_window_end,
-        },
-        "previous_window": {
-            "start": previous_window_start,
-            "end": previous_window_end,
-        },
-        "count": len(attackers),
-        "data_source": data_source,
-        "attackers": attackers,
-    }
-
-
 class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     """Shared GET flow:
     validate request params, build the IOC queryset and render (paginating when asked).
@@ -409,17 +382,22 @@ class TrendingFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
         current_counts = bucket_repo.get_counts_in_window(current_window_start, current_window_end, validated["feed_type"])
         previous_counts = bucket_repo.get_counts_in_window(previous_window_start, previous_window_end, validated["feed_type"])
         attackers = build_ranked_attackers(current_counts, previous_counts, validated["limit"])
-        response_payload = _build_trending_response(
-            validated["window_minutes"],
-            validated["feed_type"],
-            current_window_start,
-            current_window_end,
-            previous_window_start,
-            previous_window_end,
-            attackers,
-            "aggregated",
-        )
-        return Response(response_payload)
+        response_payload = {
+            "window_minutes": validated["window_minutes"],
+            "feed_type": validated["feed_type"],
+            "current_window": {
+                "start": current_window_start,
+                "end": current_window_end,
+            },
+            "previous_window": {
+                "start": previous_window_start,
+                "end": previous_window_end,
+            },
+            "count": len(attackers),
+            "data_source": "aggregated",
+            "attackers": attackers,
+        }
+        return Response(TrendingFeedResponseSerializer(instance=response_payload).data)
 
 
 @extend_schema_view(

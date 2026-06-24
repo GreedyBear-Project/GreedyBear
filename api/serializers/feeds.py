@@ -334,11 +334,16 @@ class TrendingAttackerSerializer(serializers.Serializer):
     percent_change = serializers.FloatField()
 
 
+class TrendingWindowSerializer(serializers.Serializer):
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+
 class TrendingFeedResponseSerializer(serializers.Serializer):
     window_minutes = serializers.IntegerField(min_value=60)
     feed_type = serializers.ListField(child=serializers.CharField(max_length=120))
-    current_window = serializers.DictField()
-    previous_window = serializers.DictField()
+    current_window = TrendingWindowSerializer()
+    previous_window = TrendingWindowSerializer()
     count = serializers.IntegerField(min_value=0)
     data_source = serializers.CharField(max_length=32)
     attackers = TrendingAttackerSerializer(many=True)
