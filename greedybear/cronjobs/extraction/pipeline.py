@@ -1,10 +1,8 @@
 import logging
 from collections import defaultdict
 
-from django.core.cache import caches
-
 from greedybear.cache import Cache
-from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.bucket_updater import BucketUpdater
 from greedybear.cronjobs.extraction.strategies.factory import ExtractionStrategyFactory
 from greedybear.cronjobs.repositories import (
@@ -128,10 +126,6 @@ class ExtractionPipeline:
 
         if bucket_updater.total_update_count > 0:
             self.log.info("Invalidating feeds trending cache")
-            shared_cache = caches["django-q"]
-            try:
-                shared_cache.incr("trending_feeds_version")
-            except ValueError:
-                shared_cache.set("trending_feeds_version", 2, timeout=None)
+            Cache(API_CACHE_ALIAS).bump_data_version(TRENDING_FEEDS_DATA_VERSION_KEY)
 
         return ioc_record_count

@@ -1,6 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import hashlib
+from datetime import timedelta
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
@@ -35,6 +36,8 @@ from api.serializers import (
     SimpleFeedRequestSerializer,
     TokenConsumeRequestSerializer,
     TokenRequestSerializer,
+    TrendingFeedRequestSerializer,
+    TrendingFeedResponseSerializer,
 )
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
@@ -42,7 +45,9 @@ from api.views.utils import (
     build_feed_dict,
     save_request_source,
 )
-from greedybear.consts import SHARE_TOKEN_SALT
+from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
+from greedybear.cronjobs.repositories import TrendingBucketRepository
+from greedybear.cronjobs.trending import build_ranked_attackers
 from greedybear.models import IOC, ShareToken
 
 RENDERERS_BY_FORMAT = {
@@ -337,6 +342,62 @@ class AsnFeedView(BaseFeedView):
     def render_response(self, request: Request, iocs_queryset: QuerySet) -> Response:
         rows = aggregate_iocs_by_asn(iocs_queryset, self.request_params["ordering"])
         return Response(ASNFeedSerializer(rows, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Feeds"],
+        summary="Public trending feed",
+        description=("Public endpoint that compares two consecutive completed windows of attacker activity and returns the top-ranked trending attackers."),
+        auth=[],
+        parameters=[TrendingFeedRequestSerializer],
+        responses={
+            200: TrendingFeedResponseSerializer,
+            400: RESPONSES[400],
+            429: RESPONSES[429],
+        },
+    )
+)
+class TrendingFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [FeedsThrottle]
+    cache_namespace = "trending_feeds"
+    cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
+
+    def get(self, request: Request) -> Response:
+        serializer = TrendingFeedRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+        cached_response = self.get_cached_response()
+        if cached_response is not None:
+            return cached_response
+
+        current_window_end = timezone.now().replace(minute=0, second=0, microsecond=0)
+        current_window_start = current_window_end - timedelta(minutes=validated["window_minutes"])
+        previous_window_end = current_window_start
+        previous_window_start = previous_window_end - timedelta(minutes=validated["window_minutes"])
+
+        bucket_repo = TrendingBucketRepository()
+        current_counts = bucket_repo.get_counts_in_window(current_window_start, current_window_end, validated["feed_type"])
+        previous_counts = bucket_repo.get_counts_in_window(previous_window_start, previous_window_end, validated["feed_type"])
+        attackers = build_ranked_attackers(current_counts, previous_counts, validated["limit"])
+        response_payload = {
+            "window_minutes": validated["window_minutes"],
+            "feed_type": validated["feed_type"],
+            "current_window": {
+                "start": current_window_start,
+                "end": current_window_end,
+            },
+            "previous_window": {
+                "start": previous_window_start,
+                "end": previous_window_end,
+            },
+            "count": len(attackers),
+            "data_source": "aggregated",
+            "attackers": attackers,
+        }
+        return Response(TrendingFeedResponseSerializer(instance=response_payload).data)
 
 
 @extend_schema_view(
