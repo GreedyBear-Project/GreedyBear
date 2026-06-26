@@ -97,9 +97,6 @@ function FeedsTable({ tableParams, onDataLoad, onSortChange }) {
 }
 
 export default function Feeds() {
-  console.debug("Feeds rendered!");
-  console.debug("Feeds-DEFAULT_VALUES", DEFAULT_VALUES);
-
   const [searchParams, setSearchParams] = useSearchParams();
   const formikRef = React.useRef(null);
 
@@ -149,7 +146,6 @@ export default function Feeds() {
     url: `${GENERAL_HONEYPOT_URI}?onlyActive=true`,
     headers: { "Content-Type": "application/json" },
   });
-  console.debug("Feeds-honeypots:", honeypots);
 
   const honeypotFeedsType = React.useMemo(
     () =>
@@ -202,8 +198,8 @@ export default function Feeds() {
           tableKey: prev.tableKey + 1,
         }));
         updateSearchParams(values);
-      } catch (e) {
-        console.debug(e);
+      } catch {
+        // no-op: state update and URL sync are best-effort UI concerns
       }
     },
     [updateSearchParams],

@@ -22,6 +22,7 @@ export const SESSIONS_BASE_URI = `${AUTH_BASE_URI}/sessions`;
 export const APIACCESS_BASE_URI = `${AUTH_BASE_URI}/apiaccess`;
 //feeds
 export const FEEDS_BASE_URI = `${API_BASE_URI}/feeds`;
+export const FEEDS_TRENDING_URI = `${FEEDS_BASE_URI}/trending/`;
 
 //enrichment
 export const ENRICHMENT_URI = `${API_BASE_URI}/enrichment`;

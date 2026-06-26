@@ -14,6 +14,7 @@ const ResetPassword = React.lazy(() => import("./auth/ResetPassword"));
 const Dashboard = React.lazy(() => import("./dashboard/Dashboard"));
 const Sessions = React.lazy(() => import("./me/sessions/Sessions"));
 const Feeds = React.lazy(() => import("./feeds/Feeds"));
+const FeedsTrending = React.lazy(() => import("./feeds/FeedsTrending"));
 const ChangePassword = React.lazy(
   () => import("./me/changepassword/ChangePassword"),
 );
@@ -36,6 +37,11 @@ const publicRoutesLazy = [
   {
     path: "/feeds",
     element: <Feeds />,
+    withErrorBoundary: true,
+  },
+  {
+    path: "/feeds/trending",
+    element: <FeedsTrending />,
     withErrorBoundary: true,
   },
 ].map((r) => ({
