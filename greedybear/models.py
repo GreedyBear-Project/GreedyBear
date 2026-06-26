@@ -492,7 +492,7 @@ class HoneypotPayload(models.Model):
     payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
     md5 = models.CharField(max_length=32, blank=True, default="")
     sha1 = models.CharField(max_length=40, blank=True, default="")
-    sha256 = models.CharField(max_length=64, blank=True, default="", unique=True)
+    sha256 = models.CharField(max_length=64, unique=True)
     mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
     locator = models.CharField(max_length=1024, blank=True, default="")
