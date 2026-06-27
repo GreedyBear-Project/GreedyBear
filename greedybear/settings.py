@@ -20,6 +20,9 @@ DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
 QUARANTINE_DIR = "/var/lib/greedybear/quarantine"
+TPOT_PAYLOAD_SERVER_URL = os.environ.get("TPOT_PAYLOAD_SERVER_URL", "")
+TPOT_PAYLOAD_SERVER_API_KEY = os.environ.get("TPOT_PAYLOAD_SERVER_API_KEY", "")
+MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
 ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
 ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"
 MOCK_CONNECTIONS = os.environ.get("MOCK_CONNECTIONS", "False") == "True"
