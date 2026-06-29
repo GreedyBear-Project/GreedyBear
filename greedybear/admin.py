@@ -16,6 +16,7 @@ from greedybear.models import (
     EventStatus,
     FireHolList,
     Honeypot,
+    HoneypotPayload,
     MassScanner,
     RawEvent,
     Sensor,
@@ -361,3 +362,20 @@ class RawEventAdmin(admin.ModelAdmin):
                 "sensor__api_source",
             )
         )
+
+
+@admin.register(HoneypotPayload)
+class HoneypotPayloadAdmin(admin.ModelAdmin):
+    list_display = [
+        "sha256",
+        "mime_type",
+        "size",
+        "get_source_honeypots",
+    ]
+    search_fields = ["sha256", "md5", "sha1", "mime_type"]
+    list_filter = ["source_honeypots", "mime_type"]
+    readonly_fields = ["payload_file"]
+
+    @admin.display(description="Source Honeypots")
+    def get_source_honeypots(self, obj):
+        return ", ".join([h.name for h in obj.source_honeypots.all()])

@@ -1,7 +1,7 @@
 from django.db import IntegrityError
 
 from greedybear.enums import IpReputation
-from greedybear.models import Credential, IocType, Sensor, Statistics, Tag, ViewType
+from greedybear.models import Credential, HoneypotPayload, IocType, Sensor, Statistics, Tag, ViewType
 
 from . import CustomTestCase
 
@@ -113,3 +113,25 @@ class ModelsTestCase(CustomTestCase):
         Credential.objects.create(username="proto_user", password="proto_pass", protocol="ftp")
 
         self.assertEqual(Credential.objects.filter(username="proto_user", password="proto_pass").count(), 3)
+
+    def test_honeypot_payload_model(self):
+        payload = HoneypotPayload.objects.create(sha256="1234567890abcdef", mime_type="application/x-executable", size=9000)
+        payload.source_honeypots.add(self.heralding)
+        payload.iocs.add(self.ioc)
+
+        self.assertEqual(payload.sha256, "1234567890abcdef")
+        self.assertEqual(payload.source_honeypots.first().name, "Heralding")
+        self.assertEqual(str(payload), "Payload 1234567890abcdef")
+
+    def test_honeypot_payload_model_unique_constraint(self):
+        HoneypotPayload.objects.create(sha256="unique_test_hash", mime_type="text/plain", size=123)
+        with self.assertRaises(IntegrityError):
+            HoneypotPayload.objects.create(sha256="unique_test_hash", mime_type="text/html", size=456)
+
+    def test_honeypot_payload_model_multiple_relations(self):
+        payload = HoneypotPayload.objects.create(sha256="multiple_relations_hash", mime_type="application/x-executable", size=9000)
+        payload.iocs.add(self.ioc, self.ioc_2)
+        payload.source_honeypots.add(self.heralding, self.cowrie_hp)
+
+        self.assertEqual(payload.iocs.count(), 2)
+        self.assertEqual(payload.source_honeypots.count(), 2)

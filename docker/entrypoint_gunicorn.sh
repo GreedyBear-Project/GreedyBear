@@ -25,10 +25,11 @@ python manage.py collectstatic --noinput --clear --verbosity 0
 # Ensure log directories exist (volumes may persist from older builds)
 mkdir -p /var/log/greedybear/gunicorn
 mkdir -p /run/gunicorn
+mkdir -p /var/lib/greedybear/quarantine
 
 # Fix log file ownership (manage.py commands above run as root 
 # and may create new log files owned by root instead of www-data)
-chown -R www-data:www-data /var/log/greedybear /run/gunicorn
+chown -R www-data:www-data /var/log/greedybear /run/gunicorn /var/lib/greedybear/quarantine
 
 # Obtain the current GreedyBear version number
 GREEDYBEAR_VERSION=$(uv version --short)
