@@ -26,7 +26,7 @@ dependencies = [
     # ML / data science
     "scikit-learn~=1.9.0",
     "pandas~=3.0",
-    "numpy~=2.4",
+    "numpy~=2.5",
     "joblib~=1.5",
     "datasketch~=1.10",
     # File Format Support
@@ -47,11 +47,11 @@ dev = [
     "django-watchfiles~=1.4",
 ]
 test = [
-    "coverage==7.14.1",
+    "coverage==7.14.3",
     "django-test-migrations==1.5.0",
 ]
 lint = [
-    "ruff==0.15.17",
+    "ruff==0.15.18",
 ]
 
 [tool.uv]

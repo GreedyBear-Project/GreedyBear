@@ -2,6 +2,7 @@ import hashlib
 import logging
 from collections.abc import Mapping
 
+from django.conf import settings
 from django.core import signing
 from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
@@ -9,6 +10,7 @@ from rest_framework import serializers
 from api.serializers.common import SensorSerializer, TagSerializer
 from api.serializers.utils import feed_type_as_list, get_valid_feed_types
 from greedybear.consts import SHARE_TOKEN_MAX_AGE, SHARE_TOKEN_SALT
+from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, ShareToken
 
@@ -260,6 +262,23 @@ class ShareFeedRequestSerializer(AdvancedFeedRequestSerializer):
         return validated
 
 
+class TrendingFeedRequestSerializer(serializers.Serializer):
+    feed_type = FeedTypeField(default="all", help_text="Honeypot name list or `all`.")
+    window_minutes = serializers.IntegerField(min_value=60, default=24 * 60, help_text="Completed comparison window size in minutes.")
+    limit = serializers.IntegerField(min_value=1, max_value=1000, default=10, help_text="Maximum number of attackers to return.")
+
+    def to_internal_value(self, data: Mapping) -> dict:
+        if isinstance(data, Mapping):
+            data = {key: value.lower() if isinstance(value, str) else value for key, value in data.items()}
+        return super().to_internal_value(data)
+
+    def validate_window_minutes(self, value: int) -> int:
+        try:
+            return validate_window_minutes(value, settings.TRENDING_MAX_WINDOW_MINUTES)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+
 class TokenRequestSerializer(serializers.Serializer):
     """Resolve a signed share token to its DB record and decoded feed parameters."""
 
@@ -305,6 +324,32 @@ class ASNFeedSerializer(serializers.Serializer):
     first_seen = serializers.DateTimeField()
     last_seen = serializers.DateTimeField()
     honeypots = serializers.ListField(child=serializers.CharField(max_length=120))
+
+
+class TrendingAttackerSerializer(serializers.Serializer):
+    attacker_ip = serializers.IPAddressField()
+    current_interactions = serializers.IntegerField(min_value=0)
+    previous_interactions = serializers.IntegerField(min_value=0)
+    interaction_delta = serializers.IntegerField()
+    growth_score = serializers.FloatField()
+    current_rank = serializers.IntegerField(min_value=1, allow_null=True)
+    previous_rank = serializers.IntegerField(min_value=1, allow_null=True)
+    rank_delta = serializers.IntegerField(allow_null=True)
+
+
+class TrendingWindowSerializer(serializers.Serializer):
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+
+class TrendingFeedResponseSerializer(serializers.Serializer):
+    window_minutes = serializers.IntegerField(min_value=60)
+    feed_type = serializers.ListField(child=serializers.CharField(max_length=120))
+    current_window = TrendingWindowSerializer()
+    previous_window = TrendingWindowSerializer()
+    count = serializers.IntegerField(min_value=0)
+    data_source = serializers.CharField(max_length=32)
+    attackers = TrendingAttackerSerializer(many=True)
 
 
 class ShareTokenResponseSerializer(serializers.Serializer):

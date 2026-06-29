@@ -25,6 +25,7 @@ services:
       - generic_logs:/var/log/greedybear
       - static_content:/opt/deploy/greedybear/static
       - gunicorn_sockets:/run/gunicorn
+      - quarantine_data:/var/lib/greedybear/quarantine
     entrypoint:
       - ./docker/entrypoint_gunicorn.sh
     command: ["gunicorn", "greedybear.wsgi:application", "-c", "/etc/gunicorn/config.py"]
@@ -77,6 +78,7 @@ services:
     volumes:
       - generic_logs:/var/log/greedybear
       - mlmodels:/opt/deploy/greedybear/mlmodels
+      - quarantine_data:/var/lib/greedybear/quarantine
     env_file:
       - env_file
     depends_on:
@@ -94,3 +96,4 @@ volumes:
   static_content:
   mlmodels:
   gunicorn_sockets:
+  quarantine_data:

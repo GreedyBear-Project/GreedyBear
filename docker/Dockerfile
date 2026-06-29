@@ -34,6 +34,7 @@ ENV DJANGO_SETTINGS_MODULE=greedybear.settings
 ENV APP_ROOT=/opt/deploy/greedybear
 ENV LOG_PATH=/var/log/greedybear
 ENV UV_PROJECT_ENVIRONMENT=/usr/local
+ENV QUARANTINE_PATH=/var/lib/greedybear/quarantine
 
 WORKDIR $APP_ROOT
 
@@ -67,8 +68,8 @@ RUN mkdir -p ${LOG_PATH}/django ${LOG_PATH}/gunicorn \
     && touch ${LOG_PATH}/django/django_q.log ${LOG_PATH}/django/django_q_errors.log \
     && touch ${LOG_PATH}/django/django_errors.log ${LOG_PATH}/django/elasticsearch.log \
     && touch ${LOG_PATH}/django/authentication.log ${LOG_PATH}/django/authentication_errors.log \
-    && mkdir -p ${APP_ROOT}/mlmodels \
-    && chown -R www-data:www-data ${LOG_PATH} /opt/deploy/ ${APP_ROOT}/mlmodels/ \
+    && mkdir -p ${APP_ROOT}/mlmodels ${QUARANTINE_PATH} \
+    && chown -R www-data:www-data ${LOG_PATH} /opt/deploy/ ${APP_ROOT}/mlmodels/ ${QUARANTINE_PATH} \
     && rm -rf frontend/
 
 
