@@ -5,6 +5,7 @@ from greedybear.cronjobs.cleanup import CleanUp
 from greedybear.cronjobs.repositories import (
     APISourceRepository,
     CowrieSessionRepository,
+    EventRepository,
     IocRepository,
     StatisticsRepository,
 )
@@ -24,11 +25,15 @@ class TestCleanUp(CustomTestCase):
         self.assertIsInstance(cleanup_job.cowrie_repo, CowrieSessionRepository)
         self.assertIsInstance(cleanup_job.stats_repo, StatisticsRepository)
         self.assertIsInstance(cleanup_job.api_source_repo, APISourceRepository)
+        self.assertIsInstance(cleanup_job.event_repo, EventRepository)
+        self.assertIsNotNone(cleanup_job.event_repo)
 
     @patch("greedybear.cronjobs.cleanup.IOC_RETENTION", 100)
     @patch("greedybear.cronjobs.cleanup.COMMAND_SEQUENCE_RETENTION", 90)
     @patch("greedybear.cronjobs.cleanup.COWRIE_SESSION_RETENTION", 80)
     @patch("greedybear.cronjobs.cleanup.STATISTICS_RETENTION", 700)
+    @patch("greedybear.cronjobs.cleanup.RAW_EVENT_RETENTION", 7)
+    @patch("greedybear.cronjobs.cleanup.EVENT_STATUS_RETENTION", 30)
     def test_run_calls_repository_methods_with_correct_dates(self):
         """Test that run method calls repository deletion methods with correct retention dates."""
         # Create mock repositories
@@ -36,6 +41,7 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo = MagicMock()
         stats_repo = MagicMock()
         api_source_repo = MagicMock()
+        event_repo = MagicMock()
 
         # Setup return values for logging purposes
         ioc_repo.delete_old_iocs.return_value = 10
@@ -45,6 +51,8 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo.delete_sessions_without_commands.return_value = 8
         stats_repo.delete_old_statistics.return_value = 3
         api_source_repo.reset_invalid_counts.return_value = 4
+        event_repo.delete_old_raw_events.return_value = 50
+        event_repo.delete_old_event_statuses.return_value = 12
 
         # Initialize CleanUp with mocks
         cleanup_job = CleanUp(
@@ -52,6 +60,7 @@ class TestCleanUp(CustomTestCase):
             cowrie_repo=cowrie_repo,
             stats_repo=stats_repo,
             api_source_repo=api_source_repo,
+            event_repo=event_repo,
         )
 
         # Mock the logger to verify logging calls
@@ -106,13 +115,28 @@ class TestCleanUp(CustomTestCase):
         time_diff = abs((actual_date - expected_stats_date).total_seconds())
         self.assertLess(time_diff, 1, f"Date difference ({time_diff}s) exceeds 1 second tolerance")
 
+        # Verify interactions with EventRepository - RawEvent
+        event_repo.delete_old_raw_events.assert_called_once()
+        expected_raw_date = datetime.now() - timedelta(days=7)
+        args, _ = event_repo.delete_old_raw_events.call_args
+        actual_date = args[0]
+        time_diff = abs((actual_date - expected_raw_date).total_seconds())
+        self.assertLess(time_diff, 1, f"RawEvent Date difference ({time_diff}s) exceeds 1 second tolerance")
+
+        # Verify interactions with EventRepository -  EventStatus
+        event_repo.delete_old_event_statuses.assert_called_once()
+        expected_status_date = datetime.now() - timedelta(days=30)
+        args, _ = event_repo.delete_old_event_statuses.call_args
+        actual_date = args[0]
+        time_diff = abs((actual_date - expected_status_date).total_seconds())
+        self.assertLess(time_diff, 1, f"EventStatus Date difference ({time_diff}s) exceeds 1 second tolerance")
         # Verify interactions with APISourceRepository
         api_source_repo.reset_invalid_counts.assert_called_once()
 
         # Verify logging messages
         # We expect 7 pairs/entries of logs (including your new retention entries)
         # 14 total calls to info level
-        self.assertEqual(cleanup_job.log.info.call_count, 14)
+        self.assertEqual(cleanup_job.log.info.call_count, 18)
 
         # Check specific log messages to ensure counts are logged
         cleanup_job.log.info.assert_any_call("10 objects deleted")
@@ -122,6 +146,8 @@ class TestCleanUp(CustomTestCase):
         cleanup_job.log.info.assert_any_call("8 objects deleted")
         cleanup_job.log.info.assert_any_call("3 objects deleted")
         cleanup_job.log.info.assert_any_call("Reset invalid_event_count to 0 for 4 APISources")
+        cleanup_job.log.info.assert_any_call("50 objects deleted")
+        cleanup_job.log.info.assert_any_call("12 objects deleted")
 
     def test_run_handles_zero_deletions(self):
         """Test that run method handles cases where no objects are deleted."""
@@ -129,6 +155,7 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo = MagicMock()
         stats_repo = MagicMock()
         api_source_repo = MagicMock()
+        event_repo = MagicMock()
 
         # Setup return values as 0
         ioc_repo.delete_old_iocs.return_value = 0
@@ -138,12 +165,15 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo.delete_sessions_without_commands.return_value = 0
         stats_repo.delete_old_statistics.return_value = 0
         api_source_repo.reset_invalid_counts.return_value = 0
+        event_repo.delete_old_raw_events.return_value = 0
+        event_repo.delete_old_event_statuses.return_value = 0
 
         cleanup_job = CleanUp(
             ioc_repo=ioc_repo,
             cowrie_repo=cowrie_repo,
             stats_repo=stats_repo,
             api_source_repo=api_source_repo,
+            event_repo=event_repo,
         )
         cleanup_job.log = MagicMock()
 
@@ -157,6 +187,8 @@ class TestCleanUp(CustomTestCase):
         cowrie_repo.delete_sessions_without_commands.assert_called_once()
         stats_repo.delete_old_statistics.assert_called_once()
         api_source_repo.reset_invalid_counts.assert_called_once()
+        event_repo.delete_old_raw_events.assert_called_once()
+        event_repo.delete_old_event_statuses.assert_called_once()
 
         # Verify zero counts are logged
         cleanup_job.log.info.assert_any_call("0 objects deleted")

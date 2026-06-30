@@ -525,3 +525,7 @@ FEEDS_LICENSE = os.environ.get("FEEDS_LICENSE", "")
 
 # Project test runner
 TEST_RUNNER = "tests.test_runner.CustomTestRunner"
+
+# RawEvent / EventStatus cleanup duration
+RAW_EVENT_RETENTION = int(os.environ.get("RAW_EVENT_RETENTION_DAYS", 7))
+EVENT_STATUS_RETENTION = int(os.environ.get("EVENT_STATUS_RETENTION_DAYS", 30))
