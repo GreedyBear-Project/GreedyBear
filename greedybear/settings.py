@@ -2,6 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 import logging
 import os
+import sys
 import tomllib
 from datetime import timedelta
 from pathlib import Path
@@ -19,7 +20,6 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET", None) or get_random_secret_key()
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
-QUARANTINE_DIR = "/var/lib/greedybear/quarantine"
 TPOT_PAYLOAD_SERVER_URL = os.environ.get("TPOT_PAYLOAD_SERVER_URL", "")
 TPOT_PAYLOAD_SERVER_API_KEY = os.environ.get("TPOT_PAYLOAD_SERVER_API_KEY", "")
 MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
@@ -30,7 +30,10 @@ STAGE = os.environ.get("ENVIRONMENT", "production")
 STAGE_PRODUCTION = STAGE == "production"
 STAGE_LOCAL = STAGE == "local"
 STAGE_CI = STAGE == "ci"
-
+if STAGE_CI or "test" in sys.argv:
+    QUARANTINE_DIR = "/tmp/greedybear/quarantine"
+else:
+    QUARANTINE_DIR = "/var/lib/greedybear/quarantine"
 PUBLIC_DEPLOYMENT = os.environ.get("PUBLIC_DEPLOYMENT", "True") == "True"
 
 AWS_REGION = os.environ.get("AWS_REGION")

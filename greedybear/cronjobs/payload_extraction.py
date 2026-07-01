@@ -1,8 +1,8 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 
-import shutil
 import time
+from pathlib import Path
 
 import requests
 from django.conf import settings
@@ -128,15 +128,12 @@ class PayloadExtractionJob(Cronjob):
 
     def _quarantine_usage_bytes(self):
         """
-        Return the current disk usage of the quarantine directory in bytes.
+        Return the total size of files in the quarantine directory in bytes.
         """
-        quarantine_dir = settings.QUARANTINE_DIR
-        try:
-            usage = shutil.disk_usage(quarantine_dir)
-        except FileNotFoundError:
+        quarantine_path = Path(settings.QUARANTINE_DIR)
+        if not quarantine_path.is_dir():
             return 0
-        else:
-            return usage.used
+        return sum(f.stat().st_size for f in quarantine_path.iterdir() if f.is_file())
 
     def _download_and_store(self, client, server_url, payload_meta):
         """

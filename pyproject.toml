@@ -137,7 +137,7 @@ ignore = [
 # Misinterpreted regex
 "greedybear/consts.py" = ["S105"]
 # Dummy key for certego-saas compatibility and useful print statements
-"greedybear/settings.py" = ["S105", "T201"]
+"greedybear/settings.py" = ["S105", "S108", "T201"]
 # String-based query (no equvalent ORM call exists)
 "greedybear/cronjobs/repositories/trending_bucket.py" = ["S608"]
 # Print statements
