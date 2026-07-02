@@ -71,7 +71,9 @@ describe("FeedsTrending", () => {
         },
       }),
     );
-    expect(screen.getByRole("heading", { name: "Trending Feed" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Trending Feed" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("attackers")).toBeInTheDocument();
     expect(screen.getByText("1.1.1.1")).toBeInTheDocument();
     expect(screen.getByText("2.2.2.2")).toBeInTheDocument();

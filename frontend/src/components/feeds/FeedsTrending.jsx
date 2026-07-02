@@ -1,5 +1,14 @@
 import React from "react";
-import { Container, Row, Col, FormGroup, Label, Input, Button, Badge } from "reactstrap";
+import {
+  Container,
+  Row,
+  Col,
+  FormGroup,
+  Label,
+  Input,
+  Button,
+  Badge,
+} from "reactstrap";
 
 import { ContentSection, useAxiosComponentLoader } from "@greedybear/gb-ui";
 
@@ -46,7 +55,8 @@ export default function FeedsTrending() {
         <div>
           <h1>Trending Feed</h1>
           <small className="text-muted">
-            Compare consecutive completed attack windows and highlight rising attackers.
+            Compare consecutive completed attack windows and highlight rising
+            attackers.
           </small>
         </div>
       </div>
@@ -67,7 +77,9 @@ export default function FeedsTrending() {
             </Col>
             <Col md={3}>
               <FormGroup>
-                <Label htmlFor="FeedsTrending__window_minutes">Window minutes</Label>
+                <Label htmlFor="FeedsTrending__window_minutes">
+                  Window minutes
+                </Label>
                 <Input
                   id="FeedsTrending__window_minutes"
                   name="window_minutes"
@@ -143,7 +155,9 @@ export default function FeedsTrending() {
                 </table>
               </div>
             ) : (
-              <div className="text-muted">No trending attackers found for the selected window.</div>
+              <div className="text-muted">
+                No trending attackers found for the selected window.
+              </div>
             )}
           </ContentSection>
         )}
