@@ -512,6 +512,9 @@ IOC_RETENTION = int(os.environ.get("IOC_RETENTION", "3650"))
 COWRIE_SESSION_RETENTION = int(os.environ.get("COWRIE_SESSION_RETENTION", "365"))
 COMMAND_SEQUENCE_RETENTION = int(os.environ.get("COMMAND_SEQUENCE_RETENTION", "365"))
 STATISTICS_RETENTION = 730
+RAW_EVENT_RETENTION = int(os.environ.get("RAW_EVENT_RETENTION", "7"))
+EVENT_STATUS_RETENTION = int(os.environ.get("EVENT_STATUS_RETENTION", "30"))
+
 
 TRENDING_MAX_WINDOW_MINUTES = int(os.environ.get("TRENDING_MAX_WINDOW_MINUTES", str((24 * 31 * 60) // 2)))
 TRENDING_BUCKET_RETENTION_HOURS = int(os.environ.get("TRENDING_BUCKET_RETENTION_HOURS", str(24 * 31)))
@@ -525,7 +528,3 @@ FEEDS_LICENSE = os.environ.get("FEEDS_LICENSE", "")
 
 # Project test runner
 TEST_RUNNER = "tests.test_runner.CustomTestRunner"
-
-# RawEvent / EventStatus cleanup duration
-RAW_EVENT_RETENTION = int(os.environ.get("RAW_EVENT_RETENTION_DAYS", 7))
-EVENT_STATUS_RETENTION = int(os.environ.get("EVENT_STATUS_RETENTION_DAYS", 30))
