@@ -34,7 +34,7 @@ dependencies = [
     "stix2~=3.0",
     # Utilities
     "requests~=2.34",
-    "slack-sdk~=3.41",
+    "slack-sdk~=3.43",
 ]
 
 [project.urls]
