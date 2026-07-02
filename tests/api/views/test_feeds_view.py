@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.conf import settings
@@ -31,6 +32,16 @@ class FeedsViewTestCase(CustomTestCase):
         self.assertEqual(target_ioc["payload_request"], True)
         self.assertEqual(target_ioc["recurrence_probability"], self.ioc.recurrence_probability)
         self.assertEqual(target_ioc["expected_interactions"], self.ioc.expected_interactions)
+
+    def test_200_ndjson_feed(self):
+        response = self.client.get("/api/feeds/all/all/recent.ndjson")
+        self.assertIn("application/x-ndjson", response.headers.get("Content-Type", ""))
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        iocs = [json.loads(line) for line in lines]
+        values = [ioc["value"] for ioc in iocs]
+        self.assertIn(self.ioc.name, values)
 
     @override_settings(FEEDS_LICENSE="https://example.com/license")
     def test_200_all_feeds_with_license(self):

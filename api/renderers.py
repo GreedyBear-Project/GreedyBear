@@ -26,6 +26,16 @@ class FeedJSONRenderer(JSONRenderer):
         return super().render(data, accepted_media_type, renderer_context)
 
 
+class FeedNDJSONRenderer(BaseRenderer):
+    media_type = "application/x-ndjson"
+    format = "ndjson"
+    charset = "utf-8"
+
+    #  FeedNDJSONRenderer exists only for DRF content negotiation, actual streaming is handled via StreamingHttpResponse in render_response().
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return b""
+
+
 class FeedRendererMixin(BaseRenderer):
     """Shared safety net for the non-JSON feed renderers."""
 

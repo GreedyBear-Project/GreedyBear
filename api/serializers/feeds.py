@@ -99,7 +99,7 @@ class BaseFeedRequestSerializer(serializers.Serializer):
     )
     ioc_type = serializers.ChoiceField(choices=["ip", "domain", "all"], default="all", help_text="Restrict to IPs, domains, or both.")
     ordering = serializers.CharField(default="-last_seen", help_text="IOC field to order by; prefix with `-` for descending (e.g. `-last_seen`).")
-    format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21"], default="json", help_text="Output representation.")
+    format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21", "ndjson"], default="json", help_text="Output representation.")
 
     def to_internal_value(self, data: Mapping) -> dict:
         """Normalize raw query params before field validation:
