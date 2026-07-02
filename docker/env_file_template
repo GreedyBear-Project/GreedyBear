@@ -106,7 +106,7 @@ FEEDS_LICENSE=
 
 # T-Pot Payload Server URL for downloading honeypot payloads.
 # If not set, payload extraction is disabled.
-# Example: https://tpot.example.com
+# Example: https://tpot.example.com:64299
 TPOT_PAYLOAD_SERVER_URL=
 
 # Optional API key for authenticating with the T-Pot Payload Server.

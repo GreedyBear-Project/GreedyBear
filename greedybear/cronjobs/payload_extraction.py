@@ -32,7 +32,7 @@ class PayloadExtractionJob(Cronjob):
     # Timeout for individual file download requests (seconds).
     DOWNLOAD_TIMEOUT = 120
 
-    def run(self):
+    def run(self) -> None:
         server_url = settings.TPOT_PAYLOAD_SERVER_URL
         if not server_url:
             self.log.info("TPOT_PAYLOAD_SERVER_URL not configured, skipping payload extraction.")
@@ -71,7 +71,7 @@ class PayloadExtractionJob(Cronjob):
 
         self.log.info(f"Payload extraction complete: {downloaded} downloaded, {skipped_count} skipped/failed.")
 
-    def _build_auth_headers(self):
+    def _build_auth_headers(self) -> dict:
         """
         Build the authentication headers for the payload server.
 
@@ -83,7 +83,7 @@ class PayloadExtractionJob(Cronjob):
             return {"X-API-Key": api_key}
         return {}
 
-    def _fetch_metadata(self, client, server_url):
+    def _fetch_metadata(self, client: HttpClient, server_url: str) -> list[dict]:
         """
         Fetch the list of recently modified payloads from the tpot-payload-server.
 
@@ -102,7 +102,7 @@ class PayloadExtractionJob(Cronjob):
 
         try:
             response = client.get(url, params=params, headers=headers)
-            return response.json()
+            data = response.json()
         except requests.RequestException:
             self.log.exception("Failed to fetch payload metadata from server.")
             return []
@@ -110,23 +110,37 @@ class PayloadExtractionJob(Cronjob):
             self.log.exception("Failed to parse payload metadata response.")
             return []
 
-    def _deduplicate(self, payloads):
+        if not isinstance(data, list):
+            self.log.error("Payload metadata response is not a list, skipping.")
+            return []
+        return data
+
+    def _deduplicate(self, payloads: list[dict]) -> list[dict]:
         """
-        Filter out payloads whose SHA256 already exists in the database.
+        Filter out payloads whose SHA256 already exists in the database
+        and remove duplicates within the response itself.
 
         Args:
             payloads: List of payload metadata dicts (must contain 'sha256' key).
 
         Returns:
-            list[dict]: Only the payloads not yet stored locally.
+            list[dict]: Only the unique payloads not yet stored locally.
         """
         incoming_hashes = {p["sha256"] for p in payloads if "sha256" in p}
         existing_hashes = set(HoneypotPayload.objects.filter(sha256__in=incoming_hashes).values_list("sha256", flat=True))
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
-        return [p for p in payloads if p.get("sha256") in new_hashes]
+        # Keep only the first occurrence of each sha256 to avoid IntegrityError.
+        seen = set()
+        unique = []
+        for p in payloads:
+            sha = p.get("sha256")
+            if sha in new_hashes and sha not in seen:
+                seen.add(sha)
+                unique.append(p)
+        return unique
 
-    def _quarantine_usage_bytes(self):
+    def _quarantine_usage_bytes(self) -> int:
         """
         Return the total size of files in the quarantine directory in bytes.
         """
@@ -135,7 +149,7 @@ class PayloadExtractionJob(Cronjob):
             return 0
         return sum(f.stat().st_size for f in quarantine_path.iterdir() if f.is_file())
 
-    def _download_and_store(self, client, server_url, payload_meta):
+    def _download_and_store(self, client: HttpClient, server_url: str, payload_meta: dict) -> bool:
         """
         Download a single payload file and create its database record.
 
