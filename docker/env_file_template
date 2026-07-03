@@ -110,6 +110,19 @@ TRENDING_BUCKET_RETENTION_HOURS=744
 # Example: https://github.com/honeynet/GreedyBear/blob/main/FEEDS_LICENSE.md
 FEEDS_LICENSE=
 
+# T-Pot Payload Server URL for downloading honeypot payloads.
+# If not set, payload extraction is disabled.
+# Example: https://tpot.example.com:64299
+TPOT_PAYLOAD_SERVER_URL=
+
+# Optional API key for authenticating with the T-Pot Payload Server.
+# When empty, authentication is disabled on both sides.
+TPOT_PAYLOAD_SERVER_API_KEY=
+
+# Maximum disk usage (in GB) for the quarantine directory.
+# Payload downloads are paused when this limit is reached.
+MAX_QUARANTINE_SIZE_GB=5
+
 # Optional IntelOwl base URL. When set, a link to analyze each IOC on IntelOwl
 # will appear in the Feeds table.
 # Example: https://your-intelowl-instance.example.com
