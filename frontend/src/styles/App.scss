@@ -176,6 +176,11 @@ $dashboard-btn-secondary-bg-hover: #376d82;
 }
 
 .feeds-trending-actions {
+  .feeds-trending-action-label {
+    visibility: hidden;
+    user-select: none;
+  }
+
   .feeds-trending-refresh-button {
     min-height: calc(2.25rem + 2px);
   }

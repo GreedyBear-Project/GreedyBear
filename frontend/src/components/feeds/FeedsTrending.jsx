@@ -189,13 +189,21 @@ export default function FeedsTrending() {
                   </FormGroup>
                 </Col>
                 <Col md={2} className="d-grid feeds-trending-actions">
-                  <Button
-                    color="primary"
-                    type="submit"
-                    className="w-100 feeds-trending-refresh-button"
-                  >
-                    Refresh
-                  </Button>
+                  <FormGroup>
+                    <Label
+                      className="feeds-trending-action-label"
+                      aria-hidden="true"
+                    >
+                      Actions
+                    </Label>
+                    <Button
+                      color="primary"
+                      type="submit"
+                      className="w-100 feeds-trending-refresh-button"
+                    >
+                      Refresh
+                    </Button>
+                  </FormGroup>
                 </Col>
               </Row>
             </form>
