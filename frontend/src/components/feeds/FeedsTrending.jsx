@@ -25,6 +25,10 @@ const DEFAULT_PARAMS = Object.freeze({
 });
 
 function TrendDeltaBadge({ delta }) {
+  if (!Number.isFinite(delta)) {
+    return <Badge color="secondary">-</Badge>;
+  }
+
   const color = delta > 0 ? "danger" : delta < 0 ? "success" : "secondary";
   const prefix = delta > 0 ? "+" : "";
   return <Badge color={color}>{`${prefix}${delta}`}</Badge>;
@@ -56,6 +60,11 @@ function formatWindowDate(value) {
     timeStyle: "short",
     timeZone: "UTC",
   }).format(date)} UTC`;
+}
+
+function formatGrowthScore(value) {
+  const score = Number(value);
+  return Number.isFinite(score) ? score.toFixed(2) : "-";
 }
 
 export default function FeedsTrending() {
@@ -245,7 +254,7 @@ export default function FeedsTrending() {
                         <td>
                           <TrendDeltaBadge delta={attacker.interaction_delta} />
                         </td>
-                        <td>{Number(attacker.growth_score).toFixed(2)}</td>
+                        <td>{formatGrowthScore(attacker.growth_score)}</td>
                         <td>{attacker.rank_delta ?? "-"}</td>
                       </tr>
                     ))}

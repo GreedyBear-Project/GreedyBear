@@ -170,4 +170,29 @@ describe("FeedsTrending", () => {
 
     expect(refetchTrending).toHaveBeenCalledTimes(1);
   });
+
+  test("renders placeholders for missing delta and invalid growth score", () => {
+    mockUseAxiosComponentLoader({
+      count: 1,
+      current_window: {
+        start: "2026-03-20T09:00:00Z",
+        end: "2026-03-20T10:00:00Z",
+      },
+      attackers: [
+        {
+          attacker_ip: "3.3.3.3",
+          current_interactions: 7,
+          previous_interactions: 4,
+          interaction_delta: null,
+          growth_score: undefined,
+          rank_delta: 1,
+        },
+      ],
+    });
+
+    render(<FeedsTrending />);
+
+    expect(screen.getByText("3.3.3.3")).toBeInTheDocument();
+    expect(screen.getAllByText("-")).toHaveLength(2);
+  });
 });
