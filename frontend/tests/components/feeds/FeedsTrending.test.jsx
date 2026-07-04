@@ -1,10 +1,14 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import FeedsTrending from "../../../src/components/feeds/FeedsTrending";
 import { useAxiosComponentLoader } from "@greedybear/gb-ui";
-import { FEEDS_TRENDING_URI } from "../../../src/constants/api";
+import {
+  FEEDS_TRENDING_URI,
+  GENERAL_HONEYPOT_URI,
+} from "../../../src/constants/api";
 
 vi.mock("@greedybear/gb-ui", async () => {
   const actual = await vi.importActual("@greedybear/gb-ui");
@@ -18,6 +22,22 @@ vi.mock("@greedybear/gb-ui", async () => {
 });
 
 describe("FeedsTrending", () => {
+  const mockUseAxiosComponentLoader = (payload) => {
+    const refetchTrending = vi.fn();
+
+    useAxiosComponentLoader.mockImplementation(({ url }) => {
+      const Loader = ({ render: renderFn }) => renderFn();
+
+      if (url.startsWith(GENERAL_HONEYPOT_URI)) {
+        return [["Cowrie", "Heralding"], Loader, vi.fn()];
+      }
+
+      return [payload, Loader, refetchTrending];
+    });
+
+    return { refetchTrending };
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -27,36 +47,30 @@ describe("FeedsTrending", () => {
   });
 
   test("renders trending attackers table", () => {
-    useAxiosComponentLoader.mockImplementation(() => {
-      const Loader = ({ render: renderFn }) => renderFn();
-      return [
+    mockUseAxiosComponentLoader({
+      count: 2,
+      current_window: {
+        start: "2026-03-20T09:00:00Z",
+        end: "2026-03-20T10:00:00Z",
+      },
+      attackers: [
         {
-          count: 2,
-          current_window: {
-            start: "2026-03-20T09:00:00Z",
-            end: "2026-03-20T10:00:00Z",
-          },
-          attackers: [
-            {
-              attacker_ip: "1.1.1.1",
-              current_interactions: 10,
-              previous_interactions: 2,
-              interaction_delta: 8,
-              growth_score: 4,
-              rank_delta: 3,
-            },
-            {
-              attacker_ip: "2.2.2.2",
-              current_interactions: 5,
-              previous_interactions: 5,
-              interaction_delta: 0,
-              growth_score: 0,
-              rank_delta: null,
-            },
-          ],
+          attacker_ip: "1.1.1.1",
+          current_interactions: 10,
+          previous_interactions: 2,
+          interaction_delta: 8,
+          growth_score: 4,
+          rank_delta: 3,
         },
-        Loader,
-      ];
+        {
+          attacker_ip: "2.2.2.2",
+          current_interactions: 5,
+          previous_interactions: 5,
+          interaction_delta: 0,
+          growth_score: 0,
+          rank_delta: null,
+        },
+      ],
     });
 
     render(<FeedsTrending />);
@@ -80,24 +94,20 @@ describe("FeedsTrending", () => {
     expect(screen.getByText("+8")).toBeInTheDocument();
     expect(screen.getByText("4.00")).toBeInTheDocument();
     expect(
-      screen.getByText("2026-03-20T09:00:00Z to 2026-03-20T10:00:00Z"),
+      screen.getByText(
+        "Mar 20, 2026, 9:00 AM UTC to Mar 20, 2026, 10:00 AM UTC",
+      ),
     ).toBeInTheDocument();
   });
 
   test("renders empty state when no attackers are returned", () => {
-    useAxiosComponentLoader.mockImplementation(() => {
-      const Loader = ({ render: renderFn }) => renderFn();
-      return [
-        {
-          count: 0,
-          current_window: {
-            start: "2026-03-20T09:00:00Z",
-            end: "2026-03-20T10:00:00Z",
-          },
-          attackers: [],
-        },
-        Loader,
-      ];
+    mockUseAxiosComponentLoader({
+      count: 0,
+      current_window: {
+        start: "2026-03-20T09:00:00Z",
+        end: "2026-03-20T10:00:00Z",
+      },
+      attackers: [],
     });
 
     render(<FeedsTrending />);
@@ -108,46 +118,56 @@ describe("FeedsTrending", () => {
   });
 
   test("submits updated params", async () => {
-    useAxiosComponentLoader.mockImplementation(() => {
-      const Loader = ({ render: renderFn }) => renderFn();
-      return [
-        {
-          count: 0,
-          current_window: {
-            start: "2026-03-20T09:00:00Z",
-            end: "2026-03-20T10:00:00Z",
-          },
-          attackers: [],
-        },
-        Loader,
-      ];
+    const user = userEvent.setup();
+
+    const { refetchTrending } = mockUseAxiosComponentLoader({
+      count: 0,
+      current_window: {
+        start: "2026-03-20T09:00:00Z",
+        end: "2026-03-20T10:00:00Z",
+      },
+      attackers: [],
     });
 
     render(<FeedsTrending />);
 
-    const feedTypeInput = screen.getByLabelText("Feed type");
-    const windowMinutesInput = screen.getByLabelText("Window minutes");
+    await user.click(screen.getByRole("button", { name: "Feed type" }));
+    await user.click(screen.getByText("Cowrie"));
+
+    const windowMinutesInput = screen.getByLabelText("Window size");
     const limitInput = screen.getByLabelText("Limit");
 
-    fireEvent.change(feedTypeInput, { target: { value: "cowrie,heralding" } });
-    fireEvent.change(windowMinutesInput, { target: { value: "120" } });
-    fireEvent.change(limitInput, { target: { value: "25" } });
+    await user.selectOptions(limitInput, "25");
+    await user.selectOptions(windowMinutesInput, "120");
+
+    await waitFor(() => {
+      expect(windowMinutesInput).toHaveValue("120");
+      expect(limitInput).toHaveValue("25");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(screen.getByRole("button", { name: "Feed type" })).toHaveTextContent(
+      "Cowrie",
+    );
+    expect(windowMinutesInput).toHaveValue("120");
+    expect(limitInput).toHaveValue("25");
+    expect(refetchTrending).not.toHaveBeenCalled();
+  });
+
+  test("refreshes even when submitting the same params twice", async () => {
+    const { refetchTrending } = mockUseAxiosComponentLoader({
+      count: 0,
+      current_window: {
+        start: "2026-03-20T09:00:00Z",
+        end: "2026-03-20T10:00:00Z",
+      },
+      attackers: [],
+    });
+
+    render(<FeedsTrending />);
+
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
-    const latestCall =
-      useAxiosComponentLoader.mock.calls[
-        useAxiosComponentLoader.mock.calls.length - 1
-      ][0];
-
-    expect(latestCall).toEqual(
-      expect.objectContaining({
-        url: FEEDS_TRENDING_URI,
-        params: {
-          feed_type: "cowrie,heralding",
-          window_minutes: "120",
-          limit: "25",
-        },
-      }),
-    );
+    expect(refetchTrending).toHaveBeenCalledTimes(1);
   });
 });

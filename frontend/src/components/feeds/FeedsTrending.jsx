@@ -5,14 +5,18 @@ import {
   Col,
   FormGroup,
   Label,
-  Input,
   Button,
   Badge,
 } from "reactstrap";
 
-import { ContentSection, useAxiosComponentLoader } from "@greedybear/gb-ui";
+import {
+  ContentSection,
+  Select,
+  useAxiosComponentLoader,
+} from "@greedybear/gb-ui";
 
-import { FEEDS_TRENDING_URI } from "../../constants/api";
+import { FEEDS_TRENDING_URI, GENERAL_HONEYPOT_URI } from "../../constants/api";
+import { MultiSelectDropdown } from "./MultiSelectDropdown";
 
 const DEFAULT_PARAMS = Object.freeze({
   feed_type: "all",
@@ -26,11 +30,45 @@ function TrendDeltaBadge({ delta }) {
   return <Badge color={color}>{`${prefix}${delta}`}</Badge>;
 }
 
+const windowChoices = [
+  { label: "1 hour", value: "60" },
+  { label: "2 hours", value: "120" },
+  { label: "4 hours", value: "240" },
+  { label: "8 hours", value: "480" },
+  { label: "24 hours", value: "1440" },
+];
+
+const limitChoices = [
+  { label: "10 attackers", value: "10" },
+  { label: "25 attackers", value: "25" },
+  { label: "50 attackers", value: "50" },
+  { label: "100 attackers", value: "100" },
+];
+
+function formatWindowDate(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return `${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(date)} UTC`;
+}
+
 export default function FeedsTrending() {
   const [params, setParams] = React.useState(DEFAULT_PARAMS);
   const [draft, setDraft] = React.useState(DEFAULT_PARAMS);
+  const draftRef = React.useRef(DEFAULT_PARAMS);
 
-  const [payload, Loader] = useAxiosComponentLoader({
+  const [honeypots, HoneypotLoader] = useAxiosComponentLoader({
+    url: `${GENERAL_HONEYPOT_URI}?onlyActive=true`,
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const [payload, Loader, refetchTrending] = useAxiosComponentLoader({
     url: FEEDS_TRENDING_URI,
     params,
     headers: { "Content-Type": "application/json" },
@@ -38,15 +76,48 @@ export default function FeedsTrending() {
 
   const onChange = React.useCallback((event) => {
     const { name, value } = event.target;
-    setDraft((current) => ({ ...current, [name]: value }));
+    setDraft((current) => {
+      const nextDraft = { ...current, [name]: value };
+      draftRef.current = nextDraft;
+      return nextDraft;
+    });
   }, []);
 
   const onSubmit = React.useCallback(
     (event) => {
       event.preventDefault();
-      setParams(draft);
+      const submittedDraft = draftRef.current;
+
+      if (JSON.stringify(submittedDraft) === JSON.stringify(params)) {
+        refetchTrending();
+        return;
+      }
+
+      setParams({ ...submittedDraft });
     },
-    [draft],
+    [params, refetchTrending],
+  );
+
+  const honeypotFeedType = React.useMemo(
+    () =>
+      honeypots.map((honeypot) => ({
+        label: honeypot,
+        value: honeypot.toLowerCase(),
+      })),
+    [honeypots],
+  );
+
+  const selectedFeedTypes = React.useMemo(
+    () =>
+      draft.feed_type && draft.feed_type !== "all"
+        ? draft.feed_type
+            .split(",")
+            .map((value) =>
+              honeypotFeedType.find((option) => option.value === value),
+            )
+            .filter(Boolean)
+        : [],
+    [draft.feed_type, honeypotFeedType],
   );
 
   return (
@@ -61,57 +132,75 @@ export default function FeedsTrending() {
         </div>
       </div>
       <ContentSection>
-        <form onSubmit={onSubmit}>
-          <Row className="align-items-end g-3">
-            <Col md={4}>
-              <FormGroup>
-                <Label htmlFor="FeedsTrending__feed_type">Feed type</Label>
-                <Input
-                  id="FeedsTrending__feed_type"
-                  name="feed_type"
-                  value={draft.feed_type}
-                  onChange={onChange}
-                  placeholder="all or cowrie,heralding"
-                />
-              </FormGroup>
-            </Col>
-            <Col md={3}>
-              <FormGroup>
-                <Label htmlFor="FeedsTrending__window_minutes">
-                  Window minutes
-                </Label>
-                <Input
-                  id="FeedsTrending__window_minutes"
-                  name="window_minutes"
-                  type="number"
-                  min="60"
-                  step="60"
-                  value={draft.window_minutes}
-                  onChange={onChange}
-                />
-              </FormGroup>
-            </Col>
-            <Col md={2}>
-              <FormGroup>
-                <Label htmlFor="FeedsTrending__limit">Limit</Label>
-                <Input
-                  id="FeedsTrending__limit"
-                  name="limit"
-                  type="number"
-                  min="1"
-                  max="1000"
-                  value={draft.limit}
-                  onChange={onChange}
-                />
-              </FormGroup>
-            </Col>
-            <Col md={3}>
-              <Button color="primary" type="submit">
-                Refresh
-              </Button>
-            </Col>
-          </Row>
-        </form>
+        <HoneypotLoader
+          render={() => (
+            <form onSubmit={onSubmit}>
+              <Row className="align-items-end g-3">
+                <Col md={5}>
+                  <FormGroup>
+                    <Label htmlFor="FeedsTrending__feed_type">Feed type</Label>
+                    <MultiSelectDropdown
+                      id="FeedsTrending__feed_type"
+                      options={honeypotFeedType}
+                      value={selectedFeedTypes}
+                      placeholder="All"
+                      onChange={(selected) => {
+                        const value =
+                          selected.length > 0
+                            ? selected.map((option) => option.value).join(",")
+                            : "all";
+
+                        setDraft((current) => {
+                          const nextDraft = {
+                            ...current,
+                            feed_type: value,
+                          };
+                          draftRef.current = nextDraft;
+                          return nextDraft;
+                        });
+                      }}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={3}>
+                  <FormGroup>
+                    <Label htmlFor="FeedsTrending__window_minutes">
+                      Window size
+                    </Label>
+                    <Select
+                      id="FeedsTrending__window_minutes"
+                      name="window_minutes"
+                      value={draft.window_minutes}
+                      choices={windowChoices}
+                      onChange={onChange}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={2}>
+                  <FormGroup>
+                    <Label htmlFor="FeedsTrending__limit">Limit</Label>
+                    <Select
+                      id="FeedsTrending__limit"
+                      name="limit"
+                      value={draft.limit}
+                      choices={limitChoices}
+                      onChange={onChange}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={2} className="d-grid feeds-trending-actions">
+                  <Button
+                    color="primary"
+                    type="submit"
+                    className="w-100 feeds-trending-refresh-button"
+                  >
+                    Refresh
+                  </Button>
+                </Col>
+              </Row>
+            </form>
+          )}
+        />
       </ContentSection>
       <Loader
         render={() => (
@@ -122,7 +211,8 @@ export default function FeedsTrending() {
                 <span className="text-muted ms-2">attackers</span>
               </div>
               <small className="text-muted">
-                {payload.current_window?.start} to {payload.current_window?.end}
+                {formatWindowDate(payload.current_window?.start)} to{" "}
+                {formatWindowDate(payload.current_window?.end)}
               </small>
             </div>
             {payload.attackers?.length ? (

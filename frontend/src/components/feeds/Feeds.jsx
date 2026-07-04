@@ -186,21 +186,17 @@ export default function Feeds() {
   // callbacks
   const onSubmit = React.useCallback(
     (values) => {
-      try {
-        setFeedsState((prev) => ({
-          url: `${FEEDS_BASE_URI}/${values.feeds_type}/${values.attack_type}/${values.prioritize}.json?ioc_type=${values.ioc_type}`,
-          tableParams: {
-            feed_type: values.feeds_type,
-            attack_type: values.attack_type,
-            ioc_type: values.ioc_type,
-            prioritize: values.prioritize,
-          },
-          tableKey: prev.tableKey + 1,
-        }));
-        updateSearchParams(values);
-      } catch {
-        // no-op: state update and URL sync are best-effort UI concerns
-      }
+      setFeedsState((prev) => ({
+        url: `${FEEDS_BASE_URI}/${values.feeds_type}/${values.attack_type}/${values.prioritize}.json?ioc_type=${values.ioc_type}`,
+        tableParams: {
+          feed_type: values.feeds_type,
+          attack_type: values.attack_type,
+          ioc_type: values.ioc_type,
+          prioritize: values.prioritize,
+        },
+        tableKey: prev.tableKey + 1,
+      }));
+      updateSearchParams(values);
     },
     [updateSearchParams],
   );
