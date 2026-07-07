@@ -18,9 +18,7 @@ const Feeds = React.lazy(() => import("./feeds/Feeds"));
 const ChangePassword = React.lazy(
   () => import("./me/changepassword/ChangePassword"),
 );
-const ConfigEditor = React.lazy(
-  () => import("./dashboard/ConfigEditor"),
-);
+const ConfigEditor = React.lazy(() => import("./dashboard/ConfigEditor"));
 
 // public components
 const publicRoutesLazy = [

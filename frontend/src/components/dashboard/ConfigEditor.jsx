@@ -1,6 +1,15 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Container, Badge, Dropdown, DropdownToggle, DropdownMenu, DropdownItem, Row, Col } from "reactstrap";
+import {
+  Container,
+  Badge,
+  Dropdown,
+  DropdownToggle,
+  DropdownMenu,
+  DropdownItem,
+  Row,
+  Col,
+} from "reactstrap";
 import { Responsive, useContainerWidth } from "react-grid-layout";
 import {
   MdArrowBack,
@@ -28,24 +37,22 @@ function buildLayoutEntry(id, currentLgLayout, w = 12) {
   return { i: id, x: 0, y: maxY, w, h: 9, static: false };
 }
 
-
 // ---------------------------------------------------------------------------
 // EditableWidgetCard
 // Renders the real widget. A small floating X button sits in the top-right
 // corner for removal. The whole card is the drag target.
 // ---------------------------------------------------------------------------
 function EditableWidgetCard({ cfg, definition, onRemove }) {
-  const { component: WidgetComponent, displayName, defaultProps: registryDefaultProps } =
-    definition;
+  const {
+    component: WidgetComponent,
+    displayName,
+    defaultProps: registryDefaultProps,
+  } = definition;
   const mergedProps = { ...(registryDefaultProps ?? {}), ...(cfg.props ?? {}) };
 
   return (
     <div style={{ height: "100%", position: "relative" }}>
-      <WidgetWrapper
-        id={cfg.id}
-        header={displayName}
-        fillHeight
-      >
+      <WidgetWrapper id={cfg.id} header={displayName} fillHeight>
         <WidgetComponent {...mergedProps} />
       </WidgetWrapper>
 
@@ -94,7 +101,11 @@ function AddWidgetDropdown({ availableWidgets, addedTypes, onAdd }) {
         tag="button"
         disabled={unadded.length === 0}
         style={{ opacity: 1 }}
-        title={unadded.length === 0 ? "All widgets are already on the dashboard" : "Add a widget"}
+        title={
+          unadded.length === 0
+            ? "All widgets are already on the dashboard"
+            : "Add a widget"
+        }
       >
         <MdAdd />
         Add Widget
@@ -158,7 +169,8 @@ export default function ConfigEditor() {
 
   // Widget types that are already rendered above the grid (noGrid: true).
   const noGridTypes = React.useMemo(
-    () => new Set(widgetConfigs.filter((cfg) => cfg.noGrid).map((cfg) => cfg.type)),
+    () =>
+      new Set(widgetConfigs.filter((cfg) => cfg.noGrid).map((cfg) => cfg.type)),
     [widgetConfigs],
   );
 
@@ -170,7 +182,6 @@ export default function ConfigEditor() {
       ),
     [noGridTypes],
   );
-
 
   const handleAdd = React.useCallback(
     (type) => {
@@ -201,7 +212,6 @@ export default function ConfigEditor() {
     [widgetConfigs, layouts, setWidgetConfigs, setLayouts],
   );
 
-
   const handleLayoutChange = React.useCallback(
     (_currentLayout, allLayouts) => {
       setLayouts({
@@ -214,7 +224,9 @@ export default function ConfigEditor() {
   );
 
   const handleReset = React.useCallback(() => {
-    if (window.confirm("Reset dashboard to defaults? All changes will be lost.")) {
+    if (
+      window.confirm("Reset dashboard to defaults? All changes will be lost.")
+    ) {
       resetToDefault();
     }
   }, [resetToDefault]);
@@ -280,12 +292,24 @@ export default function ConfigEditor() {
       {noGridConfigs.map((cfg, idx) => {
         const definition = widgetRegistry.get(cfg.type);
         if (!definition) return null;
-        const { component: WidgetComponent, displayName, defaultHeight, defaultProps: registryDefaultProps } = definition;
-        const mergedProps = { ...(registryDefaultProps ?? {}), ...(cfg.props ?? {}) };
+        const {
+          component: WidgetComponent,
+          displayName,
+          defaultHeight,
+          defaultProps: registryDefaultProps,
+        } = definition;
+        const mergedProps = {
+          ...(registryDefaultProps ?? {}),
+          ...(cfg.props ?? {}),
+        };
         return (
           <Row key={cfg.id} className={`${idx > 0 ? "mt-4 " : ""}mb-4`}>
             <Col md={12}>
-              <WidgetWrapper id={cfg.id} header={displayName} minHeight={defaultHeight}>
+              <WidgetWrapper
+                id={cfg.id}
+                header={displayName}
+                minHeight={defaultHeight}
+              >
                 <WidgetComponent {...mergedProps} />
               </WidgetWrapper>
             </Col>
@@ -327,7 +351,10 @@ export default function ConfigEditor() {
               const definition = widgetRegistry.get(cfg.type);
               if (!definition) return null;
               return (
-                <div key={cfg.id} style={{ height: "100%", overflow: "hidden" }}>
+                <div
+                  key={cfg.id}
+                  style={{ height: "100%", overflow: "hidden" }}
+                >
                   <EditableWidgetCard
                     cfg={cfg}
                     definition={definition}

@@ -97,7 +97,6 @@ function AppHeader() {
                 <span className="ms-1">Feeds</span>
               </NavLink>
             </NavItem>
-
           </Nav>
           {/* Navbar Right Side */}
           <Nav navbar className="ms-auto d-flex align-items-center">

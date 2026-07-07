@@ -14,9 +14,7 @@ function Dashboard() {
   console.debug("Dashboard rendered!");
   const { range, onTimeIntervalChange } = useTimePickerStore();
 
-  const isSuperuser = useAuthStore(
-    React.useCallback((s) => s.isSuperuser, []),
-  );
+  const isSuperuser = useAuthStore(React.useCallback((s) => s.isSuperuser, []));
 
   const { widgetConfigs, layouts, savedVersion } = useDashboardStore(
     useShallow((s) => ({
@@ -27,7 +25,8 @@ function Dashboard() {
   );
 
   const staticLayouts = React.useMemo(() => {
-    const freeze = (arr) => (arr ?? []).map((item) => ({ ...item, static: true }));
+    const freeze = (arr) =>
+      (arr ?? []).map((item) => ({ ...item, static: true }));
     return {
       lg: freeze(layouts.lg),
       md: freeze(layouts.md),

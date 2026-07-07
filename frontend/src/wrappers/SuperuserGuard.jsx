@@ -12,9 +12,7 @@ import { useAuthStore } from "../stores";
  * it is already unusual.
  */
 export default function SuperuserGuard({ children }) {
-  const isSuperuser = useAuthStore(
-    React.useCallback((s) => s.isSuperuser, []),
-  );
+  const isSuperuser = useAuthStore(React.useCallback((s) => s.isSuperuser, []));
 
   if (!isSuperuser) {
     return (

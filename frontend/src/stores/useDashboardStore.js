@@ -11,7 +11,7 @@ import {
  *
  * Holds the live dashboard layout state that the ConfigEditor mutates.
  * Persisted to localStorage.
- * 
+ *
  * Shape:
  *   layouts       {object}  react-grid-layout layouts object (all breakpoints)
  *   widgetConfigs {Array}   ordered list of { type, id, noGrid? }
@@ -32,7 +32,8 @@ const useDashboardStore = create(
       setLayouts: (layouts) => set({ layouts, isDirty: true }),
 
       /** Called when admin adds or removes a widget */
-      setWidgetConfigs: (widgetConfigs) => set({ widgetConfigs, isDirty: true }),
+      setWidgetConfigs: (widgetConfigs) =>
+        set({ widgetConfigs, isDirty: true }),
 
       /**
        * Commit the current layout.
@@ -40,7 +41,8 @@ const useDashboardStore = create(
        * (via React key), which forces react-grid-layout to re-initialize its
        * internal layout state from the updated props.
        */
-      save: () => set((s) => ({ isDirty: false, savedVersion: s.savedVersion + 1 })),
+      save: () =>
+        set((s) => ({ isDirty: false, savedVersion: s.savedVersion + 1 })),
 
       /** Reset to the hardcoded defaults */
       resetToDefault: () =>
