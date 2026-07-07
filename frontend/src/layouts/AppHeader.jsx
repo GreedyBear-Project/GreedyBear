@@ -8,7 +8,7 @@ import {
   NavbarToggler,
 } from "reactstrap";
 import { NavLink as RRNavLink } from "react-router-dom";
-import { MdHome, MdOutlineFeed, MdDashboard, MdSettings } from "react-icons/md";
+import { MdHome, MdOutlineFeed, MdDashboard } from "react-icons/md";
 import { RiBookReadFill } from "react-icons/ri";
 
 // lib
@@ -67,9 +67,6 @@ function AppHeader() {
   const isAuthenticated = useAuthStore(
     React.useCallback((s) => s.isAuthenticated, []),
   );
-  const isSuperuser = useAuthStore(
-    React.useCallback((s) => s.isSuperuser, []),
-  );
 
   return (
     <header className="fixed-top">
@@ -100,18 +97,7 @@ function AppHeader() {
                 <span className="ms-1">Feeds</span>
               </NavLink>
             </NavItem>
-            {isSuperuser && (
-              <NavItem>
-                <NavLink
-                  id="nav-dashboard-config"
-                  className="d-flex-start-center"
-                  to="/dashboard/config"
-                >
-                  <MdSettings />
-                  <span className="ms-1">Config</span>
-                </NavLink>
-              </NavItem>
-            )}
+
           </Nav>
           {/* Navbar Right Side */}
           <Nav navbar className="ms-auto d-flex align-items-center">
