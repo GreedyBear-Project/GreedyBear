@@ -28,7 +28,7 @@ dependencies = [
     "pandas~=3.0",
     "numpy~=2.5",
     "joblib~=1.5",
-    "datasketch~=1.10",
+    "datasketch~=2.0",
     # File Format Support
     "feedparser~=6.0",
     "stix2~=3.0",
