@@ -174,3 +174,14 @@ $dashboard-btn-secondary-bg-hover: #376d82;
     border-color: $dashboard-btn-secondary-bg-hover;
   }
 }
+
+.feeds-trending-actions {
+  .feeds-trending-action-label {
+    visibility: hidden;
+    user-select: none;
+  }
+
+  .feeds-trending-refresh-button {
+    min-height: calc(2.25rem + 2px);
+  }
+}

@@ -97,9 +97,6 @@ function FeedsTable({ tableParams, onDataLoad, onSortChange }) {
 }
 
 export default function Feeds() {
-  console.debug("Feeds rendered!");
-  console.debug("Feeds-DEFAULT_VALUES", DEFAULT_VALUES);
-
   const [searchParams, setSearchParams] = useSearchParams();
   const formikRef = React.useRef(null);
 
@@ -149,7 +146,6 @@ export default function Feeds() {
     url: `${GENERAL_HONEYPOT_URI}?onlyActive=true`,
     headers: { "Content-Type": "application/json" },
   });
-  console.debug("Feeds-honeypots:", honeypots);
 
   const honeypotFeedsType = React.useMemo(
     () =>
@@ -190,21 +186,17 @@ export default function Feeds() {
   // callbacks
   const onSubmit = React.useCallback(
     (values) => {
-      try {
-        setFeedsState((prev) => ({
-          url: `${FEEDS_BASE_URI}/${values.feeds_type}/${values.attack_type}/${values.prioritize}.json?ioc_type=${values.ioc_type}`,
-          tableParams: {
-            feed_type: values.feeds_type,
-            attack_type: values.attack_type,
-            ioc_type: values.ioc_type,
-            prioritize: values.prioritize,
-          },
-          tableKey: prev.tableKey + 1,
-        }));
-        updateSearchParams(values);
-      } catch (e) {
-        console.debug(e);
-      }
+      setFeedsState((prev) => ({
+        url: `${FEEDS_BASE_URI}/${values.feeds_type}/${values.attack_type}/${values.prioritize}.json?ioc_type=${values.ioc_type}`,
+        tableParams: {
+          feed_type: values.feeds_type,
+          attack_type: values.attack_type,
+          ioc_type: values.ioc_type,
+          prioritize: values.prioritize,
+        },
+        tableKey: prev.tableKey + 1,
+      }));
+      updateSearchParams(values);
     },
     [updateSearchParams],
   );
