@@ -13,7 +13,7 @@ dependencies = [
     "django-rest-email-auth==5.0.0",
     "django-ses~=4.7",
     "django-q2~=1.10",
-    "django-filter~=25.2",
+    "django-filter~=26.1",
     "drf-spectacular~=0.30.0",
     "croniter~=6.2",
     "certego-saas==0.7.12",
