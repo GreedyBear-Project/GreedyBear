@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     # Django core
-    "Django~=5.2.13",
+    "django~=5.2.16",
     "djangorestframework~=3.17.1",
     "django-rest-email-auth==5.0.0",
     "django-ses~=4.7",
