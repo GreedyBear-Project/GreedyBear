@@ -27,8 +27,6 @@ import widgetRegistry from "./widgetRegistry";
 import WidgetWrapper from "./WidgetWrapper";
 import useDashboardStore from "../../stores/useDashboardStore";
 
-const DEFAULT_H = 9;
-
 function buildLayoutEntry(id, currentLgLayout, w = 12) {
   const maxY = currentLgLayout.reduce(
     (acc, item) => Math.max(acc, item.y + item.h),
