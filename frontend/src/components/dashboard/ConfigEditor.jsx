@@ -110,7 +110,14 @@ function AddWidgetDropdown({ availableWidgets, addedTypes, onAdd }) {
         <MdAdd />
         Add Widget
       </DropdownToggle>
-      <DropdownMenu end>
+      <DropdownMenu
+        end
+        style={{
+          background: "#1e1e2e",
+          border: "1px solid rgba(99,102,241,0.35)",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+        }}
+      >
         {unadded.map(([type, def]) => (
           <DropdownItem
             key={type}
