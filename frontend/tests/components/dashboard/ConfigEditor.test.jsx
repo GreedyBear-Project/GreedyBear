@@ -14,9 +14,15 @@ vi.mock("../../../src/components/dashboard/utils/charts", () => ({
   FeedsTypesChart: () => <div data-testid="widget-FeedsTypesChart" />,
   FeedsSourcesChart: () => <div data-testid="widget-FeedsSourcesChart" />,
   FeedsDownloadsChart: () => <div data-testid="widget-FeedsDownloadsChart" />,
-  EnrichmentSourcesChart: () => <div data-testid="widget-EnrichmentSourcesChart" />,
-  EnrichmentRequestsChart: () => <div data-testid="widget-EnrichmentRequestsChart" />,
-  AttackOriginCountriesChart: () => <div data-testid="widget-AttackOriginCountriesChart" />,
+  EnrichmentSourcesChart: () => (
+    <div data-testid="widget-EnrichmentSourcesChart" />
+  ),
+  EnrichmentRequestsChart: () => (
+    <div data-testid="widget-EnrichmentRequestsChart" />
+  ),
+  AttackOriginCountriesChart: () => (
+    <div data-testid="widget-AttackOriginCountriesChart" />
+  ),
 }));
 
 vi.mock("../../../src/components/dashboard/AttackOriginMap", () => ({
@@ -93,13 +99,17 @@ describe("ConfigEditor", () => {
 
     test("renders a back-to-dashboard link", () => {
       renderEditor();
-      expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: /dashboard/i }),
+      ).toBeInTheDocument();
     });
 
     test("renders Save and Reset buttons", () => {
       renderEditor();
       expect(screen.getByRole("button", { name: /save/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /reset/i }),
+      ).toBeInTheDocument();
     });
 
     test("renders the Add Widget button", () => {
@@ -131,10 +141,18 @@ describe("ConfigEditor", () => {
       expect(within(grid).getByText("Feeds: Types")).toBeInTheDocument();
       expect(within(grid).getByText("Feeds: Sources")).toBeInTheDocument();
       expect(within(grid).getByText("Feeds: Downloads")).toBeInTheDocument();
-      expect(within(grid).getByText("Enrichment Service: Sources")).toBeInTheDocument();
-      expect(within(grid).getByText("Enrichment Service: Requests")).toBeInTheDocument();
-      expect(within(grid).getByText("Attack Origins: World Map")).toBeInTheDocument();
-      expect(within(grid).getByText("Attack Origins: Top Countries")).toBeInTheDocument();
+      expect(
+        within(grid).getByText("Enrichment Service: Sources"),
+      ).toBeInTheDocument();
+      expect(
+        within(grid).getByText("Enrichment Service: Requests"),
+      ).toBeInTheDocument();
+      expect(
+        within(grid).getByText("Attack Origins: World Map"),
+      ).toBeInTheDocument();
+      expect(
+        within(grid).getByText("Attack Origins: Top Countries"),
+      ).toBeInTheDocument();
     });
 
     test("renders a remove (✕) button for each grid widget", () => {
@@ -155,7 +173,9 @@ describe("ConfigEditor", () => {
       // The noGrid widget's card header should exist on the page...
       expect(screen.getByText("Enrichment Lookup")).toBeInTheDocument();
       // ...but NOT inside the RGL grid
-      expect(within(grid).queryByText("Enrichment Lookup")).not.toBeInTheDocument();
+      expect(
+        within(grid).queryByText("Enrichment Lookup"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -236,14 +256,18 @@ describe("ConfigEditor", () => {
 
       // Remove a widget so state differs from defaults
       useDashboardStore.setState({
-        widgetConfigs: WIDGET_CONFIGS.filter((c) => c.type !== "FeedsTypesChart"),
+        widgetConfigs: WIDGET_CONFIGS.filter(
+          (c) => c.type !== "FeedsTypesChart",
+        ),
         isDirty: true,
       });
 
       renderEditor();
       fireEvent.click(screen.getByRole("button", { name: /reset/i }));
 
-      expect(useDashboardStore.getState().widgetConfigs).toEqual(WIDGET_CONFIGS);
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
       expect(useDashboardStore.getState().isDirty).toBe(false);
 
       vi.restoreAllMocks();
@@ -255,24 +279,31 @@ describe("ConfigEditor", () => {
       const trimmedConfigs = WIDGET_CONFIGS.filter(
         (c) => c.type !== "FeedsTypesChart",
       );
-      useDashboardStore.setState({ widgetConfigs: trimmedConfigs, isDirty: true });
+      useDashboardStore.setState({
+        widgetConfigs: trimmedConfigs,
+        isDirty: true,
+      });
 
       renderEditor();
       fireEvent.click(screen.getByRole("button", { name: /reset/i }));
 
-      expect(useDashboardStore.getState().widgetConfigs).toEqual(trimmedConfigs);
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        trimmedConfigs,
+      );
 
       vi.restoreAllMocks();
     });
   });
 
-  //  Add Widget dropdown 
+  //  Add Widget dropdown
 
   describe("Add Widget dropdown", () => {
     test("Add Widget button is disabled when all widgets are already on the grid", () => {
       // Default config already has all widgets = dropdown should be disabled
       renderEditor();
-      expect(screen.getByRole("button", { name: /add widget/i })).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /add widget/i }),
+      ).toBeDisabled();
     });
 
     test("Add Widget button is enabled when a widget has been removed", () => {
@@ -281,13 +312,17 @@ describe("ConfigEditor", () => {
       const [firstRemoveBtn] = within(grid).getAllByTitle("Remove widget");
       fireEvent.click(firstRemoveBtn);
 
-      expect(screen.getByRole("button", { name: /add widget/i })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /add widget/i }),
+      ).not.toBeDisabled();
     });
 
     test("noGrid widget type (EnrichmentLookup) does NOT appear in the Add Widget dropdown", () => {
       // Remove a grid widget so the dropdown opens with at least one item
       useDashboardStore.setState({
-        widgetConfigs: WIDGET_CONFIGS.filter((c) => c.type !== "FeedsTypesChart"),
+        widgetConfigs: WIDGET_CONFIGS.filter(
+          (c) => c.type !== "FeedsTypesChart",
+        ),
         layouts: {
           lg: DASHBOARD_LAYOUTS.lg.filter((i) => i.i !== "FeedsTypesChart"),
           md: DASHBOARD_LAYOUTS.md.filter((i) => i.i !== "FeedsTypesChart"),
@@ -303,7 +338,9 @@ describe("ConfigEditor", () => {
       expect(screen.getByText("Feeds: Types")).toBeInTheDocument();
       // EnrichmentLookup (noGrid) must NOT appear in the dropdown
       const dropdownMenu = screen.getByRole("menu");
-      expect(within(dropdownMenu).queryByText("Enrichment Lookup")).not.toBeInTheDocument();
+      expect(
+        within(dropdownMenu).queryByText("Enrichment Lookup"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -318,9 +355,7 @@ describe("ConfigEditor", () => {
 
       renderEditor();
 
-      expect(
-        screen.getByText(/no widgets/i),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/no widgets/i)).toBeInTheDocument();
       expect(screen.queryByTestId("rgl-grid")).not.toBeInTheDocument();
     });
   });

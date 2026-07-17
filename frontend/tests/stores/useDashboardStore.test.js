@@ -67,7 +67,11 @@ describe("useDashboardStore", () => {
 
   describe("setLayouts", () => {
     test("replaces layouts and marks store dirty", () => {
-      const newLayouts = { lg: [{ i: "X", x: 0, y: 0, w: 12, h: 9 }], md: [], sm: [] };
+      const newLayouts = {
+        lg: [{ i: "X", x: 0, y: 0, w: 12, h: 9 }],
+        md: [],
+        sm: [],
+      };
       useDashboardStore.getState().setLayouts(newLayouts);
 
       const state = useDashboardStore.getState();
@@ -111,7 +115,11 @@ describe("useDashboardStore", () => {
     });
 
     test("preserves current layouts and widgetConfigs", () => {
-      const customLayouts = { lg: [{ i: "A", x: 0, y: 0, w: 6, h: 9 }], md: [], sm: [] };
+      const customLayouts = {
+        lg: [{ i: "A", x: 0, y: 0, w: 6, h: 9 }],
+        md: [],
+        sm: [],
+      };
       useDashboardStore.setState({ layouts: customLayouts, isDirty: true });
       useDashboardStore.getState().save();
       expect(useDashboardStore.getState().layouts).toEqual(customLayouts);
@@ -124,7 +132,9 @@ describe("useDashboardStore", () => {
     test("restores default widgetConfigs", () => {
       useDashboardStore.setState({ widgetConfigs: [] });
       useDashboardStore.getState().resetToDefault();
-      expect(useDashboardStore.getState().widgetConfigs).toEqual(WIDGET_CONFIGS);
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
     });
 
     test("restores default layouts", () => {
