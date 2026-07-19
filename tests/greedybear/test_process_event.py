@@ -2,19 +2,16 @@ import hashlib
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from greedybear.models import (
-    IOC,
-    CommandSequence,
-    Credential,
-    EventStatus,
-    RawEvent,
-)
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, HoneypotPayload, RawEvent
 from greedybear.process_event import (
     _normalize_raw_event_to_hit,
+    _process_array_field,
     _process_commands,
     _process_credentials,
+    _process_payload_hashes,
     _process_related_urls,
     process_incoming_event,
 )
@@ -113,6 +110,36 @@ class TestNormalizeRawEventToHit(CustomTestCase):
         raw = self._raw(src_ip="1.2.3.4")
         result = _normalize_raw_event_to_hit(raw)
         self.assertEqual(result["_sensor"], raw.sensor)
+
+    def test_protocol_in_hit(self):
+        raw = self._raw(src_ip="1.2.3.4", protocol="ssh")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertEqual(result["_protocol"], "ssh")
+
+    def test_no_protocol_key_when_empty(self):
+        raw = self._raw(src_ip="1.2.3.4", protocol="")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertNotIn("_protocol", result)
+
+    def test_cve_id_in_hit(self):
+        raw = self._raw(src_ip="1.2.3.4", cve_id="CVE-2021-44228")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertEqual(result["_cve_id"], "CVE-2021-44228")
+
+    def test_no_cve_id_key_when_empty(self):
+        raw = self._raw(src_ip="1.2.3.4", cve_id="")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertNotIn("_cve_id", result)
+
+    def test_payload_hash_in_hit(self):
+        raw = self._raw(src_ip="1.2.3.4", payload_hash="a" * 64)
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertEqual(result["_payload_hash"], "a" * 64)
+
+    def test_no_payload_hash_key_when_empty(self):
+        raw = self._raw(src_ip="1.2.3.4", payload_hash="")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertNotIn("_payload_hash", result)
 
 
 class TestProcessCredentials(CustomTestCase):
@@ -545,3 +572,127 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.assertEqual(self.batch.status, "failed")
 
         self.assertEqual(self.batch.ioc_count, 0)
+
+
+class TestProcessArrayField(CustomTestCase):
+    def setUp(self):
+        self.ioc = IOC.objects.create(name="10.0.0.4", type="ip", protocols=[], cves=[])
+
+    def _hit(self, hit_key, value):
+        return {hit_key: value}
+
+    def test_protocol_added_to_ioc(self):
+        _process_array_field(self.ioc, [self._hit("_protocol", "ssh")], hit_key="_protocol", field_name="protocols")
+        self.ioc.refresh_from_db()
+        self.assertIn("ssh", self.ioc.protocols)
+
+    def test_cve_added_to_ioc(self):
+        _process_array_field(self.ioc, [self._hit("_cve_id", "CVE-2021-44228")], hit_key="_cve_id", field_name="cves")
+        self.ioc.refresh_from_db()
+        self.assertIn("CVE-2021-44228", self.ioc.cves)
+
+    def test_duplicate_value_not_added_twice(self):
+        hits = [self._hit("_protocol", "ssh"), self._hit("_protocol", "ssh")]
+        _process_array_field(self.ioc, hits, hit_key="_protocol", field_name="protocols")
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.protocols.count("ssh"), 1)
+
+    def test_idempotent_double_call_no_duplicate(self):
+        _process_array_field(self.ioc, [self._hit("_protocol", "ssh")], hit_key="_protocol", field_name="protocols")
+        _process_array_field(self.ioc, [self._hit("_protocol", "ssh")], hit_key="_protocol", field_name="protocols")
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.protocols.count("ssh"), 1)
+
+    def test_new_value_appended_to_existing(self):
+        self.ioc.protocols = ["telnet"]
+        self.ioc.save()
+        _process_array_field(self.ioc, [self._hit("_protocol", "ssh")], hit_key="_protocol", field_name="protocols")
+        self.ioc.refresh_from_db()
+        self.assertIn("telnet", self.ioc.protocols)
+        self.assertIn("ssh", self.ioc.protocols)
+
+    def test_multiple_distinct_values_all_added(self):
+        hits = [self._hit("_cve_id", "CVE-2021-44228"), self._hit("_cve_id", "CVE-2022-0001")]
+        _process_array_field(self.ioc, hits, hit_key="_cve_id", field_name="cves")
+        self.ioc.refresh_from_db()
+        self.assertEqual(len(self.ioc.cves), 2)
+
+    def test_no_matching_key_in_hits_no_db_write(self):
+        with self.assertNumQueries(0):
+            _process_array_field(self.ioc, [{"src_ip": "1.1.1.1"}], hit_key="_protocol", field_name="protocols")
+
+    def test_values_sorted_in_db(self):
+        hits = [self._hit("_protocol", "telnet"), self._hit("_protocol", "ftp")]
+        _process_array_field(self.ioc, hits, hit_key="_protocol", field_name="protocols")
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.protocols, sorted(self.ioc.protocols))
+
+    def test_empty_string_value_skipped(self):
+        _process_array_field(self.ioc, [self._hit("_protocol", "")], hit_key="_protocol", field_name="protocols")
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.protocols, [])
+
+
+class TestProcessPayloadHashes(CustomTestCase):
+    def setUp(self):
+        HoneypotPayload.objects.all().delete()
+        self.ioc = IOC.objects.create(name="10.0.0.5", type="ip")
+        self.sha256 = "a" * 64
+
+    def _hit(self, sha256):
+        return {"_payload_hash": sha256}
+
+    def test_stub_payload_created_and_linked(self):
+        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertIn(self.ioc, payload.iocs.all())
+
+    def test_stub_payload_has_no_file(self):
+        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertFalse(payload.payload_file)
+
+    def test_idempotent_double_call_no_duplicate_row(self):
+        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        self.assertEqual(HoneypotPayload.objects.filter(sha256=self.sha256).count(), 1)
+
+    def test_existing_payload_with_file_not_overwritten(self):
+        """If PayloadExtractionJob already quarantined the file, we must not clobber it."""
+        existing = HoneypotPayload.objects.create(sha256=self.sha256, md5="deadbeef")
+        existing.payload_file.save("sample.bin", ContentFile(b"data"))
+        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        existing.refresh_from_db()
+        self.assertTrue(existing.payload_file)
+        self.assertIn(self.ioc, existing.iocs.all())
+
+    def test_multiple_hashes_all_linked(self):
+        hits = [self._hit("a" * 64), self._hit("b" * 64)]
+        _process_payload_hashes(self.ioc, hits)
+        self.assertEqual(self.ioc.payloads.count(), 2)
+
+    def test_same_hash_linked_to_multiple_iocs(self):
+        ioc2 = IOC.objects.create(name="10.0.0.6", type="ip")
+        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(ioc2, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertIn(self.ioc, payload.iocs.all())
+        self.assertIn(ioc2, payload.iocs.all())
+
+    def test_no_payload_hash_in_hits_no_db_write(self):
+        with self.assertNumQueries(0):
+            _process_payload_hashes(self.ioc, [{"src_ip": "1.1.1.1"}])
+
+    def test_empty_hash_string_skipped(self):
+        _process_payload_hashes(self.ioc, [self._hit("")])
+        self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    def test_uppercase_hash_deduplicates_with_lowercase(self):
+        """
+        DB-level Lower() constraint must treat the same hash in different
+        cases as the same row, no duplicate created.
+        """
+        _process_payload_hashes(self.ioc, [self._hit("a" * 64)])
+        # same hash, uppercase, should find existing row, not create a second
+        _process_payload_hashes(self.ioc, [self._hit("A" * 64)])
+        self.assertEqual(HoneypotPayload.objects.count(), 1)

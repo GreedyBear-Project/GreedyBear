@@ -9,7 +9,7 @@ from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, RawEvent
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, HoneypotPayload, RawEvent
 from greedybear.utils import get_attack_type, is_valid_url
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,12 @@ def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
         hit["_related_url"] = raw.related_url
     if raw.command:
         hit["_command"] = raw.command
+    if raw.protocol:
+        hit["_protocol"] = raw.protocol
+    if raw.cve_id:
+        hit["_cve_id"] = raw.cve_id
+    if raw.payload_hash:
+        hit["_payload_hash"] = raw.payload_hash
 
     return hit
 
@@ -134,6 +140,56 @@ def _process_commands(ip_hits: list[dict]) -> None:
     # automatically,  no action needed from us.
     if created:
         logger.debug(f"created CommandSequence hash={commands_hash[:12]}…")
+
+
+def _process_array_field(saved_ioc: IOC, ip_hits: list[dict], hit_key: str, field_name: str) -> None:
+    """
+    Aggregates unique string values from raw hits into an IOC ArrayField.
+
+    Args:
+        saved_ioc: the IOC instance to update.
+        ip_hits: normalized hit dicts for this IOC's events.
+        hit_key: key in each hit dict holding the raw value, e.g. "_protocol".
+        field_name: name of the ArrayField on IOC to update, e.g. "protocols".
+    """
+    new_values = {hit[hit_key] for hit in ip_hits if hit.get(hit_key)}
+    if not new_values:
+        return
+
+    existing = set(getattr(saved_ioc, field_name) or [])
+    to_add = new_values - existing
+    if not to_add:
+        return
+
+    setattr(saved_ioc, field_name, sorted(existing | to_add))
+    saved_ioc.save(update_fields=[field_name])
+    logger.debug(f"added {len(to_add)} {field_name[:-1]}(s) → IOC {saved_ioc.name}")
+
+
+def _process_payload_hashes(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+    """
+    Links observed payload hashes to HoneypotPayload rows.
+
+    A hash observed here may later be enriched with an actual file by
+    PayloadExtractionJob. We only create a hash-only stub row if one doesn't
+    already exist.
+    """
+    hashes = {hit["_payload_hash"].lower() for hit in ip_hits if hit.get("_payload_hash")}
+    if not hashes:
+        return
+    for sha256_hash in hashes:
+        payload, created = HoneypotPayload.objects.get_or_create(
+            sha256=sha256_hash,
+            defaults={
+                "payload_file": None,
+                "md5": "",
+                "sha1": "",
+            },
+        )
+        payload.iocs.add(saved_ioc)
+        if created:
+            logger.debug(f"created hash-only payload {sha256_hash[:12]}…")
+        logger.debug(f"linked payload {sha256_hash[:12]}… → IOC {saved_ioc.name}")
 
 
 def process_incoming_event(source_id: int, task_id: str) -> None:
@@ -236,6 +292,9 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
                 _process_credentials(saved_ioc, ip_hits)
                 _process_related_urls(saved_ioc, ip_hits)
                 _process_commands(ip_hits)
+                _process_array_field(saved_ioc, ip_hits, hit_key="_protocol", field_name="protocols")
+                _process_array_field(saved_ioc, ip_hits, hit_key="_cve_id", field_name="cves")
+                _process_payload_hashes(saved_ioc, ip_hits)
 
                 processed_iocs.append(saved_ioc)
 
