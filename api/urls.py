@@ -8,6 +8,7 @@ from api.views import (
     AdvancedFeedView,
     AsnFeedView,
     ConsumeFeedView,
+    HoneypotPayloadViewSet,
     PaginatedFeedView,
     ShareTokenViewSet,
     SimpleFeedView,
@@ -27,6 +28,7 @@ from api.views import (
 # Routers provide an easy way of automatically determining the URL conf.
 router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"statistics", StatisticsViewSet, basename="statistics")
+router.register(r"payloads", HoneypotPayloadViewSet, basename="payloads")
 
 # These come after /api/
 # and will appear in the generated schema
