@@ -26,6 +26,11 @@ from api.views import (
 )
 
 # Routers provide an easy way of automatically determining the URL conf.
+# These will appear in the generated schema
+documented_router = routers.DefaultRouter(trailing_slash=False)
+documented_router.register(r"payloads", HoneypotPayloadViewSet, basename="payloads")
+
+# These will NOT appear in the generated schema
 router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"statistics", StatisticsViewSet, basename="statistics")
 router.register(r"payloads", HoneypotPayloadViewSet, basename="payloads")
@@ -44,7 +49,7 @@ documented_urlpatterns = [
     path("feeds/revoke/<str:token>", ShareTokenViewSet.as_view({"get": "revoke"})),
     path("feeds/tokens/", ShareTokenViewSet.as_view({"get": "list_tokens"})),
 ]
-schema_urlconf = [path("api/", include(documented_urlpatterns))]
+schema_urlconf = [path("api/", include(documented_urlpatterns + documented_router.urls))]
 
 # These come after /api/
 # but won't appear in the generated schema
