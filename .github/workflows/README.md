@@ -215,3 +215,15 @@ TODO
 ## [Reusable release and tag workflow](_release_and_tag.yml)
 
 TODO
+
+## [Build and publish Docker images](docker_publish.yml)
+
+This workflow builds the `greedybear` and `greedybear_nginx` images and publishes them to the **GitHub Container Registry (GHCR)** under `ghcr.io/greedybear-project`, decoupling image hosting from the IntelOwl-owned DockerHub account.
+
+It runs on:
+
+* pushes to **main** — tagged `prod`
+* pushes to **develop** — tagged `stag`
+* pushes of a **`X.Y.Z` git tag** — tagged with that version
+
+Each image is built via a job matrix and pushed by [**docker/build-push-action**](https://github.com/docker/build-push-action), with tags/labels derived by [**docker/metadata-action**](https://github.com/docker/metadata-action) and layer caching backed by the GitHub Actions cache.
