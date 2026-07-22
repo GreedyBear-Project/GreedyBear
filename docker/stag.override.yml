@@ -1,9 +1,9 @@
 services:
   app:
-    image: intelowlproject/greedybear:stag
+    image: ghcr.io/greedybear-project/greedybear:stag
 
   nginx:
-    image: intelowlproject/greedybear_nginx:stag
+    image: ghcr.io/greedybear-project/greedybear_nginx:stag
 
   qcluster:
-    image: intelowlproject/greedybear:stag
+    image: ghcr.io/greedybear-project/greedybear:stag
