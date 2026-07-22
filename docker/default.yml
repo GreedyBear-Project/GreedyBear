@@ -16,7 +16,7 @@ services:
       start_interval: 1s
 
   app:
-    image: intelowlproject/greedybear:prod
+    image: ghcr.io/greedybear-project/greedybear:prod
     container_name: greedybear_app
     restart: unless-stopped
     stop_grace_period: 30s
@@ -43,7 +43,7 @@ services:
       start_interval: 1s
 
   nginx:
-    image: intelowlproject/greedybear_nginx:prod
+    image: ghcr.io/greedybear-project/greedybear_nginx:prod
     container_name: greedybear_nginx
     restart: unless-stopped
     volumes:
@@ -68,7 +68,7 @@ services:
 
 
   qcluster:
-    image: intelowlproject/greedybear:prod
+    image: ghcr.io/greedybear-project/greedybear:prod
     container_name: greedybear_qcluster
     restart: unless-stopped
     stop_grace_period: 3m

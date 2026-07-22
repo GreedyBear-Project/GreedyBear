@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       target: development
-    image: intelowlproject/greedybear:test
+    image: ghcr.io/greedybear-project/greedybear:test
     volumes:
       - ../:/opt/deploy/greedybear
     command: python manage.py runserver 0.0.0.0:8001
@@ -18,12 +18,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile_nginx
-    image: intelowlproject/greedybear_nginx:test
+    image: ghcr.io/greedybear-project/greedybear_nginx:test
     volumes:
       - ../configuration/nginx/django_server.conf:/etc/nginx/conf.d/default.conf
 
   qcluster:
-    image: intelowlproject/greedybear:test
+    image: ghcr.io/greedybear-project/greedybear:test
     volumes:
       - ../:/opt/deploy/greedybear
     command: sh -c "python manage.py setup_schedules && exec watchfiles --filter python 'python manage.py qcluster' /opt/deploy/greedybear/greedybear"
