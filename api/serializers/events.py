@@ -85,6 +85,20 @@ class EventSerializer(serializers.Serializer):
             raise serializers.ValidationError("Timestamp cannot be in the future.")
         return value
 
+    def validate_payload_hash(self, value):
+        if value and not re.fullmatch(r"[a-fA-F0-9]{64}", value):
+            raise serializers.ValidationError("payload_hash must be a 64-character hex sha256 digest.")
+        return value.lower() if value else value
+
+    def validate_protocol(self, value):
+        return value.strip().lower() if value else value
+
+    def validate_cve_id(self, value):
+        value = value.strip().upper()
+        if value and not re.fullmatch(r"CVE-\d{4}-\d{4,}", value):
+            raise serializers.ValidationError("cve_id must follow the CVE format: CVE-YYYY-NNNNN (e.g. CVE-2021-44228).")
+        return value
+
 
 class InjectionSerializer(serializers.Serializer):
     events = serializers.ListField(

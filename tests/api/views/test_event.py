@@ -153,6 +153,50 @@ class TestEventsCreateValidation(BaseEventTestCase):
 
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_payload_hash_uppercase_normalized_to_lowercase(self):
+        event = valid_event(self.sensor.id, payload_hash="A" * 64)
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(raw.payload_hash, "a" * 64)
+
+    def test_payload_hash_wrong_length_returns_400(self):
+        event = valid_event(self.sensor.id, payload_hash="tooshort")
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_protocol_normalized_to_lowercase(self):
+        event = valid_event(self.sensor.id, protocol="SSH")
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(raw.protocol, "ssh")
+
+    def test_protocol_stripped_of_whitespace(self):
+        event = valid_event(self.sensor.id, protocol="  ssh  ")
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(raw.protocol, "ssh")
+
+    def test_cve_id_normalized_to_uppercase(self):
+        event = valid_event(self.sensor.id, cve_id="cve-2021-44228")
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(raw.cve_id, "CVE-2021-44228")
+
+    def test_cve_id_invalid_format_returns_400(self):
+        event = valid_event(self.sensor.id, cve_id="INVALID-FORMAT")
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cve_id_empty_string_accepted(self):
+        """Empty cve_id is optional — must not be validated against the CVE regex."""
+        event = valid_event(self.sensor.id, cve_id="")
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+
 
 class TestEventsCreateSuccess(BaseEventTestCase):
     @patch("api.views.event.async_task", return_value="task-abc-123")
@@ -276,6 +320,38 @@ class TestEventsCreateSuccess(BaseEventTestCase):
 
         # Ensure background execution was never triggered
         mock_task.assert_not_called()
+
+    @patch("api.views.event.async_task", return_value="task-newfields")
+    def test_new_fields_persisted_on_raw_event(self, mock_task):
+        """
+        Confirms protocol, cve_id, and payload_hash values submitted via the API
+        are actually written to the RawEvent row, not just accepted by validation.
+        """
+        event = valid_event(
+            self.sensor.id,
+            protocol="ssh",
+            cve_id="CVE-2024-0001",
+            payload_hash="a" * 64,
+        )
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+
+        raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(raw.protocol, "ssh")
+        self.assertEqual(raw.cve_id, "CVE-2024-0001")
+        self.assertEqual(raw.payload_hash, "a" * 64)
+
+    @patch("api.views.event.async_task", return_value="task-emptyfields")
+    def test_omitted_new_fields_default_empty_on_raw_event(self, mock_task):
+        """Protocol/cve_id/payload_hash are optional — must default to empty, not null/error."""
+        event = valid_event(self.sensor.id)  # none of the new optional fields set
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+
+        raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(raw.protocol, "")
+        self.assertEqual(raw.cve_id, "")
+        self.assertEqual(raw.payload_hash, "")
 
 
 class TestEventsCreateAllInvalidSensors(BaseEventTestCase):

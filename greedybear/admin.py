@@ -171,6 +171,8 @@ class IOCModelAdmin(admin.ModelAdmin):
         "firehol_categories",
         "autonomous_system_display",
         "destination_ports",
+        "protocols",
+        "cves",
         "login_attempts",
     ]
     list_filter = [

@@ -172,6 +172,8 @@ class IOC(models.Model):
     ip_reputation = models.CharField(max_length=32, blank=True)
     firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
+    protocols = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
+    cves = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
     login_attempts = models.IntegerField(default=0)
     # SCORES
     recurrence_probability = models.FloatField(null=True, default=0)
@@ -492,7 +494,7 @@ class HoneypotPayload(models.Model):
     payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
     md5 = models.CharField(max_length=32, blank=True, default="")
     sha1 = models.CharField(max_length=40, blank=True, default="")
-    sha256 = models.CharField(max_length=64, unique=True)
+    sha256 = models.CharField(max_length=64)
     mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
     locator = models.CharField(max_length=1024, blank=True, default="")
@@ -500,6 +502,14 @@ class HoneypotPayload(models.Model):
     source_honeypots = models.ManyToManyField("Honeypot", blank=True)
     iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
     cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("sha256"),
+                name="unique_honeypotpayload_sha256_lower",
+            )
+        ]
 
     def __str__(self):
         return f"Payload {self.sha256}"
