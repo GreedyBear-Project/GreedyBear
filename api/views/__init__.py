@@ -6,5 +6,6 @@ from api.views.feeds import *
 from api.views.health import *
 from api.views.honeypots import *
 from api.views.news import *
+from api.views.payloads import *
 from api.views.sensor import *
 from api.views.statistics import *
