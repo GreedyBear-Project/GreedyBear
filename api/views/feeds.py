@@ -45,6 +45,7 @@ from api.views.utils import (
     aggregate_iocs_by_asn,
     build_feed_dict,
     save_request_source,
+    stream_ioc_objects,
 )
 from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import TrendingBucketRepository
@@ -186,8 +187,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
             verbose = self.request_params.get("verbose", False)
 
             def stream_iocs():
-                feed = build_feed_dict(iocs_queryset, verbose, include_sensors=self.include_sensors)
-                for ioc in feed["iocs"]:
+                for ioc in stream_ioc_objects(iocs_queryset, verbose=verbose, include_sensors=self.include_sensors):
                     yield json.dumps(ioc, default=str) + "\n"
 
             return StreamingHttpResponse(stream_iocs(), content_type="application/x-ndjson")
