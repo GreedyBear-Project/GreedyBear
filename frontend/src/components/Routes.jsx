@@ -3,6 +3,7 @@ import { FallBackLoading } from "@greedybear/gb-ui";
 
 import IfAuthRedirectGuard from "../wrappers/ifAuthRedirectGuard";
 import AuthGuard from "../wrappers/AuthGuard";
+import SuperuserGuard from "../wrappers/SuperuserGuard";
 import ErrorBoundary from "../wrappers/ErrorBoundary";
 
 const Home = React.lazy(() => import("./home/Home"));
@@ -18,6 +19,7 @@ const FeedsTrending = React.lazy(() => import("./feeds/FeedsTrending"));
 const ChangePassword = React.lazy(
   () => import("./me/changepassword/ChangePassword"),
 );
+const ConfigEditor = React.lazy(() => import("./dashboard/ConfigEditor"));
 
 // public components
 const publicRoutesLazy = [
@@ -110,6 +112,16 @@ const authRoutesLazy = [
   {
     path: "/me/change-password",
     element: <ChangePassword />,
+    withErrorBoundary: true,
+  },
+  /* Dashboard Config */
+  {
+    path: "/dashboard/config",
+    element: (
+      <SuperuserGuard>
+        <ConfigEditor />
+      </SuperuserGuard>
+    ),
     withErrorBoundary: true,
   },
 ].map((r) => ({
