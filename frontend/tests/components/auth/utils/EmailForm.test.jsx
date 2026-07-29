@@ -9,7 +9,7 @@ import axios from "axios";
 
 vi.mock("axios");
 
-vi.mock("@greedybear/gb-ui", () => ({
+vi.mock("../../../../src/components/common/gb-ui/index", () => ({
   addToast: vi.fn(),
 }));
 

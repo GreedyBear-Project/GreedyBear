@@ -1,6 +1,6 @@
 import React from "react";
 import axios from "axios";
-import { useTimePickerStore } from "@greedybear/gb-ui";
+import { useTimePickerStore } from "../components/common/gb-ui/index";
 
 /**
  * Map<cacheKey, { data: any, ts: number }>

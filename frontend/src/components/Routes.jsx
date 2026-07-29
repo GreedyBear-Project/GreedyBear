@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-import { FallBackLoading } from "@greedybear/gb-ui";
+import { FallBackLoading } from "./common/gb-ui/index";
 
 import IfAuthRedirectGuard from "../wrappers/ifAuthRedirectGuard";
 import AuthGuard from "../wrappers/AuthGuard";

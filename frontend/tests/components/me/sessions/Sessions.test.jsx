@@ -11,8 +11,8 @@ vi.mock("../../../../src/components/me/sessions/APIaccess", () => ({
   default: () => <div data-testid="mock-api-access">Mock API Access</div>,
 }));
 
-// Mock @greedybear/gb-ui components used in Sessions
-vi.mock("@greedybear/gb-ui", () => ({
+// Mock local gb-ui components used in Sessions
+vi.mock("../../../../src/components/common/gb-ui/index", () => ({
   ContentSection: ({ children, className }) => (
     <div data-testid="content-section" className={className}>
       {children}

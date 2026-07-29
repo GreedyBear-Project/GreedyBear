@@ -13,7 +13,7 @@ import {
   ContentSection,
   Select,
   useAxiosComponentLoader,
-} from "@greedybear/gb-ui";
+} from "../common/gb-ui/index";
 
 import { FEEDS_TRENDING_URI, HONEYPOT_URI } from "../../constants/api";
 import { MultiSelectDropdown } from "./MultiSelectDropdown";

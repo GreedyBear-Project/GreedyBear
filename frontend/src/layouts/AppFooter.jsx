@@ -2,7 +2,11 @@ import React from "react";
 import { Row, Col, Container } from "reactstrap";
 import { FaXTwitter, FaGithub, FaLinkedin } from "react-icons/fa6";
 
-import { ScrollToTopButton, Toaster, useToastr } from "@greedybear/gb-ui";
+import {
+  ScrollToTopButton,
+  Toaster,
+  useToastr,
+} from "../components/common/gb-ui/index";
 
 import { VERSION } from "../constants/environment";
 
