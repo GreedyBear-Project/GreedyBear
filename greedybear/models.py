@@ -502,6 +502,11 @@ class HoneypotPayload(models.Model):
     source_honeypots = models.ManyToManyField("Honeypot", blank=True)
     iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
     cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
+    is_uploaded_mb = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True once the payload has been successfully reported to MalwareBazaar (or confirmed as a duplicate there).",
+    )
 
     class Meta:
         constraints = [
