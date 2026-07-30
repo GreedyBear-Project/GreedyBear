@@ -17,7 +17,11 @@ IP = "ip"
 
 FIELDS_TO_EXTRACT = [
     "@timestamp",
+    "alert",
+    "app_proto",
     "body",
+    "connection",
+    "cve",
     "dest_port",
     "duration",
     "eventid",
@@ -29,6 +33,7 @@ FIELDS_TO_EXTRACT = [
     "password",
     "path",
     "post_data",
+    "proto",
     "protocol",
     "session",
     "shasum",

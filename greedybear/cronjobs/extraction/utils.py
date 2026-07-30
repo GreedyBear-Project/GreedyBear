@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from ipaddress import ip_address, ip_network
 from logging import Logger
@@ -145,6 +146,8 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         sensors_map = {}
         timestamps = []
         login_attempts = 0
+        protocols: set[str] = set()
+        cves: set[str] = set()
         for hit in hits:
             if "dest_port" in hit:
                 dest_ports.append(hit["dest_port"])
@@ -155,6 +158,34 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
                 timestamps.append(hit["@timestamp"])
             if hit.get("username") or hit.get("password"):
                 login_attempts += 1
+            # protocol extraction, mapped explicitly by honeypot type to avoid
+            # ambiguity (e.g. Suricata has both proto=TCP and app_proto=rfb)
+            honeypot_type = hit.get("type", "")
+            connection = hit.get("connection")
+            if honeypot_type == "Suricata":
+                proto = hit.get("app_proto")
+            elif honeypot_type == "Heralding":
+                proto = hit.get("proto")
+            elif isinstance(connection, dict):
+                # Dionaea
+                proto = connection.get("protocol")
+            else:
+                # Cowrie
+                proto = hit.get("protocol")
+            if proto:
+                protocols.add(str(proto).strip().lower())
+
+            # CVE extraction, guard against None values in nested fields
+            alert = hit.get("alert")
+            cve_field = hit.get("cve") or (alert.get("cve_id") if isinstance(alert, dict) else None) or ""
+            if cve_field:
+                for cve in str(cve_field).strip().split():
+                    if re.match(r"^CVE-\d{4}-\d{4,}$", cve, re.IGNORECASE):
+                        cves.add(cve.upper())
+
+            # Ciscoasa: hardcoded CVE see https://github.com/Cymmetria/ciscoasa_honeypot
+            if honeypot_type == "Ciscoasa":
+                cves.add("CVE-2018-0101")
 
         # Sort sensors by ID for consistent processing order
         sensors = sorted(sensors_map.values(), key=lambda s: s.id)
@@ -179,6 +210,8 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
             firehol_categories=firehol_categories,
             attacker_country=attacker_country,
             attacker_country_code=attacker_country_code,
+            protocols=sorted(protocols),
+            cves=sorted(cves),
         )
         # Attach sensors to temporary attribute for later processing.
         # We cannot use `ioc.sensors.add()` here because the IOC instance is not yet saved
