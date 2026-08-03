@@ -8,6 +8,7 @@ from api.views import (
     AdvancedFeedView,
     AsnFeedView,
     ConsumeFeedView,
+    CowrieSessionView,
     EnrichmentView,
     HealthView,
     HoneypotPayloadViewSet,
@@ -17,7 +18,6 @@ from api.views import (
     StatisticsViewSet,
     TrendingFeedView,
     command_sequence_view,
-    cowrie_session_view,
     event_status_view,
     events_create_view,
     general_honeypot_list,
@@ -49,6 +49,7 @@ documented_urlpatterns = [
     path("feeds/revoke/<str:token>", ShareTokenViewSet.as_view({"get": "revoke"})),
     path("feeds/tokens/", ShareTokenViewSet.as_view({"get": "list_tokens"})),
     path("enrichment", EnrichmentView.as_view()),
+    path("cowrie_session", CowrieSessionView.as_view()),
     path("health/", HealthView.as_view()),
 ]
 schema_urlconf = [path("api/", include(documented_urlpatterns + documented_router.urls))]
@@ -60,7 +61,6 @@ urlpatterns = [
     path("schema/", SpectacularAPIView.as_view(urlconf=schema_urlconf), name="schema"),
     path("schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
-    path("cowrie_session", cowrie_session_view),
     path("command_sequence", command_sequence_view),
     path("general_honeypot", general_honeypot_list),
     path("news/", news_view),

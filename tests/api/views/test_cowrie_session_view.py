@@ -150,9 +150,9 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_include_credentials_invalid_value(self):
-        """Test that invalid boolean values default to false."""
+        """Test that invalid boolean values raise validation error."""
         response = self.client.get("/api/cowrie_session?query=140.246.171.141&include_credentials=maybe")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         self.assertNotIn("credentials", response.data)
 
     def test_case_insensitive_boolean_parameters(self):
