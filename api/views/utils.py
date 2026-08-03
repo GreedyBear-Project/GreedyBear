@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, F, Max, Min, Sum
 from rest_framework import status
+from rest_framework.request import Request
 from rest_framework.response import Response
 from stix2 import Bundle, ExternalReference, Indicator
 
@@ -45,10 +46,10 @@ def get_request_source_ip(request) -> str:
     raise UnableToExtractSourceIPError("No valid source IP found in request metadata")
 
 
-def save_request_source(request):
+def save_request_source(request: Request, view: str):
     try:
         source_ip = get_request_source_ip(request)
-        request_source = Statistics(source=source_ip)
+        request_source = Statistics(source=source_ip, view=view)
         request_source.save()
     except UnableToExtractSourceIPError:
         logger.warning("Skipping statistics recording due to unable to extract source IP")

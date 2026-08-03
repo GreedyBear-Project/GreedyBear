@@ -2,14 +2,19 @@ import logging
 import time
 from datetime import datetime, timedelta
 
+from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
 from django_q.models import Schedule, Task
-from rest_framework.decorators import api_view, permission_classes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from rest_framework import status
 from rest_framework.permissions import IsAdminUser
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from api.serializers import HealthSerializer
 from greedybear.consts import START_TIME
 from greedybear.models import (
     IOC,
@@ -167,26 +172,23 @@ def get_status_overview():
     }
 
 
-@api_view(["GET"])
-@permission_classes([IsAdminUser])
-def health_view(request):
-    """
-    Health & overview endpoint.
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Health"],
+        summary="Health & overview endpoint",
+        description=("Returns the current system status and aggregated observables. Accessible only to admin users."),
+        responses={
+            200: HealthSerializer,
+            401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+            403: OpenApiResponse(description="Permission denied — requires admin privileges."),
+        },
+    )
+)
+class HealthView(APIView):
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAdminUser]
 
-    Returns the current system status and aggregated observables.Accessible only to admin users.\
-
-    System status includes:
-     - database: "up", "down", or "degraded"
-     - qcluster: "up", "idle", or "down"
-     - elasticsearch: "up", "down", or "not configured"
-     - uptime_seconds: total system uptime in seconds
-
-    Overview data includes:
-     - iocs: total and new IOCs in the last 24 hours
-     - sessions: total Cowrie sessions and sessions in the last 24h
-     - honeypots: total and active honeypots
-     - threat_lists: counts of firehol, mass_scanners, tor_exit_nodes
-     - jobs: Django-Q jobs (scheduled, failed last 24h, successful last 24h)
-    """
-    data = get_status_overview()
-    return Response(data)
+    def get(self, request: Request, *args, **kwargs):
+        data = get_status_overview()
+        response_serializer = HealthSerializer(data)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
