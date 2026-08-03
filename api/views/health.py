@@ -180,6 +180,7 @@ def get_status_overview():
         responses={
             200: HealthSerializer,
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+            403: OpenApiResponse(description="Permission denied — requires admin privileges."),
         },
     )
 )

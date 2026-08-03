@@ -1,11 +1,10 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import ipaddress
-import logging
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django.conf import settings
-from django.http import Http404, HttpResponseBadRequest
+from django.http import Http404
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -18,8 +17,6 @@ from api.serializers import CowrieSessionRequestSerializer, CowrieSessionSeriali
 from api.views.utils import save_request_source
 from greedybear.models import CommandSequence, CowrieSession, ViewType
 from greedybear.utils import is_ip_address, is_sha256hash
-
-logger = logging.getLogger(__name__)
 
 
 @extend_schema_view(
@@ -48,7 +45,8 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
     def get(self, request: Request, *args, **kwargs):
         request_serializer = CowrieSessionRequestSerializer(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
-        save_request_source(request, view=ViewType.ENRICHMENT_VIEW.value)
+        save_request_source(request, ViewType.COWRIE_SESSION_VIEW.value)
+
         observable = request_serializer.validated_data["query"]
         if is_ip_address(observable):
             sessions = CowrieSession.objects.filter(source__name=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
@@ -62,8 +60,6 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
                 raise Http404(f"No command sequences found with hash: {observable}") from exc
             sessions = CowrieSession.objects.filter(commands=commands, duration__gt=0).prefetch_related("source", "commands", "credentials")
         else:
-            if len(observable) > 256:  # max_length of Credential.password field
-                return HttpResponseBadRequest("Query exceeds maximum password length")
             sessions = CowrieSession.objects.filter(credentials__password=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
             if not sessions.exists():
                 raise Http404(f"No information found for password: {observable}")

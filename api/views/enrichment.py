@@ -38,7 +38,8 @@ class EnrichmentView(RequestLoggingMixin, APIView):
     def get(self, request: Request, *args, **kwargs):
         request_serializer = EnrichmentRequestSerializer(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
-        save_request_source(request, view=ViewType.ENRICHMENT_VIEW.value)
+        save_request_source(request, ViewType.ENRICHMENT_VIEW.value)
+
         query = request_serializer.validated_data["query"]
         try:
             data = {
