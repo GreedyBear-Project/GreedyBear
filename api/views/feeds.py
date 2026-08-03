@@ -49,7 +49,7 @@ from api.views.utils import (
 from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
-from greedybear.models import IOC, ShareToken
+from greedybear.models import IOC, ShareToken, ViewType
 
 RENDERERS_BY_FORMAT = {
     "json": FeedJSONRenderer,
@@ -201,7 +201,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
         """Validate the request, build and sort the IOC queryset,
         render it in the requested format, and optionally paginate."""
         self.request_params = self.validate_request(request, **kwargs)
-        save_request_source(request)
+        save_request_source(request, ViewType.FEEDS_VIEW.value)
         cached_response = self.get_cached_response()
         if cached_response is not None:
             return cached_response

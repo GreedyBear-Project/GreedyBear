@@ -172,6 +172,8 @@ SPECTACULAR_SETTINGS = {
         {"name": "Feeds", "description": "Public and authenticated threat intelligence feeds."},
         {"name": "Feed Sharing", "description": "Create, consume, list and revoke shareable feed links."},
         {"name": "Payloads", "description": "Metadata and RBAC-gated download of honeypot-captured payloads."},
+        {"name": "Enrichment", "description": "Lookup for a single IP address or domain."},
+        {"name": "Health", "description": "Health and overview endpoint."},
     ],
     "SCHEMA_PATH_PREFIX": "/api",
 }

@@ -1,49 +1,56 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
-import logging
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.decorators import (
-    api_view,
-    authentication_classes,
-    permission_classes,
-)
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from api.serializers import EnrichmentSerializer
-from api.views.utils import UnableToExtractSourceIPError, get_request_source_ip
-from greedybear.consts import GET
-from greedybear.models import Statistics, ViewType
-
-logger = logging.getLogger(__name__)
+from api.mixins import RequestLoggingMixin
+from api.serializers import EnrichmentRequestSerializer, EnrichmentSerializer
+from api.views.utils import save_request_source
+from greedybear.models import IOC, ViewType
 
 
-@api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def enrichment_view(request):
-    """
-    Handle enrichment requests for a specific observable (domain or IP address).
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Enrichment"],
+        summary="Enrich a single observable",
+        description=(
+            "Look up an IP address or domain in the IOC database. "
+            "A well-formed observable always returns 200: `found` states whether GreedyBear knows it and `ioc` carries the full record when it does."
+        ),
+        parameters=[EnrichmentRequestSerializer],
+        responses={
+            200: EnrichmentSerializer,
+            400: OpenApiResponse(description="The `query` parameter is missing or is not a valid IP address or domain."),
+            401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+        },
+    )
+)
+class EnrichmentView(RequestLoggingMixin, APIView):
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
-    Args:
-        request: The incoming request object containing query parameters.
-
-    Returns:
-        Response: A JSON response indicating whether the observable was found,
-        and if so, the corresponding IOC.
-    """
-    observable_name = request.query_params.get("query")
-    logger.info(f"Enrichment view requested for: {observable_name}")
-    serializer = EnrichmentSerializer(data=request.query_params, context={"request": request})
-    serializer.is_valid(raise_exception=True)
-
-    try:
-        source_ip = get_request_source_ip(request)
-        request_source = Statistics(source=source_ip, view=ViewType.ENRICHMENT_VIEW.value)
-        request_source.save()
-    except UnableToExtractSourceIPError:
-        logger.warning("Skipping statistics recording due to unable to extract source IP")
-
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    def get(self, request: Request, *args, **kwargs):
+        request_serializer = EnrichmentRequestSerializer(data=request.query_params.dict())
+        request_serializer.is_valid(raise_exception=True)
+        save_request_source(request, view=ViewType.ENRICHMENT_VIEW.value)
+        query = request_serializer.validated_data["query"]
+        try:
+            data = {
+                "found": True,
+                "ioc": IOC.objects.prefetch_related("tags", "sensors").get(name=query),
+                "query": query,
+            }
+        except IOC.DoesNotExist:
+            data = {
+                "found": False,
+                "ioc": None,
+                "query": query,
+            }
+        response_serializer = EnrichmentSerializer(data)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)

@@ -4,18 +4,17 @@ import re
 from rest_framework import serializers
 
 from greedybear.consts import REGEX_DOMAIN
-from greedybear.models import IOC, Honeypot, Sensor, Tag
+from greedybear.models import IOC, Sensor, Tag
 from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
 
 
-class HoneypotSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Honeypot
-
-    def to_representation(self, value):
-        return value.name
+class HoneypotSerializer(serializers.SlugRelatedField):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("slug_field", "name")
+        kwargs.setdefault("read_only", True)
+        super().__init__(**kwargs)
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -42,10 +41,8 @@ class IOCSerializer(serializers.ModelSerializer):
         ]
 
 
-class EnrichmentSerializer(serializers.Serializer):
-    found = serializers.BooleanField(read_only=True, default=False)
-    ioc = IOCSerializer(read_only=True, default=None)
-    query = serializers.CharField(max_length=250)
+class EnrichmentRequestSerializer(serializers.Serializer):
+    query = serializers.CharField(max_length=250, help_text="The IP address or domain to lookup.")
 
     def validate(self, data):
         """
@@ -59,11 +56,10 @@ class EnrichmentSerializer(serializers.Serializer):
 
         if not is_ip_address(observable) and not is_domain:
             raise serializers.ValidationError("Observable is not a valid IP address or domain")
-
-        try:
-            required_object = IOC.objects.prefetch_related("tags", "sensors").get(name=observable)
-            data["found"] = True
-            data["ioc"] = required_object
-        except IOC.DoesNotExist:
-            data["found"] = False
         return data
+
+
+class EnrichmentSerializer(serializers.Serializer):
+    found = serializers.BooleanField(read_only=True, default=False)
+    ioc = IOCSerializer(read_only=True, default=None, allow_null=True)
+    query = serializers.CharField(max_length=250)
