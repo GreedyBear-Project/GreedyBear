@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -212,6 +213,18 @@ class TestEventsCreateSuccess(BaseEventTestCase):
         for key in ("message", "task_id", "status_url"):
             self.assertIn(key, res.data)
 
+    @patch("api.views.event.async_task", return_value="task-uuid")
+    def test_task_id_returned_verbatim_as_hex_string(self, mock_task):
+        payload = {"events": [valid_event(self.sensor.id)]}
+        res = self.client.post(EVENTS_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+
+        batch = EventStatus.objects.get()
+        self.assertIsInstance(res.data["task_id"], str)
+        self.assertEqual(res.data["task_id"], batch.task_id)
+        self.assertRegex(res.data["task_id"], r"^[0-9a-f]{32}$")
+
     @patch("api.views.event.async_task", return_value="task-xyz")
     def test_status_url_contains_task_id(self, mock_task):
         payload = {"events": [valid_event(self.sensor.id)]}
@@ -378,98 +391,104 @@ class TestEventsCreateAllInvalidSensors(BaseEventTestCase):
 
 
 class TestEventStatusView(BaseEventTestCase):
-    def _make_batch(self, task_id="task-status-1", batch_status="pending"):
+    def _make_batch(self, task_id=None, batch_status="pending"):
         return EventStatus.objects.create(
             api_source=self.api_source,
-            task_id=task_id,
+            task_id=task_id or uuid.uuid4().hex,
             status=batch_status,
         )
 
     def test_unauthenticated_returns_401(self):
         anon = APIClient()
-        res = anon.get(STATUS_URL.format(task_id="whatever"))
+        res = anon.get(STATUS_URL.format(task_id=uuid.uuid4().hex))
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_no_api_source_returns_403(self):
         user2 = make_user(username="noapi2")
         client2 = auth_client(user2)
-        res = client2.get(STATUS_URL.format(task_id="whatever"))
+        res = client2.get(STATUS_URL.format(task_id=uuid.uuid4().hex))
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unknown_task_id_returns_404(self):
-        res = self.client.get(STATUS_URL.format(task_id="does-not-exist"))
+        res = self.client.get(STATUS_URL.format(task_id=uuid.uuid4().hex))
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_malformed_task_id_returns_400(self):
+        """A task_id that cannot have been minted by the API is rejected before the lookup."""
+        res = self.client.get(STATUS_URL.format(task_id="not-a-task-id"))
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("task_id", str(res.data))
 
     def test_batch_belonging_to_other_user_returns_404(self):
         """Users must not be able to see other users' batches."""
         user2 = make_user(username="other")
         api_source2 = make_api_source(user2, name="OtherSource")
-        EventStatus.objects.create(
+        other_batch = EventStatus.objects.create(
             api_source=api_source2,
-            task_id="task-other",
+            task_id=uuid.uuid4().hex,
             status="pending",
         )
-        res = self.client.get(STATUS_URL.format(task_id="task-other"))
+        res = self.client.get(STATUS_URL.format(task_id=other_batch.task_id))
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_valid_task_id_returns_200(self):
-        self._make_batch()
-        res = self.client.get(STATUS_URL.format(task_id="task-status-1"))
+        batch = self._make_batch()
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
     def test_response_contains_required_fields(self):
-        self._make_batch()
-        res = self.client.get(STATUS_URL.format(task_id="task-status-1"))
+        batch = self._make_batch()
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         for key in ("task_id", "batch_id", "status", "ioc_count", "last_error", "processed_at", "created_at"):
             self.assertIn(key, res.data)
 
     def test_status_pending_reflected(self):
-        self._make_batch(batch_status="pending")
-        res = self.client.get(STATUS_URL.format(task_id="task-status-1"))
+        batch = self._make_batch(batch_status="pending")
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertEqual(res.data["status"], "pending")
 
     def test_status_completed_reflected(self):
-        self._make_batch(task_id="task-done", batch_status="completed")
-        res = self.client.get(STATUS_URL.format(task_id="task-done"))
+        batch = self._make_batch(batch_status="completed")
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertEqual(res.data["status"], "completed")
 
     def test_status_failed_with_error_message(self):
-        batch = self._make_batch(task_id="task-fail", batch_status="failed")
+        batch = self._make_batch(batch_status="failed")
         batch.last_error = "Something went wrong"
         batch.save(update_fields=["last_error"])
-        res = self.client.get(STATUS_URL.format(task_id="task-fail"))
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertEqual(res.data["status"], "failed")
         self.assertEqual(res.data["last_error"], "Something went wrong")
 
     def test_null_last_error_returned_as_none(self):
-        batch = self._make_batch(task_id="task-noerror")
+        batch = self._make_batch()
         batch.last_error = ""
         batch.save()
-        res = self.client.get(STATUS_URL.format(task_id="task-noerror"))
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertIsNone(res.data["last_error"])
 
     def test_ioc_count_returned(self):
-        batch = self._make_batch(task_id="task-ioc")
+        batch = self._make_batch()
         batch.ioc_count = 42
         batch.save(update_fields=["ioc_count"])
-        res = self.client.get(STATUS_URL.format(task_id="task-ioc"))
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertEqual(res.data["ioc_count"], 42)
 
     def test_locked_api_source_returns_403_on_status(self):
-        self._make_batch()
+        batch = self._make_batch()
         self.api_source.is_active = False
         self.api_source.save()
-        res = self.client.get(STATUS_URL.format(task_id="task-status-1"))
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         # locked source should still return 403 to be consistent with create view
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_status_changes_over_time(self):
-        batch = self._make_batch(task_id="task-flow", batch_status="pending")
+        batch = self._make_batch(batch_status="pending")
 
         batch.status = "processing"
         batch.save()
 
-        res = self.client.get(STATUS_URL.format(task_id="task-flow"))
+        res = self.client.get(STATUS_URL.format(task_id=batch.task_id))
         self.assertEqual(res.data["status"], "processing")
 
     @patch("api.views.event.async_task")
