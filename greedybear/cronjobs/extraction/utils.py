@@ -7,11 +7,12 @@ from urllib.parse import urlparse
 import requests
 from django.conf import settings
 
+from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, FireHolList, MassScanner
-from greedybear.utils import get_ioc_type, is_non_global_ip, parse_timestamp
+from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
 
 
 def normalize_credential_field(value: object, max_length: int = 256) -> str:
@@ -142,7 +143,7 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         firehol_categories = get_firehol_categories(ip, extracted_ip, firehol_exact_map, cidr_entries)
 
         # Single pass over hits to accumulate all derived data
-        dest_ports = []
+        dest_ports: set[int] = set()
         sensors_map = {}
         timestamps = []
         login_attempts = 0
@@ -150,7 +151,7 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         cves: set[str] = set()
         for hit in hits:
             if "dest_port" in hit:
-                dest_ports.append(hit["dest_port"])
+                dest_ports.add(hit["dest_port"])
             sensor = hit.get("_sensor")
             if sensor is not None and getattr(sensor, "id", None):
                 sensors_map[sensor.id] = sensor
@@ -158,34 +159,26 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
                 timestamps.append(hit["@timestamp"])
             if hit.get("username") or hit.get("password"):
                 login_attempts += 1
-            # protocol extraction, mapped explicitly by honeypot type to avoid
-            # ambiguity (e.g. Suricata has both proto=TCP and app_proto=rfb)
-            honeypot_type = hit.get("type", "")
-            connection = hit.get("connection")
-            if honeypot_type == "Suricata":
-                proto = hit.get("app_proto")
-            elif honeypot_type == "Heralding":
-                proto = hit.get("proto")
-            elif isinstance(connection, dict):
-                # Dionaea
-                proto = connection.get("protocol")
-            else:
-                # Cowrie
-                proto = hit.get("protocol")
-            if proto:
-                protocols.add(str(proto).strip().lower())
 
-            # CVE extraction, guard against None values in nested fields
-            alert = hit.get("alert")
-            cve_field = hit.get("cve") or (alert.get("cve_id") if isinstance(alert, dict) else None) or ""
-            if cve_field:
-                for cve in str(cve_field).strip().split():
-                    if re.match(r"^CVE-\d{4}-\d{4,}$", cve, re.IGNORECASE):
+            # cve and protocol extraction, mapped explicitly by honeypot type
+            # to avoid ambiguity (e.g. Suricata has both proto=TCP and app_proto=rfb)
+            honeypot_type = hit.get("type", "").lower()
+            cve_field_path = CVE_FIELD_MAP.get(honeypot_type, ())
+            cve_value = get_nested_value(hit, *cve_field_path)
+            if cve_value:
+                for cve in str(cve_value).strip().split():
+                    if re.match(r"^CVE-\d{4}-\d{4,10}$", cve, re.IGNORECASE):
                         cves.add(cve.upper())
-
             # Ciscoasa: hardcoded CVE see https://github.com/Cymmetria/ciscoasa_honeypot
-            if honeypot_type == "Ciscoasa":
+            if honeypot_type == "ciscoasa":
                 cves.add("CVE-2018-0101")
+
+            protocol_field_path = PROTOCOL_FIELD_MAP.get(honeypot_type, ())
+            protocol = get_nested_value(hit, *protocol_field_path)
+            if isinstance(protocol, str):
+                protocol = protocol.strip().lower()[:50]  # truncate to match DB field
+                if protocol and protocol not in ("failed", "unknown"):
+                    protocols.add(protocol)
 
         # Sort sensors by ID for consistent processing order
         sensors = sorted(sensors_map.values(), key=lambda s: s.id)
@@ -205,7 +198,7 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
             interaction_count=len(hits),
             ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in hits if h.get("ip_rep")), ""), mass_scanner_ips),
             autonomous_system=autonomous_system,
-            destination_ports=sorted(set(dest_ports)),
+            destination_ports=sorted(dest_ports),
             login_attempts=login_attempts,
             firehol_categories=firehol_categories,
             attacker_country=attacker_country,

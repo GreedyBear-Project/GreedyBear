@@ -529,7 +529,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_dionaea_protocol(self):
         """Dionaea connection.protocol is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "type": "Dionaea", "connection": {"protocol": "smbd"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Dionaea"), "connection": {"protocol": "smbd"}},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -538,7 +538,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_heralding_proto(self):
         """Heralding proto field is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "type": "Heralding", "proto": "vnc"},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Heralding"), "proto": "vnc"},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -547,7 +547,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_suricata_app_proto(self):
         """Suricata app_proto is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "type": "Suricata", "app_proto": "rfb"},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "app_proto": "rfb"},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -556,8 +556,8 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_aggregates_cves_from_hits(self):
         """CVEs from all hits for the same IP are collected and uppercased."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "alert": {"cve_id": "cve-2021-44228"}},
-            {**self._create_hit(src_ip="8.8.8.8"), "alert": {"cve_id": "CVE-2022-0001"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "cve-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2022-0001"}},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -566,8 +566,8 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_deduplicates_cves(self):
         """Duplicate CVEs for the same IP are deduplicated."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "alert": {"cve_id": "CVE-2021-44228"}},
-            {**self._create_hit(src_ip="8.8.8.8"), "alert": {"cve_id": "CVE-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -576,7 +576,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_space_separated_cves_in_single_hit(self):
         """A single hit with multiple space-separated CVEs splits them all."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "alert": {"cve_id": "CVE-2019-12263 CVE-2019-12261 CVE-2019-12260"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2019-12263 CVE-2019-12261 CVE-2019-12260"}},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -585,7 +585,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_cowrie_cve(self):
         """Cowrie cve field is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "type": "Cowrie", "cve": "CVE-2026-24061"},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Cowrie"), "cve": "CVE-2026-24061"},
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -594,7 +594,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_ciscoasa_hardcoded_cve(self):
         """Every Ciscoasa hit gets CVE-2018-0101 hardcoded."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "type": "Ciscoasa"},
+            self._create_hit(src_ip="8.8.8.8", hit_type="Ciscoasa"),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
