@@ -91,6 +91,10 @@ THREATFOX_API_KEY =
 # Get your free API key from https://www.abuseipdb.com/
 ABUSEIPDB_API_KEY =
 
+# MalwareBazaar API key for submitting honeypot payloads to abuse.ch
+# Get your free Auth-Key from https://auth.abuse.ch/
+MALWAREBAZAAR_API_KEY =
+
 # Rate limiting for feeds endpoints (format: number/period, e.g. 30/minute)
 FEEDS_THROTTLE_RATE=30/minute
 FEEDS_ADVANCED_THROTTLE_RATE=100/minute
