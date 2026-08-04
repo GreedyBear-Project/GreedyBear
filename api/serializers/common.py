@@ -81,5 +81,6 @@ class HoneypotRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, data):
-        data["only_active"] = data["only_active"] or data.pop("onlyActive")
+        legacy_flag = data.pop("onlyActive")
+        data["only_active"] = data["only_active"] or legacy_flag
         return data

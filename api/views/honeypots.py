@@ -2,7 +2,6 @@
 # See the file 'LICENSE' for copying permission.
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -20,13 +19,13 @@ class HoneypotView(RequestLoggingMixin, APIView):
     @extend_schema(
         tags=["Honeypots"],
         summary="Retrieve a list of all honeypots",
-        description=("Retrieve a list of all honeypots, optionally filtering by active status. "),
+        description=("Retrieve a list of all honeypots, optionally filtering by active status."),
         auth=[],
         parameters=[HoneypotRequestSerializer],
         responses={
             200: OpenApiResponse(
                 response={"type": "array", "items": {"type": "string"}},
-                description="A JSON response containing the names of the general honeypots.",
+                description="A JSON response containing the names of the honeypots.",
             )
         },
     )
@@ -36,7 +35,4 @@ class HoneypotView(RequestLoggingMixin, APIView):
         honeypots = Honeypot.objects.all()
         if request_serializer.validated_data["only_active"]:
             honeypots = honeypots.filter(active=True)
-        return Response(
-            list(honeypots.values_list("name", flat=True)),
-            status=status.HTTP_200_OK,
-        )
+        return Response(list(honeypots.values_list("name", flat=True)))
