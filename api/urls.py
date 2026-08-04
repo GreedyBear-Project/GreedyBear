@@ -13,6 +13,7 @@ from api.views import (
     HealthView,
     HoneypotPayloadViewSet,
     PaginatedFeedView,
+    SensorCreateView,
     ShareTokenViewSet,
     SimpleFeedView,
     StatisticsViewSet,
@@ -22,7 +23,6 @@ from api.views import (
     events_create_view,
     general_honeypot_list,
     news_view,
-    sensor_create_view,
 )
 
 # Routers provide an easy way of automatically determining the URL conf.
@@ -50,6 +50,7 @@ documented_urlpatterns = [
     path("feeds/tokens/", ShareTokenViewSet.as_view({"get": "list_tokens"})),
     path("enrichment", EnrichmentView.as_view()),
     path("cowrie_session", CowrieSessionView.as_view()),
+    path("sensor/", SensorCreateView.as_view()),
     path("health/", HealthView.as_view()),
 ]
 schema_urlconf = [path("api/", include(documented_urlpatterns + documented_router.urls))]
@@ -64,7 +65,6 @@ urlpatterns = [
     path("command_sequence", command_sequence_view),
     path("general_honeypot", general_honeypot_list),
     path("news/", news_view),
-    path("sensor/", sensor_create_view),
     path("events/add/", events_create_view),
     path("events/status/<str:task_id>/", event_status_view),
     # router viewsets

@@ -11,12 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 class SensorCreateSerializer(serializers.ModelSerializer):
-    sensor_label = serializers.CharField(source="label", required=False, allow_blank=True, max_length=128)
-
+    sensor_label = serializers.CharField(
+        source="label",
+        required=False,
+        allow_blank=True,
+        max_length=128,
+        help_text="Optional human-readable label to identify this sensor.",
+    )
     asn = serializers.IntegerField(
         required=False,
         allow_null=True,
         min_value=1,
+        max_value=2147483647,
+        help_text="Autonomous System Number.",
     )
 
     class Meta:
@@ -34,7 +41,15 @@ class SensorCreateSerializer(serializers.ModelSerializer):
         ]
 
         extra_kwargs = {
-            "address": {"validators": []},
+            "address": {
+                "validators": [], # drops the model's uniqueness check, which ignores api_source scoping
+                "help_text": "IPv4 or IPv6 address of the sensor.",
+            },
+            "honeypot_type": {"help_text": "Type of honeypot."},
+            "honeypot_software": {"help_text": "Honeypot software name."},
+            "honeypot_description": {"help_text": "Description of the sensor."},
+            "group_label": {"help_text": "Group classification label."},
+            "country_code": {"help_text": "2-letter ISO country code."},
         }
 
         read_only_fields = ["id"]
@@ -53,9 +68,17 @@ class SensorCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_address(self, value):
+        """
+        Validates the address format. Required because Meta.extra_kwargs clears this field's validators.
+        """
         if not is_ip_address(value):
             raise serializers.ValidationError("Invalid IP address")
         return value
+
+
+class SensorCreateResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    message = serializers.CharField(read_only=True)
 
 
 class EventSerializer(serializers.Serializer):
