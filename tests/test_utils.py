@@ -435,8 +435,8 @@ class TestGetNestedValue(SimpleTestCase):
         self.assertEqual(result, 0)
         result = get_nested_value({"alert": {"cve_id": []}}, "alert", "cve_id")
         self.assertEqual(result, [])
-        result = get_nested_value({"protocol": None})
-        self.assertIsNone(result, "protocol")
+        result = get_nested_value({"protocol": None}, "protocol")
+        self.assertIsNone(result)
 
     def test_input_not_mutated(self):
         hit = {"connection": {"protocol": "smbd"}}
