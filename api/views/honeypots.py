@@ -26,7 +26,8 @@ class HoneypotView(RequestLoggingMixin, APIView):
             200: OpenApiResponse(
                 response={"type": "array", "items": {"type": "string"}},
                 description="A JSON response containing the names of the honeypots.",
-            )
+            ),
+            400: OpenApiResponse(description="Invalid query parameter value."),
         },
     )
     def get(self, request: Request, *args, **kwargs):
