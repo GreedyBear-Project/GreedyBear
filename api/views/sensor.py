@@ -1,87 +1,58 @@
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from api.serializers import SensorCreateSerializer
-from api.views.utils import create_or_get_sensor
-from greedybear.models import APISource
+from api.mixins import RequestLoggingMixin
+from api.serializers import SensorCreateResponseSerializer, SensorCreateSerializer
+from api.views.utils import create_or_get_sensor, resolve_active_api_source
 
 
-@api_view(["POST"])
-@authentication_classes([CookieTokenAuthentication])
-@permission_classes([IsAuthenticated])
-def sensor_create_view(request):
-    """
-    Sensor Create API
+class SensorCreateView(RequestLoggingMixin, APIView):
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
-    This endpoint allows authenticated users to create or fetch a sensor
-    using an IP address as the unique identifier.
-
-    Each request is tied to the user's APISource, which is pre-created by
-    an administrator. If no APISource is linked to the user,the request is
-    rejected.
-
-    Behavior:
-    - If the sensor does not exist, it will be created.
-    - If the sensor already exists, the existing id is returned.
-    - Autonomous System (ASN) is optionally resolved and linked via AutonomousSystem model.
-
-    Authentication:
-    This API requires authentication via CookieTokenAuthentication.
-    Each user must have an associated APISource to use this endpoint.
-
-    Request:
-    POST /api/sensor/
-
-    Args:
-        address (str, required): IPv4 or IPv6 address of the sensor.
-        honeypot_type (str, optional): Type of honeypot.
-        honeypot_software (str, optional): Honeypot software name.
-        honeypot_description (str, optional): Description of the sensor.
-        sensor_label (str, optional): Human-readable label.
-        group_label (str, optional): Group classification label.
-        country_code (str, optional): 2-letter ISO country code.
-        asn (int, optional): Autonomous System Number.
-
-    Responses:
-        201 Created:
-            Returned when a new sensor is created.
-
-        200 OK:
-            Returned when an existing sensor is fetched.
-
-        400 Bad Request:
-            Invalid input data (e.g. malformed IP, invalid country code).
-
-        403 Forbidden:
-            User is not authenticated or has no APISource linked.
-    """
-    try:
-        api_source = request.user.api_source
-        if not api_source.is_active:
-            return Response(
-                {"error": "APISource is inactive"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-    except APISource.DoesNotExist:
-        return Response({"error": "No APISource linked to your account"}, status=status.HTTP_403_FORBIDDEN)
-
-    serializer = SensorCreateSerializer(data=request.data)
-
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    sensor, created = create_or_get_sensor(
-        api_source=api_source,
-        validated_data=serializer.validated_data.copy(),
-    )
-
-    return Response(
-        {
-            "id": sensor.id,
-            "message": ("Sensor created successfully" if created else "Sensor already existed"),
+    @extend_schema(
+        tags=["Event Injection"],
+        summary="Sensor creation",
+        description=(
+            "This endpoint allows authenticated users to create or fetch a sensor using an IP address as the unique identifier. "
+            "Each request is tied to the user's APISource, which is pre-created by an administrator. "
+            "If no APISource is linked to the user, the request is rejected."
+        ),
+        request=SensorCreateSerializer,
+        responses={
+            200: OpenApiResponse(response=SensorCreateResponseSerializer, description="An existing sensor is fetched."),
+            201: OpenApiResponse(response=SensorCreateResponseSerializer, description="A new sensor is created."),
+            400: OpenApiResponse(description="Invalid input data (e.g. malformed IP, invalid country code)."),
+            401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
+            403: OpenApiResponse(description="Missing `APISource` or locked account state."),
         },
-        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
+    def post(self, request: Request, *args, **kwargs):
+        api_source, error_response = resolve_active_api_source(request)
+        if error_response:
+            return error_response
+
+        serializer = SensorCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        sensor, created = create_or_get_sensor(
+            api_source=api_source,
+            validated_data=serializer.validated_data.copy(),
+        )
+
+        response_serializer = SensorCreateResponseSerializer(
+            {
+                "id": sensor.id,
+                "message": ("Sensor created successfully" if created else "Sensor already existed"),
+            }
+        )
+
+        return Response(
+            response_serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )

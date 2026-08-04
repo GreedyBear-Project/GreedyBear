@@ -68,6 +68,32 @@ class SensorCreateAuthTests(BaseSensorTestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("error", response.data)
 
+    def test_user_without_apisource_gets_403_even_with_invalid_payload(self):
+        """The APISource gate runs before payload validation, so it decides the status code."""
+        bare_user = make_user(username="bare-invalid")
+        response = auth_client(bare_user).post(
+            SENSOR_CREATE_URL,
+            VALID_PAYLOAD | {"address": "not-an-ip"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("error", response.data)
+
+    def test_inactive_apisource_gets_403_even_with_invalid_payload(self):
+        """An inactive source is rejected before its payload is inspected."""
+        self.api_source.is_active = False
+        self.api_source.save()
+
+        response = self.client.post(
+            SENSOR_CREATE_URL,
+            VALID_PAYLOAD | {"address": "not-an-ip"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("error", response.data)
+
     def test_get_method_not_allowed(self):
         response = self.client.get(SENSOR_CREATE_URL)
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)

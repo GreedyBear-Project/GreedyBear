@@ -25,7 +25,7 @@
     "react-use": "^17.6.1",
     "reactstrap": "^9.2.3",
     "recharts": "^3.9.2",
-    "sass": "^1.101.3",
+    "sass": "^1.102.0",
     "zustand": "^5.0.14"
   },
   "scripts": {
@@ -50,10 +50,10 @@
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@vitejs/plugin-react": "^6.0.4",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.5",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
     "stylelint": "^17.14.1",
     "vite": "^8.1.5",
