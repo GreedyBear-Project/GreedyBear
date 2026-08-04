@@ -1,8 +1,15 @@
-import logging
+from rest_framework import serializers
 
 from greedybear.models import Honeypot
 
-logger = logging.getLogger(__name__)
+
+class PresenceFlagField(serializers.BooleanField):
+    """BooleanField for presence-flag query params.
+    Makes sure that a valueless query param such as include_mass_scanners
+    is treated as truthy.
+    """
+
+    TRUE_VALUES = serializers.BooleanField.TRUE_VALUES | {""}
 
 
 def feed_type_as_list(feed_type_str: str) -> list:

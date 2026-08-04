@@ -14,6 +14,7 @@ from api.views import (
     EventsCreateView,
     HealthView,
     HoneypotPayloadViewSet,
+    HoneypotView,
     PaginatedFeedView,
     SensorCreateView,
     ShareTokenViewSet,
@@ -21,7 +22,6 @@ from api.views import (
     StatisticsViewSet,
     TrendingFeedView,
     command_sequence_view,
-    general_honeypot_list,
     news_view,
 )
 
@@ -50,6 +50,7 @@ documented_urlpatterns = [
     path("feeds/tokens/", ShareTokenViewSet.as_view({"get": "list_tokens"})),
     path("enrichment", EnrichmentView.as_view()),
     path("cowrie_session", CowrieSessionView.as_view()),
+    path("honeypot/", HoneypotView.as_view()),
     path("sensor/", SensorCreateView.as_view()),
     path("events/add/", EventsCreateView.as_view()),
     path("events/status/<str:task_id>/", BatchStatusView.as_view()),
@@ -65,7 +66,7 @@ urlpatterns = [
     path("schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path("command_sequence", command_sequence_view),
-    path("general_honeypot", general_honeypot_list),
+    path("general_honeypot", HoneypotView.as_view()),
     path("news/", news_view),
     # router viewsets
     path("", include(router.urls)),

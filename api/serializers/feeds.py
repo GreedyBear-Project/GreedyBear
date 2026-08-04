@@ -8,7 +8,7 @@ from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
-from api.serializers.utils import feed_type_as_list, get_valid_feed_types
+from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_valid_feed_types
 from greedybear.consts import SHARE_TOKEN_MAX_AGE, SHARE_TOKEN_SALT
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
@@ -60,15 +60,6 @@ class FeedTypeField(serializers.CharField):
         to match internal representaion of other values.
         """
         return [super().get_default()]
-
-
-class PresenceFlagField(serializers.BooleanField):
-    """BooleanField for presence-flag query params.
-    Makes sure that a valueless query param such as include_mass_scanners
-    is treated as truthy.
-    """
-
-    TRUE_VALUES = serializers.BooleanField.TRUE_VALUES | {""}
 
 
 class ReputationListField(serializers.ListField):

@@ -4,7 +4,7 @@ import { VscJson } from "react-icons/vsc";
 import { TbLicense } from "react-icons/tb";
 import { MdFilterAltOff } from "react-icons/md";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { FEEDS_BASE_URI, GENERAL_HONEYPOT_URI } from "../../constants/api";
+import { FEEDS_BASE_URI, HONEYPOT_URI } from "../../constants/api";
 import {
   ContentSection,
   Select,
@@ -143,7 +143,7 @@ export default function Feeds() {
 
   // API to extract general honeypot
   const [honeypots, Loader] = useAxiosComponentLoader({
-    url: `${GENERAL_HONEYPOT_URI}?onlyActive=true`,
+    url: `${HONEYPOT_URI}?only_active=true`,
     headers: { "Content-Type": "application/json" },
   });
 

@@ -1,36 +1,39 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
-import logging
-
-from rest_framework.decorators import api_view
+from certego_saas.apps.auth.backend import CookieTokenAuthentication
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from greedybear.consts import GET
+from api.mixins import RequestLoggingMixin
+from api.serializers import HoneypotRequestSerializer
 from greedybear.models import Honeypot
 
-logger = logging.getLogger(__name__)
 
+class HoneypotView(RequestLoggingMixin, APIView):
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [AllowAny]
 
-@api_view([GET])
-def general_honeypot_list(request):
-    """
-    Retrieve a list of all general honeypots, optionally filtering by active status.
-
-    Args:
-        request: The incoming request object containing query parameters.
-
-    Returns:
-        Response: A JSON response containing the list of general honeypots.
-    """
-
-    logger.info(f"Requested honeypots list from {request.user}.")
-    active = request.query_params.get("onlyActive")
-    honeypots = []
-    honeypot_objs = Honeypot.objects.all()
-    if active == "true":
-        honeypot_objs = honeypot_objs.filter(active=True)
-        logger.info(f"Requested only active honeypots from {request.user}")
-    honeypots.extend([hp.name for hp in honeypot_objs])
-
-    logger.info(f"Honeypots: {honeypots} given back to user {request.user}")
-    return Response(honeypots)
+    @extend_schema(
+        tags=["Honeypots"],
+        summary="Retrieve a list of all honeypots",
+        description=("Retrieve a list of all honeypots, optionally filtering by active status."),
+        auth=[],
+        parameters=[HoneypotRequestSerializer],
+        responses={
+            200: OpenApiResponse(
+                response={"type": "array", "items": {"type": "string"}},
+                description="A JSON response containing the names of the honeypots.",
+            ),
+            400: OpenApiResponse(description="Invalid query parameter value."),
+        },
+    )
+    def get(self, request: Request, *args, **kwargs):
+        request_serializer = HoneypotRequestSerializer(data=request.query_params.dict())
+        request_serializer.is_valid(raise_exception=True)
+        honeypots = Honeypot.objects.all()
+        if request_serializer.validated_data["only_active"]:
+            honeypots = honeypots.filter(active=True)
+        return Response(list(honeypots.values_list("name", flat=True)))

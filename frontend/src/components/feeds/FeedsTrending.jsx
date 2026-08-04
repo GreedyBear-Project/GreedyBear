@@ -15,7 +15,7 @@ import {
   useAxiosComponentLoader,
 } from "@greedybear/gb-ui";
 
-import { FEEDS_TRENDING_URI, GENERAL_HONEYPOT_URI } from "../../constants/api";
+import { FEEDS_TRENDING_URI, HONEYPOT_URI } from "../../constants/api";
 import { MultiSelectDropdown } from "./MultiSelectDropdown";
 
 const DEFAULT_PARAMS = Object.freeze({
@@ -73,7 +73,7 @@ export default function FeedsTrending() {
   const draftRef = React.useRef(DEFAULT_PARAMS);
 
   const [honeypots, HoneypotLoader] = useAxiosComponentLoader({
-    url: `${GENERAL_HONEYPOT_URI}?onlyActive=true`,
+    url: `${HONEYPOT_URI}?only_active=true`,
     headers: { "Content-Type": "application/json" },
   });
 

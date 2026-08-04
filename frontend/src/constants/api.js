@@ -28,7 +28,7 @@ export const FEEDS_TRENDING_URI = `${FEEDS_BASE_URI}/trending/`;
 export const ENRICHMENT_URI = `${API_BASE_URI}/enrichment`;
 
 //honeypot
-export const GENERAL_HONEYPOT_URI = `${API_BASE_URI}/general_honeypot`;
+export const HONEYPOT_URI = `${API_BASE_URI}/honeypot/`;
 
 // News
 export const GREEDYBEAR_NEWS_URL = `${API_BASE_URI}/news`;
