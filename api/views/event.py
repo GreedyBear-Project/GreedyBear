@@ -36,6 +36,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
             400: OpenApiResponse(description="Validation failure or empty event set creation."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
             403: OpenApiResponse(description="Missing `APISource` or locked account state."),
+            500: OpenApiResponse(description="An internal error occurred during early event processing."),
         },
     )
     def post(self, request: Request, *args, **kwargs):
