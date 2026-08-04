@@ -1,5 +1,5 @@
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -12,8 +12,11 @@ from api.views.utils import create_or_get_sensor
 from greedybear.models import APISource
 
 
-@extend_schema_view(
-    post=extend_schema(
+class SensorCreateView(RequestLoggingMixin, APIView):
+    authentication_classes = [CookieTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
         tags=["Event Injection"],
         summary="Sensor creation",
         description=(
@@ -30,11 +33,6 @@ from greedybear.models import APISource
             403: OpenApiResponse(description="User has no APISource linked."),
         },
     )
-)
-class SensorCreateView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
-    permission_classes = [IsAuthenticated]
-
     def post(self, request: Request, *args, **kwargs):
         serializer = SensorCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
