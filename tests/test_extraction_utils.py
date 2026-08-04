@@ -506,6 +506,108 @@ class IocsFromHitsTestCase(CustomTestCase):
         # Also check attacker_country is still set correctly
         self.assertEqual(ioc.attacker_country, "Nepal")
 
+    def test_aggregates_protocols_from_hits(self):
+        """Protocols from all hits for the same IP are collected and lowercased."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "SSH"},
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "telnet"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["ssh", "telnet"])
+
+    def test_deduplicates_protocols(self):
+        """Duplicate protocols for the same IP are deduplicated."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"},
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["ssh"])
+
+    def test_dionaea_protocol(self):
+        """Dionaea connection.protocol is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Dionaea"), "connection": {"protocol": "smbd"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["smbd"])
+
+    def test_heralding_proto(self):
+        """Heralding proto field is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Heralding"), "proto": "vnc"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["vnc"])
+
+    def test_suricata_app_proto(self):
+        """Suricata app_proto is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "app_proto": "rfb"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["rfb"])
+
+    def test_aggregates_cves_from_hits(self):
+        """CVEs from all hits for the same IP are collected and uppercased."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "cve-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2022-0001"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2021-44228", "CVE-2022-0001"])
+
+    def test_deduplicates_cves(self):
+        """Duplicate CVEs for the same IP are deduplicated."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2021-44228"])
+
+    def test_space_separated_cves_in_single_hit(self):
+        """A single hit with multiple space-separated CVEs splits them all."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2019-12263 CVE-2019-12261 CVE-2019-12260"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2019-12260", "CVE-2019-12261", "CVE-2019-12263"])
+
+    def test_cowrie_cve(self):
+        """Cowrie cve field is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Cowrie"), "cve": "CVE-2026-24061"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2026-24061"])
+
+    def test_ciscoasa_hardcoded_cve(self):
+        """Every Ciscoasa hit gets CVE-2018-0101 hardcoded."""
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", hit_type="Ciscoasa"),
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2018-0101"])
+
+    def test_empty_protocols_and_cves_when_not_in_hits(self):
+        """IOC has empty protocols and cves when hits carry neither field."""
+        hits = [self._create_hit(src_ip="8.8.8.8")]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, [])
+        self.assertEqual(ioc.cves, [])
+
 
 class ThreatfoxSubmissionTestCase(ExtractionTestCase):
     def setUp(self):

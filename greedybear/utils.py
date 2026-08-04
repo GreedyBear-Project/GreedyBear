@@ -3,6 +3,7 @@
 import re
 from datetime import datetime
 from ipaddress import IPv4Address, IPv4Network, ip_address
+from typing import Any
 from urllib.parse import urlparse
 
 from greedybear.consts import DOMAIN, IP, PAYLOAD_REQUEST, SCANNER
@@ -174,3 +175,26 @@ def is_valid_url(url: str | None) -> bool:
 
     except Exception:
         return False
+
+
+def get_nested_value(d: dict, *keys: str) -> Any | None:
+    """
+    Traverse a nested dictionary along a path of keys without raising.
+    Failed traversals yield None instead of an error.
+
+    Args:
+        d: Dict to traverse.
+        *keys: Key path to follow, e.g. "connection", "protocol".
+
+    Returns:
+        Value at the end of the key path, or None if the path is empty,
+        a key is missing, or an intermediate value is not a dict.
+    """
+    if not keys:
+        return None
+    current = d
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current

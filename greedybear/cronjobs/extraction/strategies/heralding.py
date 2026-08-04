@@ -127,7 +127,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         """
         Extract and normalise the protocol name from a hit.
 
-        Heralding logs include a ``protocol`` field indicating which
+        Heralding logs include a ``proto`` field indicating which
         emulated service the attacker connected to. The value is
         lower-cased and validated against the known set of Heralding
         protocols.
@@ -138,7 +138,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         Returns:
             Normalised protocol string, or ``None`` if absent/unknown.
         """
-        raw = hit.get("protocol")
+        raw = hit.get("proto")
         if raw:
             normalised = str(raw).strip().lower()
             if normalised in HERALDING_PROTOCOLS:

@@ -39,7 +39,7 @@ class TestHeraldingExtractionStrategy(ExtractionTestCase):
         mock_iocs_from_hits.return_value = [mock_ioc]
         self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
-        hits = [{"src_ip": "1.2.3.4", "dest_port": 22, "protocol": "ssh", "@timestamp": "2025-01-01T00:00:00"}]
+        hits = [{"src_ip": "1.2.3.4", "dest_port": 22, "proto": "ssh", "@timestamp": "2025-01-01T00:00:00"}]
         self.strategy.extract_from_hits(hits)
 
         mock_iocs_from_hits.assert_called_once_with(hits)
@@ -77,8 +77,8 @@ class TestHeraldingExtractionStrategy(ExtractionTestCase):
         self.strategy.ioc_processor.add_ioc = Mock(side_effect=[ioc1, ioc2])
 
         hits = [
-            {"src_ip": "1.2.3.4", "dest_port": 22, "protocol": "ssh", "@timestamp": "2025-01-01T00:00:00"},
-            {"src_ip": "5.6.7.8", "dest_port": 21, "protocol": "ftp", "@timestamp": "2025-01-01T00:00:00"},
+            {"src_ip": "1.2.3.4", "dest_port": 22, "proto": "ssh", "@timestamp": "2025-01-01T00:00:00"},
+            {"src_ip": "5.6.7.8", "dest_port": 21, "proto": "ftp", "@timestamp": "2025-01-01T00:00:00"},
         ]
         self.strategy.extract_from_hits(hits)
 
@@ -94,7 +94,7 @@ class TestHeraldingExtractionStrategy(ExtractionTestCase):
 
         self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
-        hits = [{"src_ip": "1.2.3.4", "dest_port": 22, "protocol": "ssh", "@timestamp": "2025-01-01T00:00:00"}]
+        hits = [{"src_ip": "1.2.3.4", "dest_port": 22, "proto": "ssh", "@timestamp": "2025-01-01T00:00:00"}]
 
         with (
             patch.object(self.strategy, "_get_scanners", wraps=self.strategy._get_scanners) as spy_scanners,
@@ -120,17 +120,17 @@ class TestHeraldingProtocolExtraction(ExtractionTestCase):
     def test_known_protocol_returned(self):
         for proto in ["ssh", "ftp", "telnet", "http", "https", "pop3", "imap", "smtp", "vnc", "rdp", "socks5"]:
             with self.subTest(protocol=proto):
-                hit = {"src_ip": "1.2.3.4", "protocol": proto}
+                hit = {"src_ip": "1.2.3.4", "proto": proto}
                 result = self.strategy._extract_protocol(hit)
                 self.assertEqual(result, proto)
 
     def test_protocol_normalised_to_lowercase(self):
-        hit = {"src_ip": "1.2.3.4", "protocol": "SSH"}
+        hit = {"src_ip": "1.2.3.4", "proto": "SSH"}
         result = self.strategy._extract_protocol(hit)
         self.assertEqual(result, "ssh")
 
     def test_protocol_with_whitespace_stripped(self):
-        hit = {"src_ip": "1.2.3.4", "protocol": "  ftp  "}
+        hit = {"src_ip": "1.2.3.4", "proto": "  ftp  "}
         result = self.strategy._extract_protocol(hit)
         self.assertEqual(result, "ftp")
 
@@ -140,12 +140,12 @@ class TestHeraldingProtocolExtraction(ExtractionTestCase):
         self.assertIsNone(result)
 
     def test_empty_protocol_field_returns_none(self):
-        hit = {"src_ip": "1.2.3.4", "protocol": ""}
+        hit = {"src_ip": "1.2.3.4", "proto": ""}
         result = self.strategy._extract_protocol(hit)
         self.assertIsNone(result)
 
     def test_unknown_protocol_returns_none(self):
-        hit = {"src_ip": "1.2.3.4", "protocol": "unknown_proto"}
+        hit = {"src_ip": "1.2.3.4", "proto": "unknown_proto"}
         result = self.strategy._extract_protocol(hit)
         self.assertIsNone(result)
 
@@ -169,7 +169,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_iocs_from_hits.return_value = []
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential_objects.get_or_create.assert_called_once_with(
@@ -186,9 +186,9 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
         hits = [
-            {"src_ip": "1.2.3.4", "protocol": "ssh", "username": "u1", "password": "p1"},
-            {"src_ip": "1.2.3.4", "protocol": "ftp", "username": "u2", "password": "p2"},
-            {"src_ip": "1.2.3.4", "protocol": "telnet", "username": "u3", "password": "p3"},
+            {"src_ip": "1.2.3.4", "proto": "ssh", "username": "u1", "password": "p1"},
+            {"src_ip": "1.2.3.4", "proto": "ftp", "username": "u2", "password": "p2"},
+            {"src_ip": "1.2.3.4", "proto": "telnet", "username": "u3", "password": "p3"},
         ]
         self.strategy.extract_from_hits(hits)
 
@@ -203,9 +203,9 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
         hits = [
-            {"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor"},
-            {"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor"},
-            {"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor"},
+            {"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor"},
+            {"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor"},
+            {"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor"},
         ]
         self.strategy.extract_from_hits(hits)
 
@@ -217,7 +217,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
     def test_missing_credentials_skipped(self, mock_credential_objects, mock_iocs_from_hits):
         """Hits with protocol but no credentials are ignored in classification."""
         mock_iocs_from_hits.return_value = []
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ssh"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ssh"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential_objects.get_or_create.assert_not_called()
@@ -228,7 +228,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         """Hits with an unknown protocol value do not produce credentials."""
         mock_iocs_from_hits.return_value = []
 
-        hits = [{"src_ip": "1.2.3.4", "protocol": "bogus_protocol", "username": "root", "password": "root"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "bogus_protocol", "username": "root", "password": "root"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential_objects.get_or_create.assert_not_called()
@@ -240,7 +240,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_iocs_from_hits.return_value = []
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
-        hits = [{"src_ip": "9.9.9.9", "protocol": "ssh", "username": "root"}]
+        hits = [{"src_ip": "9.9.9.9", "proto": "ssh", "username": "root"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential_objects.get_or_create.assert_called_once_with(
@@ -256,7 +256,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_iocs_from_hits.return_value = []
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ftp", "username": "root", "password": "root"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ftp", "username": "root", "password": "root"}]
         self.strategy.extract_from_hits(hits)
 
         self.assertGreater(self.strategy.credentials_added, 0)
@@ -268,7 +268,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_iocs_from_hits.return_value = []
         mock_credential_objects.get_or_create.return_value = (Mock(), False)
 
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "root"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "root"}]
         self.strategy.extract_from_hits(hits)
 
         self.assertEqual(self.strategy.credentials_added, 0)
@@ -281,8 +281,8 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
         hits = [
-            {"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor"},
-            {"src_ip": "5.6.7.8", "protocol": "ssh", "username": "admin", "password": "admin"},
+            {"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor"},
+            {"src_ip": "5.6.7.8", "proto": "ssh", "username": "admin", "password": "admin"},
         ]
         self.strategy.extract_from_hits(hits)
 
@@ -307,7 +307,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_iocs_from_hits.return_value = []
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
 
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ssh", "username": "ro\x00ot", "password": "pa\x00ss"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ssh", "username": "ro\x00ot", "password": "pa\x00ss"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential_objects.get_or_create.assert_called_once_with(
@@ -325,7 +325,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
 
         long_username = "u" * 400
         long_password = "p" * 500
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ssh", "username": long_username, "password": long_password}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ssh", "username": long_username, "password": long_password}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential_objects.get_or_create.assert_called_once_with(
@@ -345,7 +345,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_iocs_from_hits.return_value = [mock_ioc]
         self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
-        hits = [{"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor", "@timestamp": "2025-01-01T00:00:00"}]
+        hits = [{"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor", "@timestamp": "2025-01-01T00:00:00"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential.sources.add.assert_called_once_with(mock_ioc)
@@ -363,8 +363,8 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         self.strategy.ioc_processor.add_ioc = Mock(side_effect=[ioc1, ioc2])
 
         hits = [
-            {"src_ip": "1.2.3.4", "protocol": "ssh", "username": "root", "password": "toor", "@timestamp": "2025-01-01T00:00:00"},
-            {"src_ip": "5.6.7.8", "protocol": "ssh", "username": "root", "password": "toor", "@timestamp": "2025-01-01T00:00:00"},
+            {"src_ip": "1.2.3.4", "proto": "ssh", "username": "root", "password": "toor", "@timestamp": "2025-01-01T00:00:00"},
+            {"src_ip": "5.6.7.8", "proto": "ssh", "username": "root", "password": "toor", "@timestamp": "2025-01-01T00:00:00"},
         ]
         self.strategy.extract_from_hits(hits)
 
@@ -379,7 +379,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
         mock_credential_objects.get_or_create.return_value = (mock_credential, True)
         mock_iocs_from_hits.return_value = []
 
-        hits = [{"src_ip": "9.9.9.9", "protocol": "ssh", "username": "root", "password": "toor"}]
+        hits = [{"src_ip": "9.9.9.9", "proto": "ssh", "username": "root", "password": "toor"}]
         self.strategy.extract_from_hits(hits)
 
         mock_credential.sources.add.assert_not_called()

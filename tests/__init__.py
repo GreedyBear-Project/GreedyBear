@@ -247,6 +247,8 @@ class ExtractionTestCase(CustomTestCase):
         firehol_categories=None,
         attacker_country="",
         attacker_country_code="",
+        protocols=None,
+        cves=None,
     ):
         mock = Mock(spec=IOC)
         mock.name = name
@@ -272,6 +274,9 @@ class ExtractionTestCase(CustomTestCase):
             mock.autonomous_system.asn = asn
         else:
             mock.autonomous_system = None
+
+        mock.protocols = protocols if protocols is not None else []
+        mock.cves = cves if cves is not None else []
 
         return mock
 

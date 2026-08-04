@@ -154,6 +154,8 @@ class TestAddIoc(ExtractionTestCase):
             destination_ports=[80],
             days_seen=[date(2025, 1, 1)],
             last_seen=datetime(2025, 1, 1, 12, 0, 0),
+            protocols=["ssh"],
+            cves=["CVE-XXXXX-XXXXX"],
         )
         self.mock_ioc_repo.get_ioc_by_name.return_value = existing
 
@@ -345,6 +347,34 @@ class TestMergeIocs(ExtractionTestCase):
         result = self.processor._merge_iocs(existing, new)
 
         self.assertEqual(result.attacker_country_code, "US")
+
+    def test_merges_protocols(self):
+        """Protocols from both IOCs are merged and deduplicated."""
+        existing = self._create_mock_ioc(protocols=["tcp"])
+        new = self._create_mock_ioc(protocols=["udp", "tcp"])
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertEqual(result.protocols, ["tcp", "udp"])
+
+    def test_merges_cves(self):
+        """CVEs from both IOCs are merged and deduplicated."""
+        existing = self._create_mock_ioc(cves=["CVE-2021-44228"])
+        new = self._create_mock_ioc(cves=["CVE-2021-44228", "CVE-2022-0001"])
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertEqual(result.cves, ["CVE-2021-44228", "CVE-2022-0001"])
+
+    def test_handles_empty_protocols_and_cves(self):
+        """Empty protocols and cves on both sides stay empty after merge."""
+        existing = self._create_mock_ioc(protocols=[], cves=[])
+        new = self._create_mock_ioc(protocols=[], cves=[])
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertEqual(result.protocols, [])
+        self.assertEqual(result.cves, [])
 
 
 class TestUpdateDaysSeen(ExtractionTestCase):

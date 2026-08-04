@@ -17,7 +17,11 @@ IP = "ip"
 
 FIELDS_TO_EXTRACT = [
     "@timestamp",
+    "alert",
+    "app_proto",
     "body",
+    "connection",
+    "cve",
     "dest_port",
     "duration",
     "eventid",
@@ -29,6 +33,7 @@ FIELDS_TO_EXTRACT = [
     "password",
     "path",
     "post_data",
+    "proto",
     "protocol",
     "session",
     "shasum",
@@ -39,6 +44,20 @@ FIELDS_TO_EXTRACT = [
     "url",
     "username",
 ]
+
+CVE_FIELD_MAP = {
+    "cowrie": ("cve",),
+    "suricata": ("alert", "cve_id"),
+}
+
+PROTOCOL_FIELD_MAP = {
+    "cowrie": ("protocol",),
+    "dionaea": ("connection", "protocol"),
+    "fatt": ("protocol",),
+    "heralding": ("proto",),
+    "h0neytr4p": ("protocol",),
+    "suricata": ("app_proto",),
+}
 
 
 # Mass scanner service domains for reverse DNS filtering.
