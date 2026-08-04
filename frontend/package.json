@@ -11,7 +11,7 @@
   "dependencies": {
     "@greedybear/gb-ui": "github:GreedyBear-Project/gb-ui#1.0.1",
     "@vnedyalk0v/react19-simple-maps": "^2.0.10",
-    "axios": "^1.18.1",
+    "axios": "^1.19.0",
     "axios-hooks": "^5.1.1",
     "bootstrap": ">=5.3.8",
     "formik": "^2.4.9",
