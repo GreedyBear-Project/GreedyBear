@@ -4,7 +4,7 @@ import re
 from django.utils import timezone
 from rest_framework import serializers
 
-from greedybear.models import Sensor
+from greedybear.models import EventStatus, Sensor
 from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class SensorCreateSerializer(serializers.ModelSerializer):
 
         extra_kwargs = {
             "address": {
-                "validators": [], # drops the model's uniqueness check, which ignores api_source scoping
+                "validators": [],  # drops the model's uniqueness check, which ignores api_source scoping
                 "help_text": "IPv4 or IPv6 address of the sensor.",
             },
             "honeypot_type": {"help_text": "Type of honeypot."},
@@ -130,3 +130,38 @@ class InjectionSerializer(serializers.Serializer):
         max_length=10000,
         error_messages={"min_length": "At least one event is required.", "max_length": "Batch size cannot exceed 10,000 events."},
     )
+
+
+class InjectionResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(read_only=True)
+    task_id = serializers.CharField(read_only=True)
+    status_url = serializers.CharField(read_only=True)
+
+
+class BatchStatusRequestSerializer(serializers.Serializer):
+    task_id = serializers.RegexField(
+        r"^[0-9a-f]{32}$",
+        help_text="The unique string identifier assigned to the background processing job.",
+        error_messages={"invalid": "task_id must be a 32-character lowercase hex string."},
+    )
+
+
+class BatchStatusSerializer(serializers.ModelSerializer):
+    batch_id = serializers.IntegerField(source="id", read_only=True)
+    last_error = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventStatus
+        fields = [
+            "task_id",
+            "batch_id",
+            "status",
+            "ioc_count",
+            "last_error",
+            "processed_at",
+            "created_at",
+        ]
+
+    def get_last_error(self, obj) -> str | None:
+        """Normalizes the blank default to null, so clients only test for one empty value."""
+        return obj.last_error or None

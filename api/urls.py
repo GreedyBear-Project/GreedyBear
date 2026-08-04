@@ -7,9 +7,11 @@ from rest_framework import routers
 from api.views import (
     AdvancedFeedView,
     AsnFeedView,
+    BatchStatusView,
     ConsumeFeedView,
     CowrieSessionView,
     EnrichmentView,
+    EventsCreateView,
     HealthView,
     HoneypotPayloadViewSet,
     PaginatedFeedView,
@@ -19,8 +21,6 @@ from api.views import (
     StatisticsViewSet,
     TrendingFeedView,
     command_sequence_view,
-    event_status_view,
-    events_create_view,
     general_honeypot_list,
     news_view,
 )
@@ -51,6 +51,8 @@ documented_urlpatterns = [
     path("enrichment", EnrichmentView.as_view()),
     path("cowrie_session", CowrieSessionView.as_view()),
     path("sensor/", SensorCreateView.as_view()),
+    path("events/add/", EventsCreateView.as_view()),
+    path("events/status/<str:task_id>/", BatchStatusView.as_view()),
     path("health/", HealthView.as_view()),
 ]
 schema_urlconf = [path("api/", include(documented_urlpatterns + documented_router.urls))]
@@ -65,8 +67,6 @@ urlpatterns = [
     path("command_sequence", command_sequence_view),
     path("general_honeypot", general_honeypot_list),
     path("news/", news_view),
-    path("events/add/", events_create_view),
-    path("events/status/<str:task_id>/", event_status_view),
     # router viewsets
     path("", include(router.urls)),
     # certego_saas:
