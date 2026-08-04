@@ -32,3 +32,6 @@ export const HONEYPOT_URI = `${API_BASE_URI}/honeypot/`;
 
 // News
 export const GREEDYBEAR_NEWS_URL = `${API_BASE_URI}/news`;
+
+// Dashboard config
+export const DASHBOARD_CONFIG_URI = `${API_BASE_URI}/dashboard-config/`;

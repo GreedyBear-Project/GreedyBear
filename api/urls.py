@@ -10,6 +10,7 @@ from api.views import (
     BatchStatusView,
     ConsumeFeedView,
     CowrieSessionView,
+    DashboardConfigView,
     EnrichmentView,
     EventsCreateView,
     HealthView,
@@ -68,6 +69,7 @@ urlpatterns = [
     path("command_sequence", command_sequence_view),
     path("general_honeypot", HoneypotView.as_view()),
     path("news/", news_view),
+    path("dashboard-config/", DashboardConfigView.as_view()),
     # router viewsets
     path("", include(router.urls)),
     # certego_saas:
