@@ -5,10 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import FeedsTrending from "../../../src/components/feeds/FeedsTrending";
 import { useAxiosComponentLoader } from "@greedybear/gb-ui";
-import {
-  FEEDS_TRENDING_URI,
-  GENERAL_HONEYPOT_URI,
-} from "../../../src/constants/api";
+import { FEEDS_TRENDING_URI, HONEYPOT_URI } from "../../../src/constants/api";
 
 vi.mock("@greedybear/gb-ui", async () => {
   const actual = await vi.importActual("@greedybear/gb-ui");
@@ -28,7 +25,7 @@ describe("FeedsTrending", () => {
     useAxiosComponentLoader.mockImplementation(({ url }) => {
       const Loader = ({ render: renderFn }) => renderFn();
 
-      if (url.startsWith(GENERAL_HONEYPOT_URI)) {
+      if (url.startsWith(HONEYPOT_URI)) {
         return [["Cowrie", "Heralding"], Loader, vi.fn()];
       }
 
