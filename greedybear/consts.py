@@ -45,6 +45,20 @@ FIELDS_TO_EXTRACT = [
     "username",
 ]
 
+CVE_FIELD_MAP = {
+    "cowrie": ("cve",),
+    "suricata": ("alert", "cve_id"),
+}
+
+PROTOCOL_FIELD_MAP = {
+    "cowrie": ("protocol",),
+    "dionaea": ("connection", "protocol"),
+    "fatt": ("protocol",),
+    "heralding": ("proto",),
+    "h0neytr4p": ("protocol",),
+    "suricata": ("app_proto",),
+}
+
 
 # Mass scanner service domains for reverse DNS filtering.
 # If a PTR record ends with one of these, the IP is classified as a mass scanner.
