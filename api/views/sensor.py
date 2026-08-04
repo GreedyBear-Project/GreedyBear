@@ -8,8 +8,7 @@ from rest_framework.views import APIView
 
 from api.mixins import RequestLoggingMixin
 from api.serializers import SensorCreateResponseSerializer, SensorCreateSerializer
-from api.views.utils import create_or_get_sensor
-from greedybear.models import APISource
+from api.views.utils import create_or_get_sensor, resolve_active_api_source
 
 
 class SensorCreateView(RequestLoggingMixin, APIView):
@@ -30,19 +29,13 @@ class SensorCreateView(RequestLoggingMixin, APIView):
             201: OpenApiResponse(response=SensorCreateResponseSerializer, description="A new sensor is created."),
             400: OpenApiResponse(description="Invalid input data (e.g. malformed IP, invalid country code)."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
-            403: OpenApiResponse(description="User has no APISource linked."),
+            403: OpenApiResponse(description="Missing `APISource` or locked account state."),
         },
     )
     def post(self, request: Request, *args, **kwargs):
-        try:
-            api_source = request.user.api_source
-            if not api_source.is_active:
-                return Response(
-                    {"error": "APISource is inactive"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-        except APISource.DoesNotExist:
-            return Response({"error": "No APISource linked to your account"}, status=status.HTTP_403_FORBIDDEN)
+        api_source, error_response = resolve_active_api_source(request)
+        if error_response:
+            return error_response
 
         serializer = SensorCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
