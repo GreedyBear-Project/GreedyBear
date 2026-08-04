@@ -4,6 +4,7 @@ import logging
 
 from django.contrib import admin, messages
 from django.db.models import Q
+from django.utils.html import format_html
 from django.utils.translation import ngettext
 
 from greedybear.models import (
@@ -27,6 +28,28 @@ from greedybear.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_LISTED_ITEMS = 6
+
+
+def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
+    """Build a list_display callable that renders an object attribute as a collapsed list."""
+
+    @admin.display(description=description or attribute.replace("_", " "))
+    def display(self, obj):
+        values = getattr(obj, attribute)
+        if hasattr(values, "all"):
+            values = values.all()
+        values = [str(value) for value in values or []]
+        values_str = ", ".join(values)
+        if len(values) <= max_items:
+            return values_str
+        preview_values_str = ", ".join(values[: max_items - 2])
+        hidden_count = len(values) - max_items + 2
+        html = f'<span title="{values_str}">{preview_values_str}, … (+{hidden_count} more)</span>'
+        return format_html(html)
+
+    return display
 
 
 @admin.register(TorExitNode)
@@ -158,22 +181,24 @@ class IOCModelAdmin(admin.ModelAdmin):
         "type",
         "first_seen",
         "last_seen",
-        "days_seen",
+        "days_seen_display",
         "number_of_days_seen",
         "attack_count",
         "interaction_count",
-        "related_urls",
+        "related_urls_display",
         "scanner",
         "payload_request",
-        "honeypots_list",
-        "sensor_list",
+        "honeypots_display",
+        "sensors_display",
         "ip_reputation",
-        "firehol_categories",
+        "firehol_categories_display",
         "autonomous_system_display",
-        "destination_ports",
-        "protocols",
-        "cves",
+        "destination_ports_display",
+        "protocols_display",
+        "cves_display",
         "login_attempts",
+        "recurrence_probability",
+        "expected_interactions",
     ]
     list_filter = [
         "type",
@@ -187,12 +212,16 @@ class IOCModelAdmin(admin.ModelAdmin):
     raw_id_fields = ["related_ioc"]
     filter_horizontal = ["honeypots", "sensors"]
     inlines = [TagInline, SessionInline]
+    ordering = ["-last_seen"]
 
-    def honeypots_list(self, ioc):
-        return ", ".join([str(element) for element in ioc.honeypots.all()])
-
-    def sensor_list(self, ioc):
-        return ", ".join([str(sensor.address) for sensor in ioc.sensors.all()])
+    days_seen_display = collapsed_list_display("days_seen")
+    honeypots_display = collapsed_list_display("honeypots")
+    sensors_display = collapsed_list_display("sensors")
+    related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
+    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
+    destination_ports_display = collapsed_list_display("destination_ports")
+    protocols_display = collapsed_list_display("protocols")
+    cves_display = collapsed_list_display("cves", description="CVEs")
 
     def autonomous_system_display(self, ioc):
         """
