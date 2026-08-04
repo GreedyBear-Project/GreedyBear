@@ -174,6 +174,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "Payloads", "description": "Metadata and RBAC-gated download of honeypot-captured payloads."},
         {"name": "Enrichment", "description": "Lookup for a single IP address or domain."},
         {"name": "Cowrie Session", "description": "Session data from the Cowrie honeypot."},
+        {"name": "Event Injection", "description": "Send event data from honeypots other than T-Pot."},
         {"name": "Health", "description": "Health and overview endpoint."},
     ],
     "SCHEMA_PATH_PREFIX": "/api",
