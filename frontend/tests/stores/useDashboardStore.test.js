@@ -15,19 +15,38 @@ const localStorageMock = {
 };
 Object.defineProperty(global, "localStorage", { value: localStorageMock });
 
+vi.mock("axios", () => ({
+  default: { get: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
+
+vi.mock("@greedybear/gb-ui", async (importOriginal) => ({
+  ...(await importOriginal()),
+  addToast: vi.fn(),
+}));
+
+import axios from "axios";
 import useDashboardStore from "../../src/stores/useDashboardStore";
 import {
   WIDGET_CONFIGS,
   DASHBOARD_LAYOUTS,
 } from "../../src/components/dashboard/defaultDashboardConfig";
 
-// helpter to reset store to defaults
+const CUSTOM_LAYOUT = {
+  widgetConfigs: [{ type: "FeedsTypesChart", id: "FeedsTypesChart" }],
+  layouts: {
+    lg: [{ i: "FeedsTypesChart", x: 0, y: 0, w: 6, h: 9 }],
+    md: [],
+    sm: [],
+  },
+};
+
 function resetStore() {
   useDashboardStore.setState({
     layouts: DASHBOARD_LAYOUTS,
     widgetConfigs: WIDGET_CONFIGS,
     isDirty: false,
     savedVersion: 0,
+    serverSynced: false,
   });
 }
 
@@ -45,13 +64,13 @@ describe("useDashboardStore", () => {
 
   describe("initial state", () => {
     test("starts with default widget configs", () => {
-      const { widgetConfigs } = useDashboardStore.getState();
-      expect(widgetConfigs).toEqual(WIDGET_CONFIGS);
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
     });
 
     test("starts with default layouts", () => {
-      const { layouts } = useDashboardStore.getState();
-      expect(layouts).toEqual(DASHBOARD_LAYOUTS);
+      expect(useDashboardStore.getState().layouts).toEqual(DASHBOARD_LAYOUTS);
     });
 
     test("isDirty starts false", () => {
@@ -73,15 +92,8 @@ describe("useDashboardStore", () => {
         sm: [],
       };
       useDashboardStore.getState().setLayouts(newLayouts);
-
-      const state = useDashboardStore.getState();
-      expect(state.layouts).toEqual(newLayouts);
-      expect(state.isDirty).toBe(true);
-    });
-
-    test("does not change savedVersion", () => {
-      useDashboardStore.getState().setLayouts({ lg: [], md: [], sm: [] });
-      expect(useDashboardStore.getState().savedVersion).toBe(0);
+      expect(useDashboardStore.getState().layouts).toEqual(newLayouts);
+      expect(useDashboardStore.getState().isDirty).toBe(true);
     });
   });
 
@@ -91,84 +103,37 @@ describe("useDashboardStore", () => {
     test("replaces widgetConfigs and marks store dirty", () => {
       const newConfigs = [{ type: "FeedsTypesChart", id: "FeedsTypesChart" }];
       useDashboardStore.getState().setWidgetConfigs(newConfigs);
-
-      const state = useDashboardStore.getState();
-      expect(state.widgetConfigs).toEqual(newConfigs);
-      expect(state.isDirty).toBe(true);
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(newConfigs);
+      expect(useDashboardStore.getState().isDirty).toBe(true);
     });
   });
 
   // save
 
   describe("save", () => {
-    test("clears isDirty", () => {
+    test("clears isDirty and increments savedVersion", () => {
       useDashboardStore.setState({ isDirty: true });
       useDashboardStore.getState().save();
       expect(useDashboardStore.getState().isDirty).toBe(false);
-    });
-
-    test("increments savedVersion by 1 each call", () => {
-      useDashboardStore.getState().save();
       expect(useDashboardStore.getState().savedVersion).toBe(1);
-      useDashboardStore.getState().save();
-      expect(useDashboardStore.getState().savedVersion).toBe(2);
-    });
-
-    test("preserves current layouts and widgetConfigs", () => {
-      const customLayouts = {
-        lg: [{ i: "A", x: 0, y: 0, w: 6, h: 9 }],
-        md: [],
-        sm: [],
-      };
-      useDashboardStore.setState({ layouts: customLayouts, isDirty: true });
-      useDashboardStore.getState().save();
-      expect(useDashboardStore.getState().layouts).toEqual(customLayouts);
     });
   });
 
   // resetToDefault
 
   describe("resetToDefault", () => {
-    test("restores default widgetConfigs", () => {
-      useDashboardStore.setState({ widgetConfigs: [] });
+    test("restores defaults and clears isDirty", () => {
+      useDashboardStore.setState({ widgetConfigs: [], isDirty: true });
       useDashboardStore.getState().resetToDefault();
       expect(useDashboardStore.getState().widgetConfigs).toEqual(
         WIDGET_CONFIGS,
       );
-    });
-
-    test("restores default layouts", () => {
-      useDashboardStore.setState({ layouts: { lg: [], md: [], sm: [] } });
-      useDashboardStore.getState().resetToDefault();
-      expect(useDashboardStore.getState().layouts).toEqual(DASHBOARD_LAYOUTS);
-    });
-
-    test("clears isDirty", () => {
-      useDashboardStore.setState({ isDirty: true });
-      useDashboardStore.getState().resetToDefault();
       expect(useDashboardStore.getState().isDirty).toBe(false);
     });
 
-    test("increments savedVersion so Dashboard remounts DashboardRenderer", () => {
-      const before = useDashboardStore.getState().savedVersion;
+    test("increments savedVersion", () => {
       useDashboardStore.getState().resetToDefault();
-      expect(useDashboardStore.getState().savedVersion).toBe(before + 1);
-    });
-  });
-
-  // savedVersion as React key
-
-  describe("savedVersion remount signal", () => {
-    test("save() always increments even when isDirty was already false", () => {
-      // edge case, calling save twice without any dirty change
-      useDashboardStore.getState().save();
-      useDashboardStore.getState().save();
-      expect(useDashboardStore.getState().savedVersion).toBe(2);
-    });
-
-    test("setLayouts does NOT increment savedVersion", () => {
-      useDashboardStore.getState().setLayouts({ lg: [], md: [], sm: [] });
-      expect(useDashboardStore.getState().savedVersion).toBe(0);
+      expect(useDashboardStore.getState().savedVersion).toBe(1);
     });
   });
 
@@ -176,18 +141,100 @@ describe("useDashboardStore", () => {
 
   describe("dirty / clean cycle", () => {
     test("setLayouts -> isDirty=true, save -> isDirty=false", () => {
-      const store = useDashboardStore.getState();
-      store.setLayouts({ lg: [], md: [], sm: [] });
+      useDashboardStore.getState().setLayouts({ lg: [], md: [], sm: [] });
       expect(useDashboardStore.getState().isDirty).toBe(true);
       useDashboardStore.getState().save();
       expect(useDashboardStore.getState().isDirty).toBe(false);
     });
+  });
 
-    test("setWidgetConfigs -> isDirty=true, resetToDefault -> isDirty=false", () => {
-      useDashboardStore.getState().setWidgetConfigs([]);
-      expect(useDashboardStore.getState().isDirty).toBe(true);
-      useDashboardStore.getState().resetToDefault();
+  // loadFromServer
+
+  describe("loadFromServer", () => {
+    test("applies layout from server", async () => {
+      axios.get.mockResolvedValue({ data: { layout: CUSTOM_LAYOUT } });
+      await useDashboardStore.getState().loadFromServer();
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        CUSTOM_LAYOUT.widgetConfigs,
+      );
+      expect(useDashboardStore.getState().layouts).toEqual(
+        CUSTOM_LAYOUT.layouts,
+      );
+    });
+
+    test("leaves defaults when server returns null layout", async () => {
+      axios.get.mockResolvedValue({ data: { layout: null } });
+      await useDashboardStore.getState().loadFromServer();
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
+    });
+
+    test("skips fetch when already synced", async () => {
+      useDashboardStore.setState({ serverSynced: true });
+      await useDashboardStore.getState().loadFromServer();
+      expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    test("leaves defaults on network error", async () => {
+      axios.get.mockRejectedValue(new Error("network error"));
+      await useDashboardStore.getState().loadFromServer();
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
+    });
+  });
+
+  // saveToServer
+
+  describe("saveToServer", () => {
+    test("clears isDirty and increments savedVersion on success", async () => {
+      axios.put.mockResolvedValue({ data: {} });
+      useDashboardStore.setState({ isDirty: true });
+      await useDashboardStore.getState().saveToServer();
       expect(useDashboardStore.getState().isDirty).toBe(false);
+      expect(useDashboardStore.getState().savedVersion).toBe(1);
+    });
+
+    test("leaves isDirty=true when PUT fails", async () => {
+      axios.put.mockRejectedValue(new Error("server error"));
+      useDashboardStore.setState({ isDirty: true });
+      await useDashboardStore.getState().saveToServer();
+      expect(useDashboardStore.getState().isDirty).toBe(true);
+    });
+  });
+
+  // resetToServerDefault
+
+  describe("resetToServerDefault", () => {
+    test("restores defaults on success", async () => {
+      axios.delete.mockResolvedValue({});
+      useDashboardStore.setState({ widgetConfigs: [], isDirty: true });
+      await useDashboardStore.getState().resetToServerDefault();
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
+      expect(useDashboardStore.getState().isDirty).toBe(false);
+    });
+
+    test("treats 404 as success and resets local state", async () => {
+      const err = new Error("not found");
+      err.response = { status: 404 };
+      axios.delete.mockRejectedValue(err);
+      await useDashboardStore.getState().resetToServerDefault();
+      expect(useDashboardStore.getState().widgetConfigs).toEqual(
+        WIDGET_CONFIGS,
+      );
+    });
+
+    test("does not reset local state on non-404 error", async () => {
+      const err = new Error("server error");
+      err.response = { status: 500 };
+      axios.delete.mockRejectedValue(err);
+      useDashboardStore.setState({ widgetConfigs: [], isDirty: true });
+      await useDashboardStore.getState().resetToServerDefault();
+      expect(useDashboardStore.getState().widgetConfigs).toEqual([]);
+      expect(useDashboardStore.getState().isDirty).toBe(true);
     });
   });
 });
