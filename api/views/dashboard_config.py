@@ -37,7 +37,7 @@ class DashboardConfigView(APIView):
         )
         record = DashboardConfig.objects.first()
         if record is None:
-            # No config saved yet – signal the frontend to use built-in defaults.
+            # No config saved yet - signal the frontend to use built-in defaults.
             return Response({"layout": None}, status=status.HTTP_200_OK)
 
         return Response({"layout": record.layout}, status=status.HTTP_200_OK)
@@ -64,12 +64,7 @@ class DashboardConfigView(APIView):
 
         if not isinstance(layout, dict) or "widgetConfigs" not in layout or "layouts" not in layout:
             return Response(
-                {
-                    "detail": (
-                        "'layout' must be an object with 'widgetConfigs' "
-                        "and 'layouts' keys."
-                    )
-                },
+                {"detail": ("'layout' must be an object with 'widgetConfigs' and 'layouts' keys.")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
