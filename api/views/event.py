@@ -11,27 +11,10 @@ from rest_framework.views import APIView
 
 from api.mixins import RequestLoggingMixin
 from api.serializers import BatchStatusRequestSerializer, BatchStatusSerializer, InjectionResponseSerializer, InjectionSerializer
-from api.views.utils import create_batch_and_events, increment_and_evaluate_lock
-from greedybear.models import APISource, EventStatus, EventStatusType
+from api.views.utils import create_batch_and_events, increment_and_evaluate_lock, resolve_active_api_source
+from greedybear.models import EventStatus, EventStatusType
 
 logger = logging.getLogger(__name__)
-
-
-def resolve_active_api_source(request: Request) -> tuple[APISource | None, Response | None]:
-    """Resolve the caller's APISource or explain why it is unusable."""
-    try:
-        api_source = request.user.api_source
-    except APISource.DoesNotExist:
-        return None, Response(
-            {"error": "No APISource linked to your account"},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    if not api_source.is_active:
-        return None, Response(
-            {"error": "APISource is locked"},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    return api_source, None
 
 
 class EventsCreateView(RequestLoggingMixin, APIView):

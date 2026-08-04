@@ -477,3 +477,20 @@ def increment_and_evaluate_lock(api_source: APISource) -> Response | None:
         return Response({"error": "Your APISource has been automatically locked due to excessive invalid batch submissions."}, status=status.HTTP_403_FORBIDDEN)
 
     return None
+
+
+def resolve_active_api_source(request: Request) -> tuple[APISource | None, Response | None]:
+    """Resolve the caller's APISource or explain why it is unusable."""
+    try:
+        api_source = request.user.api_source
+    except APISource.DoesNotExist:
+        return None, Response(
+            {"error": "No APISource linked to your account"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if not api_source.is_active:
+        return None, Response(
+            {"error": "APISource is locked"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return api_source, None
