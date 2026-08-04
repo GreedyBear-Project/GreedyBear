@@ -11,6 +11,7 @@ from greedybear.utils import (
     SCANNER,
     get_attack_type,
     get_ioc_type,
+    get_nested_value,
     is_ip_address,
     is_non_global_ip,
     is_sha256hash,
@@ -376,3 +377,69 @@ class UtilsTestCase(SimpleTestCase):
         self.assertEqual(get_attack_type(payload_hits), PAYLOAD_REQUEST)
 
         self.assertEqual(get_attack_type([]), SCANNER)
+
+
+class TestGetNestedValue(SimpleTestCase):
+    def test_single_key_returns_value(self):
+        result = get_nested_value({"protocol": "ssh"}, "protocol")
+        self.assertEqual(result, "ssh")
+
+    def test_nested_path_returns_value(self):
+        hit = {"connection": {"protocol": "smbd", "transport": "tcp"}}
+        result = get_nested_value(hit, "connection", "protocol")
+        self.assertEqual(result, "smbd")
+
+    def test_deep_path_returns_value(self):
+        hit = {"a": {"b": {"c": "value"}}}
+        result = get_nested_value(hit, "a", "b", "c")
+        self.assertEqual(result, "value")
+
+    def test_missing_key_returns_none(self):
+        # missing at the first level
+        result = get_nested_value({"protocol": "ssh"}, "proto")
+        self.assertIsNone(result)
+        # missing at the last level
+        result = get_nested_value({"connection": {"transport": "tcp"}}, "connection", "protocol")
+        self.assertIsNone(result)
+        # missing in the middle of the path
+        result = get_nested_value({"a": {"b": {}}}, "a", "x", "c")
+        self.assertIsNone(result)
+
+    def test_non_dict_intermediate_returns_none(self):
+        # T-Pot data is messy: nested fields may be null, list, etc
+        result = get_nested_value({"alert": None}, "alert", "cve_id")
+        self.assertIsNone(result)
+        result = get_nested_value({"alert": "CVE-2021-44228"}, "alert", "cve_id")
+        self.assertIsNone(result)
+        result = get_nested_value({"alert": [{"cve_id": "CVE-2021-44228"}]}, "alert", "cve_id")
+        self.assertIsNone(result)
+        result = get_nested_value({"connection": 22}, "connection", "protocol")
+        self.assertIsNone(result)
+
+    def test_non_dict_input_returns_none(self):
+        result = get_nested_value("not a dict", "protocol")
+        self.assertIsNone(result)
+        result = get_nested_value(None, "protocol")
+        self.assertIsNone(result)
+
+    def test_empty_path_returns_none(self):
+        # honeypot types without a field mapping must not yield the whole hit
+        hit = {"type": "Honeytrap", "src_ip": "1.2.3.4", "protocol": "ssh"}
+        self.assertIsNone(get_nested_value(hit))
+        self.assertIsNone(get_nested_value(hit, *()))
+
+    def test_falsy_values_returned_verbatim(self):
+        result = get_nested_value({"protocol": ""}, "protocol")
+        self.assertEqual(result, "")
+        result = get_nested_value({"dest_port": 0}, "dest_port")
+        self.assertEqual(result, 0)
+        result = get_nested_value({"alert": {"cve_id": []}}, "alert", "cve_id")
+        self.assertEqual(result, [])
+        result = get_nested_value({"protocol": None})
+        self.assertIsNone(result, "protocol")
+
+    def test_input_not_mutated(self):
+        hit = {"connection": {"protocol": "smbd"}}
+        get_nested_value(hit, "connection", "protocol")
+        get_nested_value(hit, "connection", "missing")
+        self.assertEqual(hit, {"connection": {"protocol": "smbd"}})
