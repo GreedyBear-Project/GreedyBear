@@ -34,9 +34,6 @@ class SensorCreateView(RequestLoggingMixin, APIView):
         },
     )
     def post(self, request: Request, *args, **kwargs):
-        serializer = SensorCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
         try:
             api_source = request.user.api_source
             if not api_source.is_active:
@@ -46,6 +43,9 @@ class SensorCreateView(RequestLoggingMixin, APIView):
                 )
         except APISource.DoesNotExist:
             return Response({"error": "No APISource linked to your account"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = SensorCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         sensor, created = create_or_get_sensor(
             api_source=api_source,
