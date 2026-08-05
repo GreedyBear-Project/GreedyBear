@@ -127,3 +127,10 @@ def detect_credential_reuse():
     from greedybear.cronjobs.credential_reuse import CredentialReuseCron
 
     CredentialReuseCron().execute()
+
+
+# MALWAREBAZAAR
+def submit_payloads_to_mbazaar():
+    from greedybear.cronjobs.malwarebazaar import MalwareBazaarCron
+
+    MalwareBazaarCron().execute()

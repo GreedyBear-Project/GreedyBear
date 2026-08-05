@@ -533,6 +533,7 @@ TRENDING_BUCKET_RETENTION_HOURS = int(os.environ.get("TRENDING_BUCKET_RETENTION_
 
 THREATFOX_API_KEY = os.environ.get("THREATFOX_API_KEY", "")
 ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
+MALWAREBAZAAR_API_KEY = os.environ.get("MALWAREBAZAAR_API_KEY", "")
 
 # Optional feed license URL to include in API responses
 # If not set, no license information will be included in feeds
