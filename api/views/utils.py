@@ -146,7 +146,9 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
     else:
         iocs_iter = iocs.values(*required_fields).iterator(chunk_size=2000)
 
+    count = 0
     for ioc in iocs_iter:
+        count += 1
         ioc_feed_type = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
 
         data_ = ioc | {
@@ -165,6 +167,7 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
         data_.pop("honeypot_names", None)
         data_.pop("id", None)
         yield data_
+    logger.info(f"Number of feeds returned: {count}")
 
 
 def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict]:
@@ -182,9 +185,7 @@ def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict
 
     Returns: A list of JSON-serializable IOC dicts.
     """
-    json_list = list(stream_ioc_objects(iocs, verbose=verbose, include_sensors=include_sensors))
-    logger.info(f"Number of feeds returned: {len(json_list)}")
-    return json_list
+    return list(stream_ioc_objects(iocs, verbose=verbose, include_sensors=include_sensors))
 
 
 def build_feed_dict(iocs, verbose=False, include_sensors=False) -> dict:
