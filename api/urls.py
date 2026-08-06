@@ -56,6 +56,7 @@ documented_urlpatterns = [
     path("events/add/", EventsCreateView.as_view()),
     path("events/status/<str:task_id>/", BatchStatusView.as_view()),
     path("health/", HealthView.as_view()),
+    path("dashboard-config/", DashboardConfigView.as_view()),
 ]
 schema_urlconf = [path("api/", include(documented_urlpatterns + documented_router.urls))]
 
@@ -69,7 +70,6 @@ urlpatterns = [
     path("command_sequence", command_sequence_view),
     path("general_honeypot", HoneypotView.as_view()),
     path("news/", news_view),
-    path("dashboard-config/", DashboardConfigView.as_view()),
     # router viewsets
     path("", include(router.urls)),
     # certego_saas:
