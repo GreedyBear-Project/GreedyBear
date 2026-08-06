@@ -417,3 +417,6 @@ class HoneypotPayloadAdmin(admin.ModelAdmin):
 class DashboardConfigAdmin(admin.ModelAdmin):
     list_display = ["id", "updated_at", "updated_by"]
     readonly_fields = ["updated_at", "updated_by"]
+
+    def has_add_permission(self, request) -> bool:
+        return False
