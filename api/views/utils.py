@@ -106,18 +106,21 @@ STIX_FIELDS = {
 }
 
 
-def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict]:
-    """Shape a queryset (or list) of IOCs into the JSON feed row dicts.
+def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
+    """Yield shaped IOC dicts one at a time for memory-efficient NDJSON streaming.
 
-    Pure data logic shared by the JSON renderer and the ML scoring path; it
-    builds the per-row dicts but performs no HTTP/encoding work.
+    Contains the same shaping logic as build_ioc_json_list but yields each
+    IOC dict individually instead of collecting them into a list. This allows
+    StreamingHttpResponse to send each row to the client immediately without
+    loading the entire dataset into memory first.
 
     Args:
         iocs (QuerySet | list): Filtered IOCs to render.
         verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
         include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 
-    Returns: A list of JSON-serializable IOC dicts.
+    Yields:
+        dict: A single JSON-serializable IOC dict.
     """
     required_fields = JSON_BASE_FIELDS + JSON_VERBOSE_FIELDS if verbose else JSON_BASE_FIELDS
 
@@ -144,8 +147,9 @@ def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict
     else:
         iocs_iter = iocs.values(*required_fields).iterator(chunk_size=2000)
 
-    json_list = []
+    count = 0
     for ioc in iocs_iter:
+        count += 1
         ioc_feed_type = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
 
         data_ = ioc | {
@@ -163,11 +167,26 @@ def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict
         data_.pop("autonomous_system", None)
         data_.pop("honeypot_names", None)
         data_.pop("id", None)
+        yield data_
+    logger.info(f"Number of feeds returned: {count}")
 
-        json_list.append(data_)
 
-    logger.info(f"Number of feeds returned: {len(json_list)}")
-    return json_list
+def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict]:
+    """Shape a queryset (or list) of IOCs into the JSON feed row dicts.
+
+    Pure data logic shared by the JSON renderer and the ML scoring path; it
+    builds the per-row dicts but performs no HTTP/encoding work. Eagerly
+    collects `stream_ioc_objects`; use that generator directly when the rows
+    can be consumed lazily.
+
+    Args:
+        iocs (QuerySet | list): Filtered IOCs to render.
+        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
+        include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
+
+    Returns: A list of JSON-serializable IOC dicts.
+    """
+    return list(stream_ioc_objects(iocs, verbose=verbose, include_sensors=include_sensors))
 
 
 def build_feed_dict(iocs, verbose=False, include_sensors=False) -> dict:

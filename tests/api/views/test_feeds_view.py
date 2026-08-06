@@ -36,6 +36,7 @@ class FeedsViewTestCase(CustomTestCase):
     def test_200_ndjson_feed(self):
         response = self.client.get("/api/feeds/all/all/recent.ndjson")
         self.assertIn("application/x-ndjson", response.headers.get("Content-Type", ""))
+        self.assertEqual(response.headers.get("X-Accel-Buffering"), "no")
         self.assertEqual(response.status_code, 200)
         body = b"".join(response.streaming_content).decode("utf-8")
         lines = [line for line in body.split("\n") if line.strip()]
