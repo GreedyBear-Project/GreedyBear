@@ -34,9 +34,13 @@ class DashboardConfigTests(CustomTestCase):
 
     # GET
 
-    def test_get_unauthenticated_returns_401(self):
+    def test_get_unauthenticated_returns_200(self):
         response = APIClient().get(URL)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_unauthenticated_returns_null_when_no_record(self):
+        response = APIClient().get(URL)
+        self.assertIsNone(response.data["layout"])
 
     def test_get_no_record_returns_null_layout(self):
         response = _auth_client(self.regular_user).get(URL)
