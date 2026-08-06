@@ -1,3 +1,16 @@
+# SSL settings for HTTPS deployment
+#
+# This is a template. Copy it and adapt the paths to your certificate and key:
+#
+#     cp ssl.conf.template ssl.conf
+#
+# ssl.conf itself is git-ignored, so your settings survive updates of this repo.
+# nginx refuses to start without it, since https.conf includes it.
+#
+# The commented directives are optional.
+# Only uncomment them to deviate from the defaults. 
+# Set ssl_password_file if your private key is encrypted.
+
 ssl_certificate                 /usr/local/share/ca-certificates/greedybear.crt;
 ssl_certificate_key             /etc/ssl/private/greedybear.key;
 # ssl_password_file             /etc/ssl/private/ssl_passwords.txt;
