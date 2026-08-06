@@ -177,6 +177,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "Event Injection", "description": "Send event data from honeypots other than T-Pot."},
         {"name": "Honeypots", "description": "View available honeypots."},
         {"name": "Health", "description": "Health and overview endpoint."},
+        {"name": "Dashboard", "description": "Global dashboard layout configuration."},
     ],
     "SCHEMA_PATH_PREFIX": "/api",
 }

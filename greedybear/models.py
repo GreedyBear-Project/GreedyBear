@@ -518,3 +518,33 @@ class HoneypotPayload(models.Model):
 
     def __str__(self):
         return f"Payload {self.sha256}"
+
+
+class DashboardConfig(models.Model):
+    """
+    Stores a single global JSON blob representing the dashboard layout shared
+    across all users. Only one row should ever exist (singleton pattern).
+
+    Superusers write it via the PUT /api/dashboard-config/ endpoint.
+    Any user, including anonymous visitors, can read it via GET /api/dashboard-config/.
+    """
+
+    layout = models.JSONField(
+        help_text="Serialised dashboard layout: {widgetConfigs: [...], layouts: {...}}",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dashboard_configs",
+        help_text="The superuser who last saved this configuration.",
+    )
+
+    class Meta:
+        verbose_name = "Dashboard Configuration"
+        verbose_name_plural = "Dashboard Configurations"
+
+    def __str__(self):
+        return f"DashboardConfig (updated {self.updated_at})"

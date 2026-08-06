@@ -44,9 +44,15 @@ vi.mock("../../../src/stores", () => ({
   useAuthStore: (selector) => mockUseAuthStore(selector),
 }));
 
+// Import store to set serverSynced before Dashboard mounts
+import useDashboardStore from "../../../src/stores/useDashboardStore";
+
 describe("Enrichment Lookup Integration Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Prevent axios.get from firing
+    // by marking the store as already synced this session.
+    useDashboardStore.setState({ serverSynced: true });
   });
 
   test("enrichment lookup section is visible on dashboard page", () => {

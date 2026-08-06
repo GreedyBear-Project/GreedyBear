@@ -1,7 +1,14 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import axios from "axios";
 
 // Mock react-grid-layout
 vi.mock("react-grid-layout", () => ({
@@ -47,6 +54,7 @@ vi.mock("@greedybear/gb-ui", async (importOriginal) => {
       </div>
     ),
     ElasticTimePicker: () => <div />,
+    addToast: vi.fn(),
   };
 });
 
@@ -69,6 +77,7 @@ function resetStore() {
     widgetConfigs: WIDGET_CONFIGS,
     isDirty: false,
     savedVersion: 0,
+    serverSynced: true, // prevent loadFromServer from firing during tests
   });
 }
 
@@ -89,6 +98,9 @@ describe("ConfigEditor", () => {
     mockUseAuthStore.mockImplementation((selector) =>
       selector({ isSuperuser: true }),
     );
+    axios.put = vi.fn(() => Promise.resolve({ data: {} }));
+    axios.delete = vi.fn(() => Promise.resolve({}));
+    axios.get = vi.fn(() => Promise.resolve({ data: { layout: null } }));
   });
 
   describe("structural rendering", () => {
@@ -227,30 +239,35 @@ describe("ConfigEditor", () => {
   // Save action
 
   describe("save", () => {
-    test("clicking Save clears the dirty flag and hides the badge", () => {
+    test("clicking Save clears the dirty flag and hides the badge", async () => {
       useDashboardStore.setState({ isDirty: true });
       renderEditor();
 
       fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-      expect(useDashboardStore.getState().isDirty).toBe(false);
+      await waitFor(() =>
+        expect(useDashboardStore.getState().isDirty).toBe(false),
+      );
       expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
     });
 
-    test("clicking Save increments savedVersion", () => {
+    test("clicking Save increments savedVersion", async () => {
       useDashboardStore.setState({ isDirty: true });
       renderEditor();
 
       const before = useDashboardStore.getState().savedVersion;
       fireEvent.click(screen.getByRole("button", { name: /save/i }));
-      expect(useDashboardStore.getState().savedVersion).toBe(before + 1);
+
+      await waitFor(() =>
+        expect(useDashboardStore.getState().savedVersion).toBe(before + 1),
+      );
     });
   });
 
   // Reset action
 
   describe("reset", () => {
-    test("clicking Reset and confirming restores default widget configs", () => {
+    test("clicking Reset and confirming restores default widget configs", async () => {
       // Stub window.confirm to auto-approve
       vi.spyOn(window, "confirm").mockReturnValue(true);
 
@@ -265,8 +282,10 @@ describe("ConfigEditor", () => {
       renderEditor();
       fireEvent.click(screen.getByRole("button", { name: /reset/i }));
 
-      expect(useDashboardStore.getState().widgetConfigs).toEqual(
-        WIDGET_CONFIGS,
+      await waitFor(() =>
+        expect(useDashboardStore.getState().widgetConfigs).toEqual(
+          WIDGET_CONFIGS,
+        ),
       );
       expect(useDashboardStore.getState().isDirty).toBe(false);
 

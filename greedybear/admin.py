@@ -14,6 +14,7 @@ from greedybear.models import (
     CommandSequence,
     CowrieSession,
     Credential,
+    DashboardConfig,
     EventStatus,
     FireHolList,
     Honeypot,
@@ -410,3 +411,12 @@ class HoneypotPayloadAdmin(admin.ModelAdmin):
     @admin.display(description="Source Honeypots")
     def get_source_honeypots(self, obj):
         return ", ".join([h.name for h in obj.source_honeypots.all()])
+
+
+@admin.register(DashboardConfig)
+class DashboardConfigAdmin(admin.ModelAdmin):
+    list_display = ["id", "updated_at", "updated_by"]
+    readonly_fields = ["updated_at", "updated_by"]
+
+    def has_add_permission(self, request) -> bool:
+        return False
