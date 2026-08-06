@@ -190,7 +190,10 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
                 for ioc in stream_ioc_objects(iocs_queryset, verbose=verbose, include_sensors=self.include_sensors):
                     yield json.dumps(ioc, default=str) + "\n"
 
-            return StreamingHttpResponse(stream_iocs(), content_type="application/x-ndjson")
+            response = StreamingHttpResponse(stream_iocs(), content_type="application/x-ndjson")
+            # tell nginx not to buffer this response so rows reach the client as they are produced
+            response["X-Accel-Buffering"] = "no"
+            return response
         renderer = RENDERERS_BY_FORMAT[self.request_params["format"]]()
         request.accepted_renderer = renderer
         request.accepted_media_type = renderer.media_type
