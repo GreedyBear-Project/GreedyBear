@@ -122,6 +122,11 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
         dict: A single JSON-serializable IOC dict.
     """
     required_fields = JSON_BASE_FIELDS + JSON_VERBOSE_FIELDS if verbose else JSON_BASE_FIELDS
+
+    # `tags_json` is annotated in get_queryset (only for JSON format) to avoid conflicting
+    # with the `tags` reverse FK on IOC. When the queryset comes from a repository method
+    # that does not annotate `tags_json` (e.g. the ML scoring path), exclude the field.
+    # `sensors_json` follows the same pattern and is only annotated for authenticated views.
     if isinstance(iocs, list):
         has_tags_annotation = bool(iocs) and hasattr(iocs[0], "tags_json")
         has_sensors_annotation = include_sensors and bool(iocs) and hasattr(iocs[0], "sensors_json")
@@ -135,6 +140,7 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
     required_fields = tuple(f for f in required_fields if f != "credential_count" or has_credential_count)
     if has_sensors_annotation:
         required_fields = (*required_fields, "sensors_json")
+
     if isinstance(iocs, list):
         iocs_iter = (ioc_as_dict(ioc, set(required_fields)) for ioc in iocs)
     else:
@@ -142,6 +148,7 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
 
     for ioc in iocs_iter:
         ioc_feed_type = [hp.lower() for hp in ioc.get("honeypot_names", []) if hp]
+
         data_ = ioc | {
             "first_seen": ioc["first_seen"].strftime("%Y-%m-%d"),
             "last_seen": ioc["last_seen"].strftime("%Y-%m-%d"),
@@ -151,6 +158,7 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
             "tags": ioc.pop("tags_json", []),
             **({"sensors": ioc.pop("sensors_json", [])} if has_sensors_annotation else {}),
         }
+
         if not verbose:
             data_.pop("destination_ports", None)
         data_.pop("autonomous_system", None)
