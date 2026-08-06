@@ -526,8 +526,7 @@ class DashboardConfig(models.Model):
     across all users. Only one row should ever exist (singleton pattern).
 
     Superusers write it via the PUT /api/dashboard-config/ endpoint.
-    Any authenticated (or anonymous, depending on deployment policy) user
-    reads it via GET /api/dashboard-config/.
+    Any user, including anonymous visitors, can read it via GET /api/dashboard-config/.
     """
 
     layout = models.JSONField(

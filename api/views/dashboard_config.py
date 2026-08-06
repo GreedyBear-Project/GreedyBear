@@ -18,15 +18,12 @@ logger = logging.getLogger(__name__)
 
 class DashboardLayoutSerializer(serializers.Serializer):
     layout = serializers.DictField(
-        allow_null=True,
         help_text=(
             "Saved dashboard layout containing 'widgetConfigs' (list) and 'layouts' (react-grid-layout breakpoint map). Null when no config has been saved yet."
         ),
     )
 
     def validate_layout(self, value):
-        if value is None:
-            return value
         if "widgetConfigs" not in value or "layouts" not in value:
             raise serializers.ValidationError("'layout' must contain 'widgetConfigs' and 'layouts' keys.")
         if not isinstance(value["widgetConfigs"], list):
