@@ -67,6 +67,12 @@ class DashboardConfigTests(CustomTestCase):
         response = _auth_client(self.superuser).put(URL, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_put_null_layout_returns_400(self):
+        """A null layout must be rejected by the serializer."""
+        response = _auth_client(self.superuser).put(URL, {"layout": None}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DashboardConfig.objects.count(), 0)
+
     def test_put_creates_record(self):
         _auth_client(self.superuser).put(URL, {"layout": VALID_LAYOUT}, format="json")
         self.assertEqual(DashboardConfig.objects.count(), 1)
