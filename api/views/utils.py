@@ -168,7 +168,20 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
 
 
 def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict]:
-    """Shape a queryset (or list) of IOCs into the JSON feed row dicts"""
+    """Shape a queryset (or list) of IOCs into the JSON feed row dicts.
+
+    Pure data logic shared by the JSON renderer and the ML scoring path; it
+    builds the per-row dicts but performs no HTTP/encoding work. Eagerly
+    collects `stream_ioc_objects`; use that generator directly when the rows
+    can be consumed lazily.
+
+    Args:
+        iocs (QuerySet | list): Filtered IOCs to render.
+        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
+        include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
+
+    Returns: A list of JSON-serializable IOC dicts.
+    """
     json_list = list(stream_ioc_objects(iocs, verbose=verbose, include_sensors=include_sensors))
     logger.info(f"Number of feeds returned: {len(json_list)}")
     return json_list
