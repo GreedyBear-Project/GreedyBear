@@ -37,6 +37,9 @@
     "preview": "vite preview",
     "test": "vitest",
     "test-coverage": "vitest run --coverage",
+    "start:visual": "vite --host 127.0.0.1 --port 3002",
+    "test:visual": "playwright test",
+    "test:visual:update": "playwright test --update-snapshots",
     "lint-config-install": "cd ../.github/configurations/node_linters/eslint && npm i",
     "lint": "eslint 'src/**/*.{js,jsx}' 'tests/**/*.{js,jsx}'",
     "lint-fix": "npm run lint -- --fix",
@@ -50,6 +53,7 @@
     "d3-color": "^3.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",
