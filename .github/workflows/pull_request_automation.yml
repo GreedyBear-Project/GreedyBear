@@ -39,8 +39,6 @@ jobs:
 
       use_coverage: true
       upload_coverage: true
-      custom_command: >-
-        npx playwright install --with-deps chromium && npm run test:visual
       max_timeout: 15
       node_versions: >-
         ["24"]
