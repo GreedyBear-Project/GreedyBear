@@ -51,7 +51,7 @@ test = [
     "django-test-migrations==1.6.0",
 ]
 lint = [
-    "ruff==0.16.1",
+    "ruff==0.16.4",
 ]
 
 [tool.uv]
