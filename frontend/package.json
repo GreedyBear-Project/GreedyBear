@@ -11,7 +11,7 @@
   "dependencies": {
     "@greedybear/gb-ui": "github:GreedyBear-Project/gb-ui#1.0.1",
     "@vnedyalk0v/react19-simple-maps": "^2.0.10",
-    "axios": "^1.19.0",
+    "axios": "^1.20.0",
     "axios-hooks": "^5.1.1",
     "bootstrap": ">=5.3.8",
     "formik": "^2.4.9",
@@ -25,8 +25,8 @@
     "react-use": "^17.6.1",
     "reactstrap": "^9.2.3",
     "recharts": "^3.10.1",
-    "sass": "^1.102.0",
-    "zustand": "^5.0.14"
+    "sass": "^1.103.1",
+    "zustand": "^5.0.15"
   },
   "scripts": {
     "start": "vite --port 3001",
@@ -47,16 +47,16 @@
     "d3-color": "^3.1.0"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^7.0.0",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.3",
-    "@vitejs/plugin-react": "^6.0.5",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.6",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.39.5",
     "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
     "stylelint": "^17.14.1",
-    "vite": "^8.2.0",
-    "vitest": "^4.1.10"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   }
 }
