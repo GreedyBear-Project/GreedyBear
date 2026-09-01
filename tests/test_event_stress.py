@@ -186,6 +186,7 @@ class TestLargeBatchIngestion(CustomTestCase):
         )
         self.assertEqual(mock_task.call_count, 100)
 
+
 # Concurrent submission stress
 # Using TransactionTestCase because it commits each setUp write
 # to the real DB so all threads share the same visible state.
@@ -224,8 +225,7 @@ class TestConcurrentSubmissions(TransactionTestCase):
 
         def submit_and_close():
             try:
-                result = self._submit()
-                return result
+                return self._submit()
                 # clossing this thread's DB connection so Django can DROP the test
                 # database cleanly after all tests finish.
             finally:
@@ -243,7 +243,8 @@ class TestConcurrentSubmissions(TransactionTestCase):
 
         task_ids = {r.data["task_id"] for r in results}
         self.assertEqual(
-            len(task_ids), 20,
+            len(task_ids),
+            20,
             "Every concurrent submission must produce a unique task_id.",
         )
         self.assertEqual(RawEvent.objects.count(), 20)
@@ -266,7 +267,6 @@ class TestConcurrentSubmissions(TransactionTestCase):
             [f.result() for f in as_completed(futures)]
 
         self.assertEqual(EventStatus.objects.count(), 10)
-
 
 
 class TestProcessIncomingEventStress(CustomTestCase):
@@ -294,9 +294,7 @@ class TestProcessIncomingEventStress(CustomTestCase):
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
     @patch(PATCH_IOC_PROCESSOR)
     @patch(PATCH_IOCS_FROM_HITS)
-    def test_500_raw_events_all_marked_processed(
-        self, mock_hits, mock_proc_cls, mock_attack, mock_scores_cls
-    ):
+    def test_500_raw_events_all_marked_processed(self, mock_hits, mock_proc_cls, mock_attack, mock_scores_cls):
         """
         500 RawEvents must all be flipped to processed=True and batch.ioc_count
         must equal 500 after a successful run.
@@ -330,9 +328,7 @@ class TestProcessIncomingEventStress(CustomTestCase):
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
     @patch(PATCH_IOC_PROCESSOR)
     @patch(PATCH_IOCS_FROM_HITS)
-    def test_atomic_rollback_with_300_iocs_on_crash(
-        self, mock_hits, mock_proc_cls, mock_attack, mock_scores_cls
-    ):
+    def test_atomic_rollback_with_300_iocs_on_crash(self, mock_hits, mock_proc_cls, mock_attack, mock_scores_cls):
         """
         If UpdateScores crashes after 300 IOCs have been written inside the
         transaction, the atomic block must roll back every single one.
@@ -387,9 +383,7 @@ class TestProcessIncomingEventStress(CustomTestCase):
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
     @patch(PATCH_IOC_PROCESSOR)
     @patch(PATCH_IOCS_FROM_HITS)
-    def test_500_iocs_all_filtered_batch_completes_with_zero_count(
-        self, mock_hits, mock_proc_cls, mock_attack, mock_scores_cls
-    ):
+    def test_500_iocs_all_filtered_batch_completes_with_zero_count(self, mock_hits, mock_proc_cls, mock_attack, mock_scores_cls):
         """
         If the processor filters every IOC (returns None for each), the batch
         must still complete successfully with ioc_count=0, and scoring must
@@ -483,7 +477,7 @@ class TestProcessCredentialsStress(CustomTestCase):
         The same credential seen from 500 different attacker IPs must be
         represented as a single Credential row linked to 500 IOCs.
         """
-        iocs = [IOC.objects.create(name=f"10.1.{i//256}.{i%256}", type="ip") for i in range(500)]
+        iocs = [IOC.objects.create(name=f"10.1.{i // 256}.{i % 256}", type="ip") for i in range(500)]
         hit = self._hit("root", "toor")
         for ioc in iocs:
             _process_credentials(ioc, [hit])
@@ -625,6 +619,7 @@ class TestProcessCommandsStress(CustomTestCase):
         hits = [self._hit("") for _ in range(100)] + [self._hit("   ") for _ in range(100)]
         _process_commands(hits)
         self.assertEqual(CommandSequence.objects.count(), 0)
+
 
 class TestProcessArrayFieldStress(CustomTestCase):
     """
