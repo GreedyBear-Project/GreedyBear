@@ -1,6 +1,6 @@
 autoflake~=2.3.1
 bandit~=1.8.3
-black~=25.1.0
+black~=26.3.1
 # use fork since main repo is not updated
 # see https://github.com/rocioar/flake8-django/pull/134
 # Note: python 3.12 is not supported
