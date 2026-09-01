@@ -1,6 +1,6 @@
 [project]
 name = "greedybear"
-version = "3.5.1"
+version = "3.6.0"
 description = "Threat intelligence platform that extracts attack data from a T-Pot or a cluster of them and generates actionable live feeds."
 readme = "README.md"
 license = "MIT"
