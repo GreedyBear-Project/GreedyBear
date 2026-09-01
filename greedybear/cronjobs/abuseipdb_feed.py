@@ -2,6 +2,7 @@ import requests
 from django.conf import settings
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC
 from greedybear.utils import is_valid_ipv4
@@ -60,8 +61,8 @@ class AbuseIPDBCron(Cronjob):
                 "limit": self.MAX_ENTRIES,  # Maximum 10k entries
             }
 
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
+            with HttpClient() as client:
+                response = client.get(url, headers=headers, params=params, timeout=30)
 
             json_data = response.json()
             blocklist_data = json_data.get("data", [])

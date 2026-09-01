@@ -4,7 +4,7 @@ import { VscJson } from "react-icons/vsc";
 import { TbLicense } from "react-icons/tb";
 import { MdFilterAltOff } from "react-icons/md";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { FEEDS_BASE_URI, GENERAL_HONEYPOT_URI } from "../../constants/api";
+import { FEEDS_BASE_URI, HONEYPOT_URI } from "../../constants/api";
 import {
   ContentSection,
   Select,
@@ -97,9 +97,6 @@ function FeedsTable({ tableParams, onDataLoad, onSortChange }) {
 }
 
 export default function Feeds() {
-  console.debug("Feeds rendered!");
-  console.debug("Feeds-DEFAULT_VALUES", DEFAULT_VALUES);
-
   const [searchParams, setSearchParams] = useSearchParams();
   const formikRef = React.useRef(null);
 
@@ -146,10 +143,9 @@ export default function Feeds() {
 
   // API to extract general honeypot
   const [honeypots, Loader] = useAxiosComponentLoader({
-    url: `${GENERAL_HONEYPOT_URI}?onlyActive=true`,
+    url: `${HONEYPOT_URI}?only_active=true`,
     headers: { "Content-Type": "application/json" },
   });
-  console.debug("Feeds-honeypots:", honeypots);
 
   const honeypotFeedsType = React.useMemo(
     () =>
@@ -190,21 +186,17 @@ export default function Feeds() {
   // callbacks
   const onSubmit = React.useCallback(
     (values) => {
-      try {
-        setFeedsState((prev) => ({
-          url: `${FEEDS_BASE_URI}/${values.feeds_type}/${values.attack_type}/${values.prioritize}.json?ioc_type=${values.ioc_type}`,
-          tableParams: {
-            feed_type: values.feeds_type,
-            attack_type: values.attack_type,
-            ioc_type: values.ioc_type,
-            prioritize: values.prioritize,
-          },
-          tableKey: prev.tableKey + 1,
-        }));
-        updateSearchParams(values);
-      } catch (e) {
-        console.debug(e);
-      }
+      setFeedsState((prev) => ({
+        url: `${FEEDS_BASE_URI}/${values.feeds_type}/${values.attack_type}/${values.prioritize}.json?ioc_type=${values.ioc_type}`,
+        tableParams: {
+          feed_type: values.feeds_type,
+          attack_type: values.attack_type,
+          ioc_type: values.ioc_type,
+          prioritize: values.prioritize,
+        },
+        tableKey: prev.tableKey + 1,
+      }));
+      updateSearchParams(values);
     },
     [updateSearchParams],
   );

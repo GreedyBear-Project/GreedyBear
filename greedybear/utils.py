@@ -3,8 +3,10 @@
 import re
 from datetime import datetime
 from ipaddress import IPv4Address, IPv4Network, ip_address
+from typing import Any
+from urllib.parse import urlparse
 
-from greedybear.consts import DOMAIN, IP
+from greedybear.consts import DOMAIN, IP, PAYLOAD_REQUEST, SCANNER
 
 
 def is_ip_address(string: str) -> bool:
@@ -136,3 +138,63 @@ def get_ioc_type(ioc: str) -> str:
     """
     is_valid, _ = is_valid_ipv4(ioc)
     return IP if is_valid else DOMAIN
+
+
+def get_attack_type(ip_hits: list[dict]) -> str:
+    """
+    Determines the attack type based on the raw hits for a specific IP.
+
+    An IOC that has triggered at least one hit containing a valid
+    payload download URL is classified as a PAYLOAD_REQUEST attacker.
+    Everything else is classified as a SCANNER.
+    """
+    for hit in ip_hits:
+        url = hit.get("_related_url")
+        # Ensure the hit has a URL and that it passes our path validation rules
+        if url and is_valid_url(url):
+            return PAYLOAD_REQUEST
+
+    return SCANNER
+
+
+def is_valid_url(url: str | None) -> bool:
+    allowed_schemes = {"http", "https"}
+    try:
+        parsed = urlparse(url)
+
+        if parsed.scheme not in allowed_schemes:
+            return False
+
+        if not parsed.netloc:
+            return False
+
+        if parsed.netloc.strip() == "":
+            return False
+
+        return bool(parsed.path and parsed.path.strip("/") != "")
+
+    except Exception:
+        return False
+
+
+def get_nested_value(d: dict, *keys: str) -> Any | None:
+    """
+    Traverse a nested dictionary along a path of keys without raising.
+    Failed traversals yield None instead of an error.
+
+    Args:
+        d: Dict to traverse.
+        *keys: Key path to follow, e.g. "connection", "protocol".
+
+    Returns:
+        Value at the end of the key path, or None if the path is empty,
+        a key is missing, or an intermediate value is not a dict.
+    """
+    if not keys:
+        return None
+    current = d
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current

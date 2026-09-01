@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -36,6 +37,24 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertEqual(target_ioc["payload_request"], True)
         self.assertEqual(target_ioc["recurrence_probability"], self.ioc.recurrence_probability)
         self.assertEqual(target_ioc["expected_interactions"], self.ioc.expected_interactions)
+
+    def test_verbose_field(self):
+        response = self.client.get("/api/feeds/advanced/?format=ndjson&verbose=true")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        iocs = [json.loads(line) for line in lines]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIn("days_seen", target_ioc)
+        self.assertIn("firehol_categories", target_ioc)
+
+    def test_delimeter(self):
+        response = self.client.get("/api/feeds/advanced/?format=ndjson&include_mass_scanners")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        value = 1
+        self.assertGreater(len(lines), value)
+        for line in lines:
+            json.loads(line)
 
     def test_200_general_feeds(self):
         response = self.client.get("/api/feeds/advanced/?feed_type=heralding")
@@ -299,6 +318,18 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         response = self.client.get(f"/api/feeds/advanced/?start_date={future_start}")
         self.assertEqual(response.json()["iocs"], [])
 
+    def test_date_range_overrides_max_age_default(self):
+        """A historical date range must return IOCs older than the max_age default."""
+        old_ioc_date = datetime.now() - timedelta(days=10)
+        self.ioc.last_seen = old_ioc_date
+        self.ioc.save()
+
+        start = (old_ioc_date - timedelta(days=2)).strftime("%Y-%m-%d")
+        end = (old_ioc_date + timedelta(days=2)).strftime("%Y-%m-%d")
+        response = self.client.get(f"/api/feeds/advanced/?start_date={start}&end_date={end}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
     def test_filter_by_country_code(self):
         """Filter by country_code returns only matching IOCs."""
         self.ioc.attacker_country_code = "IT"
@@ -358,7 +389,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         response = self.client.get("/api/feeds/consume/invalid-token-123")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Invalid or expired token")
+        self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
     def test_shareable_feed_expired_token(self):
         """Consuming a tampered/expired token returns 400."""
@@ -368,8 +399,8 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "ioc_type": "all",
             "max_age": "3",
             "min_days_seen": "1",
-            "include_reputation": [],
-            "exclude_reputation": [],
+            "include_reputation": "",
+            "exclude_reputation": "",
             "feed_size": "5000",
             "ordering": "-last_seen",
             "verbose": "false",
@@ -386,7 +417,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         response = self.client.get(f"/api/feeds/consume/{tampered}")
         self.assertEqual(response.status_code, 400)
-        self.assertIn("error", response.json())
+        self.assertIn("errors", response.json())
 
     def test_consume_valid_token_without_db_record_is_rejected(self):
         """A valid signed token that was never saved to the DB is rejected (allowlist check)."""
@@ -396,8 +427,8 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "ioc_type": "all",
             "max_age": "3",
             "min_days_seen": "1",
-            "include_reputation": [],
-            "exclude_reputation": [],
+            "include_reputation": "",
+            "exclude_reputation": "",
             "feed_size": "5000",
             "ordering": "-last_seen",
             "verbose": "false",
@@ -417,7 +448,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         response = self.client.get(f"/api/feeds/consume/{token}")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Invalid or expired token")
+        self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
     def test_consume_token_deleted_from_db_is_rejected(self):
         """A token whose DB record has been deleted is rejected even though the signature is valid."""
@@ -433,7 +464,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
         response = self.client.get(f"/api/feeds/consume/{token}")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Invalid or expired token")
+        self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
     def test_rate_limiting_consume(self):
         """
@@ -468,7 +499,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.client.logout()
         consume_response = self.client.get(f"/api/feeds/consume/{token}")
         self.assertEqual(consume_response.status_code, 400)
-        self.assertEqual(consume_response.json()["error"], "Token has been revoked")
+        self.assertEqual(consume_response.json()["errors"]["non_field_errors"][0], "Token has been revoked")
 
     def test_token_revoke_already_revoked(self):
         """Revoking an already-revoked token returns 200 (idempotent)."""
@@ -484,7 +515,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         """Revoking an invalid/expired token returns 400."""
         revoke_response = self.client.get("/api/feeds/revoke/not-a-valid-token")
         self.assertEqual(revoke_response.status_code, 400)
-        self.assertIn("error", revoke_response.json())
+        self.assertIn("errors", revoke_response.json())
 
     def test_200_format_txt(self):
         """Ensures ?format=txt returns plain text, not JSON."""

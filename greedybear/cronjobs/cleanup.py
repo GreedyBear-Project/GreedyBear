@@ -2,14 +2,18 @@ from datetime import datetime, timedelta
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories import (
+    APISourceRepository,
     CowrieSessionRepository,
+    EventRepository,
     IocRepository,
     StatisticsRepository,
 )
 from greedybear.settings import (
     COMMAND_SEQUENCE_RETENTION,
     COWRIE_SESSION_RETENTION,
+    EVENT_STATUS_RETENTION,
     IOC_RETENTION,
+    RAW_EVENT_RETENTION,
     STATISTICS_RETENTION,
 )
 
@@ -18,12 +22,12 @@ class CleanUp(Cronjob):
     """
     A scheduled job that performs database cleanup operations by removing outdated records.
 
-    This job handles deletion of old IOCs, CowrieSessions, CommandSequences, and Statistics
-    based on retention periods defined in the application settings. All deletion operations
-    are logged with counts of removed objects.
+    This job handles deletion of old IOCs, CowrieSessions, CommandSequences, RawEvents, EventStatus and
+    Statistics based on retention periods defined in the application settings. It also resets the invalid
+    event count for API sources daily. All deletion operations are logged with counts of removed objects.
     """
 
-    def __init__(self, ioc_repo=None, cowrie_repo=None, stats_repo=None):
+    def __init__(self, ioc_repo=None, cowrie_repo=None, stats_repo=None, api_source_repo=None, event_repo=None):
         """
         Initialize the cleanup job with repository dependencies.
 
@@ -31,11 +35,15 @@ class CleanUp(Cronjob):
             ioc_repo: Optional IocRepository instance for testing.
             cowrie_repo: Optional CowrieSessionRepository instance for testing.
             stats_repo: Optional StatisticsRepository instance for testing.
+            api_source_repo: Optional APISourceRepository instance for testing.
+            event_repo: Optional EventRepository instance for testing.
         """
         super().__init__()
         self.ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
         self.cowrie_repo = cowrie_repo if cowrie_repo is not None else CowrieSessionRepository()
         self.stats_repo = stats_repo if stats_repo is not None else StatisticsRepository()
+        self.api_source_repo = api_source_repo if api_source_repo is not None else APISourceRepository()
+        self.event_repo = event_repo if event_repo is not None else EventRepository()
 
     def run(self) -> None:
         """
@@ -49,6 +57,9 @@ class CleanUp(Cronjob):
         5. Deletes all Cowrie sessions older than COWRIE_SESSION_RETENTION days
         6. Deletes all command sequences older than COMMAND_SEQUENCE_RETENTION days
         7. Deletes Statistics records older than STATISTICS_RETENTION days
+        8. Resets APISource invalid_event_count daily for retention enforcement
+        9. Deletes all RawEvents older than RAW_EVENT_RETENTION days
+        10. Deletes all EventStatus older than EVENT_STATUS_RETENTION days
 
         Each deletion operation is logged with the number of affected records.
         """
@@ -57,6 +68,8 @@ class CleanUp(Cronjob):
         session_expiration_date = datetime.now() - timedelta(days=30)
         session_with_login_expiration_date = datetime.now() - timedelta(days=COWRIE_SESSION_RETENTION)
         statistics_expiration_date = datetime.now() - timedelta(days=STATISTICS_RETENTION)
+        raw_event_expiration_date = datetime.now() - timedelta(days=RAW_EVENT_RETENTION)
+        event_status_expiration_date = datetime.now() - timedelta(days=EVENT_STATUS_RETENTION)
 
         self.log.info(f"deleting all IOC older then {IOC_RETENTION} days")
         n = self.ioc_repo.delete_old_iocs(ioc_expiration_date)
@@ -80,4 +93,16 @@ class CleanUp(Cronjob):
 
         self.log.info(f"deleting all Statistics older then {STATISTICS_RETENTION} days")
         n = self.stats_repo.delete_old_statistics(statistics_expiration_date)
+        self.log.info(f"{n} objects deleted")
+
+        self.log.info("Resetting APISource invalid_event_count daily retention")
+        updated = self.api_source_repo.reset_invalid_counts()
+        self.log.info(f"Reset invalid_event_count to 0 for {updated} APISources")
+
+        self.log.info(f"deleting all RawEvents older then {RAW_EVENT_RETENTION} days")
+        n = self.event_repo.delete_old_raw_events(raw_event_expiration_date)
+        self.log.info(f"{n} objects deleted")
+
+        self.log.info(f"deleting all EventStatuses older then {EVENT_STATUS_RETENTION} days")
+        n = self.event_repo.delete_old_event_statuses(event_status_expiration_date)
         self.log.info(f"{n} objects deleted")

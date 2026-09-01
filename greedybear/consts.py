@@ -17,7 +17,11 @@ IP = "ip"
 
 FIELDS_TO_EXTRACT = [
     "@timestamp",
+    "alert",
+    "app_proto",
     "body",
+    "connection",
+    "cve",
     "dest_port",
     "duration",
     "eventid",
@@ -29,6 +33,7 @@ FIELDS_TO_EXTRACT = [
     "password",
     "path",
     "post_data",
+    "proto",
     "protocol",
     "session",
     "shasum",
@@ -39,6 +44,20 @@ FIELDS_TO_EXTRACT = [
     "url",
     "username",
 ]
+
+CVE_FIELD_MAP = {
+    "cowrie": ("cve",),
+    "suricata": ("alert", "cve_id"),
+}
+
+PROTOCOL_FIELD_MAP = {
+    "cowrie": ("protocol",),
+    "dionaea": ("connection", "protocol"),
+    "fatt": ("protocol",),
+    "heralding": ("proto",),
+    "h0neytr4p": ("protocol",),
+    "suricata": ("app_proto",),
+}
 
 
 # Mass scanner service domains for reverse DNS filtering.
@@ -63,5 +82,18 @@ RSS_FEED_URL = "https://greedybear-project.github.io/feed.xml"
 CACHE_KEY_GREEDYBEAR_NEWS = "greedybear_news"
 CACHE_TIMEOUT_SECONDS = 60 * 60
 
+# API response cache (see greedybear/cache.py and api/mixins.py).
+API_CACHE_ALIAS = "api"
+API_CACHE_TIMEOUT_SECONDS = 60 * 60
+IOC_DATA_VERSION_KEY = "ioc_data_version"
+TRENDING_FEEDS_DATA_VERSION_KEY = "trending_feeds_version"
+
 # tracking application start time
 START_TIME = time.time()
+
+# shared feeds
+SHARE_TOKEN_SALT = "greedybear-feeds"
+SHARE_TOKEN_MAX_AGE = 86400 * 30  # 30 days
+
+# Event injection API
+APISOURCE_LOCKED_THRESHOLD = 10

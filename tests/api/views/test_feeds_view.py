@@ -1,6 +1,11 @@
+import json
+from unittest.mock import patch
+
 from django.conf import settings
+from django.core.cache import cache
 from django.test import override_settings
 
+from api.throttles import FeedsThrottle
 from tests import CustomTestCase
 
 
@@ -27,6 +32,17 @@ class FeedsViewTestCase(CustomTestCase):
         self.assertEqual(target_ioc["payload_request"], True)
         self.assertEqual(target_ioc["recurrence_probability"], self.ioc.recurrence_probability)
         self.assertEqual(target_ioc["expected_interactions"], self.ioc.expected_interactions)
+
+    def test_200_ndjson_feed(self):
+        response = self.client.get("/api/feeds/all/all/recent.ndjson")
+        self.assertIn("application/x-ndjson", response.headers.get("Content-Type", ""))
+        self.assertEqual(response.headers.get("X-Accel-Buffering"), "no")
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        iocs = [json.loads(line) for line in lines]
+        values = [ioc["value"] for ioc in iocs]
+        self.assertIn(self.ioc.name, values)
 
     @override_settings(FEEDS_LICENSE="https://example.com/license")
     def test_200_all_feeds_with_license(self):
@@ -177,3 +193,28 @@ class FeedsViewTestCase(CustomTestCase):
 
         values = [ioc["value"] for ioc in response.json()["results"]["iocs"]]
         self.assertEqual(values, sorted(values))
+
+    def test_feeds_endpoint_uses_feeds_throttle(self):
+        cache.clear()
+        try:
+            with patch.object(FeedsThrottle, "THROTTLE_RATES", {"feeds": "1/minute"}):
+                first = self.client.get("/api/feeds/all/all/recent.json")
+                second = self.client.get("/api/feeds/all/all/recent.json")
+        finally:
+            cache.clear()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)
+
+    def test_feeds_pagination_endpoint_uses_feeds_throttle(self):
+        url = "/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent"
+        cache.clear()
+        try:
+            with patch.object(FeedsThrottle, "THROTTLE_RATES", {"feeds": "1/minute"}):
+                first = self.client.get(url)
+                second = self.client.get(url)
+        finally:
+            cache.clear()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)

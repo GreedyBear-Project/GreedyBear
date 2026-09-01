@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from ipaddress import ip_address, ip_network
 from logging import Logger
@@ -6,10 +7,12 @@ from urllib.parse import urlparse
 import requests
 from django.conf import settings
 
+from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
+from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, FireHolList, MassScanner
-from greedybear.utils import get_ioc_type, is_non_global_ip, parse_timestamp
+from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
 
 
 def normalize_credential_field(value: object, max_length: int = 256) -> str:
@@ -140,13 +143,15 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         firehol_categories = get_firehol_categories(ip, extracted_ip, firehol_exact_map, cidr_entries)
 
         # Single pass over hits to accumulate all derived data
-        dest_ports = []
+        dest_ports: set[int] = set()
         sensors_map = {}
         timestamps = []
         login_attempts = 0
+        protocols: set[str] = set()
+        cves: set[str] = set()
         for hit in hits:
             if "dest_port" in hit:
-                dest_ports.append(hit["dest_port"])
+                dest_ports.add(hit["dest_port"])
             sensor = hit.get("_sensor")
             if sensor is not None and getattr(sensor, "id", None):
                 sensors_map[sensor.id] = sensor
@@ -154,6 +159,26 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
                 timestamps.append(hit["@timestamp"])
             if hit.get("username") or hit.get("password"):
                 login_attempts += 1
+
+            # cve and protocol extraction, mapped explicitly by honeypot type
+            # to avoid ambiguity (e.g. Suricata has both proto=TCP and app_proto=rfb)
+            honeypot_type = hit.get("type", "").lower()
+            cve_field_path = CVE_FIELD_MAP.get(honeypot_type, ())
+            cve_value = get_nested_value(hit, *cve_field_path)
+            if cve_value:
+                for cve in str(cve_value).strip().split():
+                    if re.match(r"^CVE-\d{4}-\d{4,10}$", cve, re.IGNORECASE):
+                        cves.add(cve.upper())
+            # Ciscoasa: hardcoded CVE see https://github.com/Cymmetria/ciscoasa_honeypot
+            if honeypot_type == "ciscoasa":
+                cves.add("CVE-2018-0101")
+
+            protocol_field_path = PROTOCOL_FIELD_MAP.get(honeypot_type, ())
+            protocol = get_nested_value(hit, *protocol_field_path)
+            if isinstance(protocol, str):
+                protocol = protocol.strip().lower()[:50]  # truncate to match DB field
+                if protocol and protocol not in ("failed", "unknown"):
+                    protocols.add(protocol)
 
         # Sort sensors by ID for consistent processing order
         sensors = sorted(sensors_map.values(), key=lambda s: s.id)
@@ -173,11 +198,13 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
             interaction_count=len(hits),
             ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in hits if h.get("ip_rep")), ""), mass_scanner_ips),
             autonomous_system=autonomous_system,
-            destination_ports=sorted(set(dest_ports)),
+            destination_ports=sorted(dest_ports),
             login_attempts=login_attempts,
             firehol_categories=firehol_categories,
             attacker_country=attacker_country,
             attacker_country_code=attacker_country_code,
+            protocols=sorted(protocols),
+            cves=sorted(cves),
         )
         # Attach sensors to temporary attribute for later processing.
         # We cannot use `ioc.sensors.add()` here because the IOC instance is not yet saved
@@ -243,12 +270,13 @@ def threatfox_submission(ioc_record: IOC, related_urls: list, log: Logger) -> No
         "iocs": urls_to_submit,
     }
     try:
-        r = requests.post(
-            "https://threatfox-api.abuse.ch/api/v1/",
-            headers=headers,
-            json=json_data,
-            timeout=5,
-        )
+        with HttpClient() as client:
+            r = client.post(
+                "https://threatfox-api.abuse.ch/api/v1/",
+                headers=headers,
+                json=json_data,
+                timeout=5,
+            )
     except requests.RequestException:
         log.exception("Threatfox push error")
     else:

@@ -76,6 +76,12 @@ COWRIE_SESSION_RETENTION = 365
 # Days to keep unseen command sequences before deletion
 COMMAND_SEQUENCE_RETENTION = 365
 
+# Days to keep RawEvents data before deletion
+RAW_EVENT_RETENTION = 7
+
+# Days to keep EventStatus data before deletion
+EVENT_STATUS_RETENTION = 30
+
 # ThreatFox API key.
 # Once added, your payload request domains will be submitted to ThreatFox.
 # Also used to download ThreatFox indicators for enrichment.
@@ -85,10 +91,17 @@ THREATFOX_API_KEY =
 # Get your free API key from https://www.abuseipdb.com/
 ABUSEIPDB_API_KEY =
 
+# MalwareBazaar API key for submitting honeypot payloads to abuse.ch
+# Get your free Auth-Key from https://auth.abuse.ch/
+MALWAREBAZAAR_API_KEY =
+
 # Rate limiting for feeds endpoints (format: number/period, e.g. 30/minute)
 FEEDS_THROTTLE_RATE=30/minute
 FEEDS_ADVANCED_THROTTLE_RATE=100/minute
 FEEDS_SHARED_THROTTLE_RATE=10/minute
+
+# Rate limiting for authentication endpoints (format: number/period, e.g. 30/minute)
+LOGIN_THROTTLE_RATE=10/minute
 
 # Trending attackers settings
 # Max API window in minutes (must be >= 60 and multiple of 60)
@@ -100,6 +113,19 @@ TRENDING_BUCKET_RETENTION_HOURS=744
 # If not set, no license information will be included in feeds
 # Example: https://github.com/honeynet/GreedyBear/blob/main/FEEDS_LICENSE.md
 FEEDS_LICENSE=
+
+# T-Pot Payload Server URL for downloading honeypot payloads.
+# If not set, payload extraction is disabled.
+# Example: https://tpot.example.com:64299
+TPOT_PAYLOAD_SERVER_URL=
+
+# Optional API key for authenticating with the T-Pot Payload Server.
+# When empty, authentication is disabled on both sides.
+TPOT_PAYLOAD_SERVER_API_KEY=
+
+# Maximum disk usage (in GB) for the quarantine directory.
+# Payload downloads are paused when this limit is reached.
+MAX_QUARANTINE_SIZE_GB=5
 
 # Optional IntelOwl base URL. When set, a link to analyze each IOC on IntelOwl
 # will appear in the Feeds table.

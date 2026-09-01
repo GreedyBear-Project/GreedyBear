@@ -16,7 +16,7 @@ services:
       start_interval: 1s
 
   app:
-    image: intelowlproject/greedybear:prod
+    image: ghcr.io/greedybear-project/greedybear:prod
     container_name: greedybear_app
     restart: unless-stopped
     stop_grace_period: 30s
@@ -25,6 +25,7 @@ services:
       - generic_logs:/var/log/greedybear
       - static_content:/opt/deploy/greedybear/static
       - gunicorn_sockets:/run/gunicorn
+      - quarantine_data:/var/lib/greedybear/quarantine
     entrypoint:
       - ./docker/entrypoint_gunicorn.sh
     command: ["gunicorn", "greedybear.wsgi:application", "-c", "/etc/gunicorn/config.py"]
@@ -42,7 +43,7 @@ services:
       start_interval: 1s
 
   nginx:
-    image: intelowlproject/greedybear_nginx:prod
+    image: ghcr.io/greedybear-project/greedybear_nginx:prod
     container_name: greedybear_nginx
     restart: unless-stopped
     volumes:
@@ -67,7 +68,7 @@ services:
 
 
   qcluster:
-    image: intelowlproject/greedybear:prod
+    image: ghcr.io/greedybear-project/greedybear:prod
     container_name: greedybear_qcluster
     restart: unless-stopped
     stop_grace_period: 3m
@@ -77,6 +78,7 @@ services:
     volumes:
       - generic_logs:/var/log/greedybear
       - mlmodels:/opt/deploy/greedybear/mlmodels
+      - quarantine_data:/var/lib/greedybear/quarantine
     env_file:
       - env_file
     depends_on:
@@ -94,3 +96,4 @@ volumes:
   static_content:
   mlmodels:
   gunicorn_sockets:
+  quarantine_data:

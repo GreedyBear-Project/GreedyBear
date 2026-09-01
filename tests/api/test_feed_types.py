@@ -5,6 +5,7 @@ Tests for API feed type handling after migration from boolean fields.
 from django.test import override_settings
 from rest_framework.test import APIClient
 
+from api.serializers import get_valid_feed_types
 from greedybear.models import IOC, Honeypot, IocType
 from tests import CustomTestCase
 
@@ -65,8 +66,6 @@ class FeedTypeAPITestCase(CustomTestCase):
 
     def test_feed_valid_types_includes_all_active_honeypots(self):
         """Verify valid feed types include all active honeypots."""
-        from api.views.utils import get_valid_feed_types
-
         valid_types = get_valid_feed_types()
 
         # Should include all active honeypots (case-insensitive)
@@ -78,8 +77,6 @@ class FeedTypeAPITestCase(CustomTestCase):
 
     def test_inactive_honeypot_not_in_valid_types(self):
         """Verify inactive honeypots are not included in valid feed types."""
-        from api.views.utils import get_valid_feed_types
-
         valid_types_before = get_valid_feed_types()
 
         # Deactivate a honeypot

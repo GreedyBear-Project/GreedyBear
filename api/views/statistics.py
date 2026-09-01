@@ -5,23 +5,33 @@ import logging
 from certego_saas.ext.helpers import parse_humanized_range
 from django.db.models import Count, Q
 from django.db.models.functions import Trunc
-from django.http import HttpResponseServerError
+from django.http import HttpResponseBadRequest
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from api.mixins import CachedResponseMixin
 from greedybear.models import IOC, Honeypot, Statistics, ViewType
 
 logger = logging.getLogger(__name__)
 
 
-class StatisticsViewSet(viewsets.ViewSet):
+class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
     """
     A viewset for viewing and editing statistics related to feeds and enrichment data.
 
     Provides actions to retrieve statistics about the sources and downloads of feeds,
     as well as statistics on enrichment data.
     """
+
+    # Only cache statistics derived from IOC data that is refreshed by the extraction.
+    # These actions can use extraction-driven invalidation; user/request-dependent statistics
+    # should stay uncached here so they reflect the latest per-user state.
+    cache_namespace = "statistics_ioc"
+    cacheable_actions = frozenset({"countries", "feeds_types"})
+
+    def _cache_enabled(self) -> bool:
+        return getattr(self, "action", None) in self.cacheable_actions
 
     @action(detail=True, methods=["GET"])
     def feeds(self, request, pk=None):
@@ -46,8 +56,8 @@ class StatisticsViewSet(viewsets.ViewSet):
         elif pk == "downloads":
             annotations = {"Downloads": Count("source", filter=Q(view=ViewType.FEEDS_VIEW.value))}
         else:
-            logger.error("this is impossible. check the code")
-            return HttpResponseServerError()
+            logger.error(f"Invalid pk provided for feeds: {pk}")
+            return HttpResponseBadRequest()
         return self.__aggregation_response_static_statistics(annotations)
 
     @action(detail=True, methods=["get"])
@@ -73,8 +83,8 @@ class StatisticsViewSet(viewsets.ViewSet):
         elif pk == "requests":
             annotations = {"Requests": Count("source", filter=Q(view=ViewType.ENRICHMENT_VIEW.value))}
         else:
-            logger.error("this is impossible. check the code")
-            return HttpResponseServerError()
+            logger.error(f"Invalid pk provided for enrichment: {pk}")
+            return HttpResponseBadRequest()
         return self.__aggregation_response_static_statistics(annotations)
 
     @action(detail=False, methods=["get"])
@@ -88,6 +98,10 @@ class StatisticsViewSet(viewsets.ViewSet):
         Returns:
             Response: A JSON list of {country, code, count} objects ordered by count descending.
         """
+        cached_response = self.get_cached_response()
+        if cached_response is not None:
+            return cached_response
+
         delta, _ = self.__parse_range(self.request)
         qs = (
             IOC.objects.filter(last_seen__gte=delta)
@@ -118,6 +132,10 @@ class StatisticsViewSet(viewsets.ViewSet):
         Returns:
             Response: A JSON response containing the feed type statistics.
         """
+        cached_response = self.get_cached_response()
+        if cached_response is not None:
+            return cached_response
+
         # Build annotations for each active general honeypot
         annotations = {}
         honeypots = Honeypot.objects.all().filter(active=True)

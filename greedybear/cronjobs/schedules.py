@@ -120,6 +120,12 @@ def setup_schedules():
             "func": "greedybear.tasks.detect_credential_reuse",
             "cron": "7 2 * * *",
         },
+        # 15. MalwareBazaar Submission: Hourly at :37
+        {
+            "name": "submit_payloads_to_mbazaar",
+            "func": "greedybear.tasks.submit_payloads_to_mbazaar",
+            "cron": "37 * * * *",
+        },
     ]
 
     # create or update schedules

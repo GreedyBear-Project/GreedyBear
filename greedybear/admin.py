@@ -4,17 +4,23 @@ import logging
 
 from django.contrib import admin, messages
 from django.db.models import Q
+from django.utils.html import format_html
 from django.utils.translation import ngettext
 
 from greedybear.models import (
     IOC,
+    APISource,
     AttackerActivityBucket,
     CommandSequence,
     CowrieSession,
     Credential,
+    DashboardConfig,
+    EventStatus,
     FireHolList,
     Honeypot,
+    HoneypotPayload,
     MassScanner,
+    RawEvent,
     Sensor,
     Statistics,
     Tag,
@@ -23,6 +29,28 @@ from greedybear.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_LISTED_ITEMS = 6
+
+
+def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
+    """Build a list_display callable that renders an object attribute as a collapsed list."""
+
+    @admin.display(description=description or attribute.replace("_", " "))
+    def display(self, obj):
+        values = getattr(obj, attribute)
+        if hasattr(values, "all"):
+            values = values.all()
+        values = [str(value) for value in values or []]
+        values_str = ", ".join(values)
+        if len(values) <= max_items:
+            return values_str
+        preview_values_str = ", ".join(values[: max_items - 2])
+        hidden_count = len(values) - max_items + 2
+        html = f'<span title="{values_str}">{preview_values_str}, … (+{hidden_count} more)</span>'
+        return format_html(html)
+
+    return display
 
 
 @admin.register(TorExitNode)
@@ -34,10 +62,23 @@ class TorExitNodeModelAdmin(admin.ModelAdmin):
 
 @admin.register(Sensor)
 class SensorsModelAdmin(admin.ModelAdmin):
-    list_display = ["id", "address", "country", "label"]
+    list_display = [
+        "id",
+        "address",
+        "country",
+        "label",
+        "honeypot_type",
+        "honeypot_software",
+        "group_label",
+        "source_type",
+        "api_source",
+        "autonomous_system",
+    ]
+    list_filter = ["source_type", "honeypot_type"]
     list_editable = ["label"]
-    search_fields = ["address", "label"]
-    search_help_text = "search for the sensor IP address or label"
+    search_fields = ["address", "label", "group_label"]
+    search_help_text = "search by sensor IP, label, or group"
+    readonly_fields = ["created_at", "updated_at"]
 
 
 @admin.register(Statistics)
@@ -141,20 +182,24 @@ class IOCModelAdmin(admin.ModelAdmin):
         "type",
         "first_seen",
         "last_seen",
-        "days_seen",
+        "days_seen_display",
         "number_of_days_seen",
         "attack_count",
         "interaction_count",
-        "related_urls",
+        "related_urls_display",
         "scanner",
         "payload_request",
-        "honeypots_list",
-        "sensor_list",
+        "honeypots_display",
+        "sensors_display",
         "ip_reputation",
-        "firehol_categories",
+        "firehol_categories_display",
         "autonomous_system_display",
-        "destination_ports",
+        "destination_ports_display",
+        "protocols_display",
+        "cves_display",
         "login_attempts",
+        "recurrence_probability",
+        "expected_interactions",
     ]
     list_filter = [
         "type",
@@ -168,12 +213,16 @@ class IOCModelAdmin(admin.ModelAdmin):
     raw_id_fields = ["related_ioc"]
     filter_horizontal = ["honeypots", "sensors"]
     inlines = [TagInline, SessionInline]
+    ordering = ["-last_seen"]
 
-    def honeypots_list(self, ioc):
-        return ", ".join([str(element) for element in ioc.honeypots.all()])
-
-    def sensor_list(self, ioc):
-        return ", ".join([str(sensor.address) for sensor in ioc.sensors.all()])
+    days_seen_display = collapsed_list_display("days_seen")
+    honeypots_display = collapsed_list_display("honeypots")
+    sensors_display = collapsed_list_display("sensors")
+    related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
+    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
+    destination_ports_display = collapsed_list_display("destination_ports")
+    protocols_display = collapsed_list_display("protocols")
+    cves_display = collapsed_list_display("cves", description="CVEs")
 
     def autonomous_system_display(self, ioc):
         """
@@ -242,3 +291,132 @@ class HoneypotAdmin(admin.ModelAdmin):
             % number_updated,
             messages.SUCCESS,
         )
+
+
+@admin.register(APISource)
+class APISourceModelAdmin(admin.ModelAdmin):
+    list_display = ["name", "user", "is_active", "invalid_event_count", "created_at", "last_activity"]
+    list_filter = ["is_active"]
+    search_fields = ["name", "user__username"]
+    search_help_text = "search by source name or username"
+    readonly_fields = ["created_at", "last_activity", "invalid_event_count"]
+
+
+@admin.register(EventStatus)
+class EventStatusAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "api_source",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "processed_at",
+    ]
+    list_filter = ["status"]
+    search_fields = ["task_id", "api_source__name"]
+    search_help_text = "search by task_id or api_source name"
+    readonly_fields = [
+        "task_id",
+        "api_source",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "processed_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(RawEvent)
+class RawEventAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "src_ip",
+        "event_type",
+        "timestamp",
+        "sensor",
+        "get_api_source",
+        "dest_port",
+        "protocol",
+        "service_name",
+        "processed",
+        "created_at",
+    ]
+    list_filter = ["processed", "event_type", "protocol"]
+    search_fields = ["src_ip", "session_id", "cve_id", "username", "command"]
+    search_help_text = "search by src_ip, session_id, CVE, username, or command"
+    readonly_fields = [
+        "src_ip",
+        "event_type",
+        "timestamp",
+        "sensor",
+        "get_api_source",
+        "batch",
+        "session_id",
+        "token_id",
+        "src_port",
+        "dest_port",
+        "protocol",
+        "service_name",
+        "username",
+        "password",
+        "related_url",
+        "payload_hash",
+        "command",
+        "cve_id",
+        "data",
+        "created_at",
+        "processed",
+    ]
+
+    @admin.display(description="API Source")
+    def get_api_source(self, obj):
+        return obj.sensor.api_source if obj.sensor else None
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related(
+                "sensor",
+                "sensor__api_source",
+            )
+        )
+
+
+@admin.register(HoneypotPayload)
+class HoneypotPayloadAdmin(admin.ModelAdmin):
+    list_display = [
+        "sha256",
+        "mime_type",
+        "size",
+        "get_source_honeypots",
+    ]
+    search_fields = ["sha256", "md5", "sha1", "mime_type"]
+    list_filter = ["source_honeypots", "mime_type"]
+    readonly_fields = ["payload_file"]
+
+    @admin.display(description="Source Honeypots")
+    def get_source_honeypots(self, obj):
+        return ", ".join([h.name for h in obj.source_honeypots.all()])
+
+
+@admin.register(DashboardConfig)
+class DashboardConfigAdmin(admin.ModelAdmin):
+    list_display = ["id", "updated_at", "updated_by"]
+    readonly_fields = ["updated_at", "updated_by"]
+
+    def has_add_permission(self, request) -> bool:
+        return False

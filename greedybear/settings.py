@@ -2,6 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 import logging
 import os
+import sys
 import tomllib
 from datetime import timedelta
 from pathlib import Path
@@ -19,6 +20,9 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET", None) or get_random_secret_key()
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
+TPOT_PAYLOAD_SERVER_URL = os.environ.get("TPOT_PAYLOAD_SERVER_URL", "")
+TPOT_PAYLOAD_SERVER_API_KEY = os.environ.get("TPOT_PAYLOAD_SERVER_API_KEY", "")
+MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
 ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
 ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"
 MOCK_CONNECTIONS = os.environ.get("MOCK_CONNECTIONS", "False") == "True"
@@ -26,7 +30,10 @@ STAGE = os.environ.get("ENVIRONMENT", "production")
 STAGE_PRODUCTION = STAGE == "production"
 STAGE_LOCAL = STAGE == "local"
 STAGE_CI = STAGE == "ci"
-
+if STAGE_CI or "test" in sys.argv:
+    QUARANTINE_DIR = "/tmp/greedybear/quarantine"
+else:
+    QUARANTINE_DIR = "/var/lib/greedybear/quarantine"
 PUBLIC_DEPLOYMENT = os.environ.get("PUBLIC_DEPLOYMENT", "True") == "True"
 
 AWS_REGION = os.environ.get("AWS_REGION")
@@ -104,6 +111,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     # rest framework libs
     "rest_framework",
+    "drf_spectacular",
     "api.apps.ApiConfig",
     # certego libs
     "durin",
@@ -131,6 +139,8 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "certego_saas.ext.exceptions.custom_exception_handler",
     # Auth
     "DEFAULT_AUTHENTICATION_CLASSES": ["certego_saas.apps.auth.backend.CookieTokenAuthentication"],
+    # OpenAPI schema generation (drf-spectacular)
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Pagination
     "DEFAULT_PAGINATION_CLASS": "certego_saas.ext.pagination.CustomPageNumberPagination",
     "PAGE_SIZE": 10,
@@ -139,10 +149,37 @@ REST_FRAMEWORK = {
         "feeds": os.environ.get("FEEDS_THROTTLE_RATE", "30/minute"),
         "feeds_advanced": os.environ.get("FEEDS_ADVANCED_THROTTLE_RATE", "100/minute"),
         "feeds_shared": os.environ.get("FEEDS_SHARED_THROTTLE_RATE", "10/minute"),
+        "login": os.environ.get("LOGIN_THROTTLE_RATE", "10/minute"),
     },
     # Disable DRF's format suffix negotiation via ?format= query param,
     # since feeds endpoints handle the format parameter internally.
     "URL_FORMAT_OVERRIDE": None,
+}
+
+# drf-spectacular (OpenAPI 3 schema)
+SPECTACULAR_SETTINGS = {
+    "TITLE": "GreedyBear API",
+    "DESCRIPTION": (
+        "Threat intelligence feeds and IOC enrichment extracted from T-Pot or injected by other sources. "
+        "Some feed endpoints are public; others like advanced filtering, ASN aggregation and share-token "
+        "management require authentication via the `Token` header."
+    ),
+    "VERSION": VERSION,
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SORT_OPERATIONS": False,
+    "SORT_OPERATION_PARAMETERS": False,
+    "TAGS": [
+        {"name": "Feeds", "description": "Public and authenticated threat intelligence feeds."},
+        {"name": "Feed Sharing", "description": "Create, consume, list and revoke shareable feed links."},
+        {"name": "Payloads", "description": "Metadata and RBAC-gated download of honeypot-captured payloads."},
+        {"name": "Enrichment", "description": "Lookup for a single IP address or domain."},
+        {"name": "Cowrie Session", "description": "Session data from the Cowrie honeypot."},
+        {"name": "Event Injection", "description": "Send event data from honeypots other than T-Pot."},
+        {"name": "Honeypots", "description": "View available honeypots."},
+        {"name": "Health", "description": "Health and overview endpoint."},
+        {"name": "Dashboard", "description": "Global dashboard layout configuration."},
+    ],
+    "SCHEMA_PATH_PREFIX": "/api",
 }
 
 # Django-Rest-Durin
@@ -250,6 +287,11 @@ CACHES = {
     "django-q": {
         "BACKEND": "django.core.cache.backends.db.DatabaseCache",
         "LOCATION": "greedybear_cache",
+    },
+    "api": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "greedybear_api_cache",
+        "OPTIONS": {"MAX_ENTRIES": 1000, "CULL_FREQUENCY": 4},
     },
 }
 
@@ -483,12 +525,16 @@ IOC_RETENTION = int(os.environ.get("IOC_RETENTION", "3650"))
 COWRIE_SESSION_RETENTION = int(os.environ.get("COWRIE_SESSION_RETENTION", "365"))
 COMMAND_SEQUENCE_RETENTION = int(os.environ.get("COMMAND_SEQUENCE_RETENTION", "365"))
 STATISTICS_RETENTION = 730
+RAW_EVENT_RETENTION = int(os.environ.get("RAW_EVENT_RETENTION", "7"))
+EVENT_STATUS_RETENTION = int(os.environ.get("EVENT_STATUS_RETENTION", "30"))
+
 
 TRENDING_MAX_WINDOW_MINUTES = int(os.environ.get("TRENDING_MAX_WINDOW_MINUTES", str((24 * 31 * 60) // 2)))
 TRENDING_BUCKET_RETENTION_HOURS = int(os.environ.get("TRENDING_BUCKET_RETENTION_HOURS", str(24 * 31)))
 
 THREATFOX_API_KEY = os.environ.get("THREATFOX_API_KEY", "")
 ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
+MALWAREBAZAAR_API_KEY = os.environ.get("MALWAREBAZAAR_API_KEY", "")
 
 # Optional feed license URL to include in API responses
 # If not set, no license information will be included in feeds

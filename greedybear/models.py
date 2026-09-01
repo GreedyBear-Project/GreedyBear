@@ -5,6 +5,8 @@ from django.db import models
 from django.db.models.functions import Lower, Now
 
 from greedybear.enums import IpReputation
+from greedybear.settings import AUTH_USER_MODEL
+from greedybear.storage import QuarantineStorage
 
 
 class ViewType(models.TextChoices):
@@ -19,19 +21,90 @@ class IocType(models.TextChoices):
     DOMAIN = "domain"
 
 
+class SourceType(models.TextChoices):
+    TPOT = "tpot", "T-Pot Internal"
+    EXTERNAL = "external", "External API"
+
+
+class EventStatusType(models.TextChoices):
+    PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+
+
+class APISource(models.Model):
+    user = models.OneToOneField(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_source")
+    name = models.CharField(max_length=128, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    invalid_event_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_activity = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} {'Active' if self.is_active else 'Locked'}"
+
+
+class AutonomousSystem(models.Model):
+    asn = models.IntegerField(primary_key=True)
+    name = models.CharField(max_length=256, blank=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.asn})" if self.name else str(self.asn)
+
+
 class Sensor(models.Model):
-    address = models.GenericIPAddressField(unique=True)
+    address = models.GenericIPAddressField()
     country = models.CharField(
         max_length=64,
         blank=True,
         default="",
     )
+    country_code = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+    )
+
     label = models.CharField(
         max_length=128,
         blank=True,
         default="",
         help_text="Optional human-readable label to identify this sensor (e.g. 'home-pi', 'cloud-aws-eu').",
     )
+    honeypot_type = models.CharField(max_length=100, blank=True, default="")
+    honeypot_software = models.CharField(max_length=100, blank=True, default="")
+    honeypot_description = models.TextField(blank=True, default="")
+    group_label = models.CharField(max_length=128, blank=True, default="")
+
+    autonomous_system = models.ForeignKey(AutonomousSystem, on_delete=models.SET_NULL, related_name="sensors", null=True, blank=True)
+
+    api_source = models.ForeignKey(APISource, on_delete=models.SET_NULL, related_name="sensors", null=True, blank=True)
+
+    source_type = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        default=SourceType.TPOT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # this preserves the original tpot-ingestion uniqueness behavior while
+    # adding per-user API isolation cleanly.
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["api_source", "address"],
+                condition=models.Q(api_source__isnull=False),
+                name="unique_sensor_per_api_source",
+            ),
+            models.UniqueConstraint(
+                fields=["address"],
+                condition=models.Q(api_source__isnull=True),
+                name="unique_internal_sensor_address",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.address} ({self.label})" if self.label else self.address
@@ -62,16 +135,8 @@ class FireHolList(models.Model):
         return f"{self.ip_address} ({self.source or 'unknown'})"
 
 
-class AutonomousSystem(models.Model):
-    asn = models.IntegerField(primary_key=True)
-    name = models.CharField(max_length=256, blank=True)
-
-    def __str__(self):
-        return f"{self.name} ({self.asn})" if self.name else str(self.asn)
-
-
 class IOC(models.Model):
-    name = models.CharField(max_length=256)
+    name = models.CharField(max_length=256, unique=True)
     type = models.CharField(max_length=32, choices=IocType.choices)
     first_seen = models.DateTimeField(db_default=Now())
     last_seen = models.DateTimeField(db_default=Now())
@@ -107,6 +172,8 @@ class IOC(models.Model):
     ip_reputation = models.CharField(max_length=32, blank=True)
     firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
+    protocols = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
+    cves = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
     login_attempts = models.IntegerField(default=0)
     # SCORES
     recurrence_probability = models.FloatField(null=True, default=0)
@@ -114,8 +181,7 @@ class IOC(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["name"]),
-            models.Index(fields=["attacker_country"]),
+            models.Index(fields=["last_seen"]),
             models.Index(fields=["attacker_country_code"]),
         ]
 
@@ -326,3 +392,159 @@ class AttackerActivityBucket(models.Model):
 
     def __str__(self):
         return f"{self.attacker_ip} [{self.feed_type}] @ {self.bucket_start} ({self.interaction_count})"
+
+
+class EventStatus(models.Model):
+    """Tracks the processing status of a single batch of incoming events."""
+
+    api_source = models.ForeignKey(
+        "APISource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="event_statuses",
+    )
+    task_id = models.CharField(max_length=255, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=EventStatusType.choices,
+        default=EventStatusType.PENDING,
+    )
+    ioc_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["api_source", "status"]),
+        ]
+
+    def __str__(self):
+        return f"Batch {self.id} — {self.status} (task: {self.task_id})"
+
+
+class RawEvent(models.Model):
+    """
+    Raw storage for all incoming events from external sensors.
+
+    All fields from the Event Collector API spec are persisted here immediately
+    on ingestion. An async Django-Q task does post-processing later and maps
+    fields to the existing models (IOC, Credential, CommandSequence, etc.).
+    """
+
+    sensor = models.ForeignKey(
+        "Sensor",
+        on_delete=models.CASCADE,
+        related_name="raw_events",
+    )
+    batch = models.ForeignKey(
+        "EventStatus",
+        on_delete=models.SET_NULL,
+        related_name="raw_events",
+        null=True,
+        blank=True,
+    )
+
+    # required fields
+    src_ip = models.GenericIPAddressField()
+    event_type = models.CharField(max_length=100)
+    timestamp = models.DateTimeField()
+
+    # optional fields
+    session_id = models.CharField(max_length=100, blank=True, default="")
+    token_id = models.CharField(max_length=100, blank=True, default="")
+    src_port = models.IntegerField(null=True, blank=True)
+    dest_port = models.IntegerField(null=True, blank=True)
+    protocol = models.CharField(max_length=50, blank=True, default="")
+    service_name = models.CharField(max_length=100, blank=True, default="")
+    username = models.CharField(max_length=255, blank=True, default="")
+    password = models.CharField(max_length=255, blank=True, default="")
+    related_url = models.URLField(max_length=900, blank=True, default="")
+    payload_hash = models.CharField(max_length=64, blank=True, default="")
+    command = models.TextField(blank=True, default="")
+    cve_id = models.CharField(max_length=50, blank=True, default="")
+
+    # fallback field
+    data = models.JSONField(default=dict, blank=True)
+
+    # internal
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["src_ip"]),
+            models.Index(fields=["timestamp"]),
+            models.Index(fields=["processed"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} from {self.src_ip} @ {self.timestamp}"
+
+
+class HoneypotPayload(models.Model):
+    """
+    Model for the payload that would be received by the Tpot Payload server to quarantine it in the Quarantine directory.
+    """
+
+    payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
+    md5 = models.CharField(max_length=32, blank=True, default="")
+    sha1 = models.CharField(max_length=40, blank=True, default="")
+    sha256 = models.CharField(max_length=64)
+    mime_type = models.CharField(max_length=255, blank=True, default="")
+    size = models.PositiveIntegerField(null=True, blank=True)
+    locator = models.CharField(max_length=1024, blank=True, default="")
+    mtime = models.FloatField(blank=True, null=True)
+    source_honeypots = models.ManyToManyField("Honeypot", blank=True)
+    iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
+    cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
+    is_uploaded_mb = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True once the payload has been successfully reported to MalwareBazaar (or confirmed as a duplicate there).",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("sha256"),
+                name="unique_honeypotpayload_sha256_lower",
+            )
+        ]
+
+    def __str__(self):
+        return f"Payload {self.sha256}"
+
+
+class DashboardConfig(models.Model):
+    """
+    Stores a single global JSON blob representing the dashboard layout shared
+    across all users. Only one row should ever exist (singleton pattern).
+
+    Superusers write it via the PUT /api/dashboard-config/ endpoint.
+    Any user, including anonymous visitors, can read it via GET /api/dashboard-config/.
+    """
+
+    layout = models.JSONField(
+        help_text="Serialised dashboard layout: {widgetConfigs: [...], layouts: {...}}",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dashboard_configs",
+        help_text="The superuser who last saved this configuration.",
+    )
+
+    class Meta:
+        verbose_name = "Dashboard Configuration"
+        verbose_name_plural = "Dashboard Configurations"
+
+    def __str__(self):
+        return f"DashboardConfig (updated {self.updated_at})"

@@ -5,9 +5,11 @@ import {
   Geography,
   ZoomableGroup,
 } from "@vnedyalk0v/react19-simple-maps";
-import { useTimePickerStore } from "@greedybear/gb-ui";
 import countries from "i18n-iso-countries";
-import useAttackerCountriesStore from "../../stores/useAttackerCountriesStore";
+import useWidgetData, {
+  normalizeAttackerCountries,
+} from "../../hooks/useWidgetData";
+import { IOC_ATTACKER_COUNTRIES_URI } from "../../constants/api";
 
 const WORLD_ATLAS_GEO_URL = `${import.meta.env.BASE_URL}countries-110m.json`;
 
@@ -65,14 +67,16 @@ const MapPaths = React.memo(
 MapPaths.displayName = "MapPaths";
 
 export default function AttackOriginMap() {
-  const { range } = useTimePickerStore();
   const {
-    countryDataMap: countryData,
-    maxCount,
+    data: rawData,
     loading,
     error,
-    fetchData,
-  } = useAttackerCountriesStore();
+  } = useWidgetData(IOC_ATTACKER_COUNTRIES_URI);
+
+  const { countryDataMap, maxCount } = React.useMemo(
+    () => normalizeAttackerCountries(rawData),
+    [rawData],
+  );
 
   // TopoJSON is loaded here (bypassing the library's broken URL validator)
   // and passed as an object to <Geographies>.
@@ -86,10 +90,6 @@ export default function AttackOriginMap() {
     name: "",
     count: 0,
   });
-
-  React.useEffect(() => {
-    fetchData(range);
-  }, [range, fetchData]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -114,7 +114,7 @@ export default function AttackOriginMap() {
   const colors = React.useMemo(() => {
     const colorMap = {};
     if (maxCount <= 0) return colorMap;
-    for (const [alpha2, count] of Object.entries(countryData)) {
+    for (const [alpha2, count] of Object.entries(countryDataMap)) {
       if (!count) continue;
       const t = Math.sqrt(count / maxCount);
       colorMap[alpha2] =
@@ -123,7 +123,7 @@ export default function AttackOriginMap() {
           : lerpColor(COLOR_MID, COLOR_HIGH, (t - 0.5) * 2);
     }
     return colorMap;
-  }, [countryData, maxCount]);
+  }, [countryDataMap, maxCount]);
 
   /**
    * Resolve fill colour for a geography.
@@ -142,7 +142,7 @@ export default function AttackOriginMap() {
   const handleMouseEnter = React.useCallback(
     (geo, evt) => {
       const alpha2 = countries.numericToAlpha2(geo.id);
-      const count = alpha2 ? (countryData[alpha2] ?? 0) : 0;
+      const count = alpha2 ? (countryDataMap[alpha2] ?? 0) : 0;
       setTooltip({
         visible: true,
         x: evt.clientX,
@@ -151,7 +151,7 @@ export default function AttackOriginMap() {
         count,
       });
     },
-    [countryData],
+    [countryDataMap],
   );
 
   const handleMouseMove = React.useCallback((evt) => {
@@ -235,7 +235,7 @@ export default function AttackOriginMap() {
           projection="geoNaturalEarth1"
           width={800}
           height={420}
-          style={{ width: "100%", height: "auto" }}
+          style={{ width: "100%", height: "auto", maxHeight: 440 }}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >

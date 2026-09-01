@@ -1,6 +1,6 @@
 [project]
 name = "greedybear"
-version = "3.5.1"
+version = "3.6.0"
 description = "Threat intelligence platform that extracts attack data from a T-Pot or a cluster of them and generates actionable live feeds."
 readme = "README.md"
 license = "MIT"
@@ -8,31 +8,33 @@ license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     # Django core
-    "Django~=5.2.13",
-    "djangorestframework~=3.17.1",
+    "django~=5.2.16",
+    "djangorestframework~=3.18.0",
     "django-rest-email-auth==5.0.0",
     "django-ses~=4.7",
     "django-q2~=1.10",
+    "django-filter~=26.1",
+    "drf-spectacular~=0.30.0",
     "croniter~=6.2",
     "certego-saas==0.7.12",
     # Server Gateway Interface
     "gunicorn~=26.0",
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
-    "elasticsearch==9.4.0",
+    "elasticsearch==9.5.0",
     "psycopg[c]~=3.3",
     # ML / data science
-    "scikit-learn~=1.8.0",
+    "scikit-learn~=1.9.0",
     "pandas~=3.0",
-    "numpy~=2.4",
+    "numpy~=2.5",
     "joblib~=1.5",
-    "datasketch~=1.10",
+    "datasketch~=2.0",
     # File Format Support
     "feedparser~=6.0",
     "stix2~=3.0",
     # Utilities
     "requests~=2.34",
-    "slack-sdk~=3.41",
+    "slack-sdk~=3.43",
 ]
 
 [project.urls]
@@ -45,11 +47,11 @@ dev = [
     "django-watchfiles~=1.4",
 ]
 test = [
-    "coverage==7.14.0",
-    "django-test-migrations==1.5.0",
+    "coverage==7.16.0",
+    "django-test-migrations==1.6.0",
 ]
 lint = [
-    "ruff==0.15.13",
+    "ruff==0.16.4",
 ]
 
 [tool.uv]
@@ -135,7 +137,7 @@ ignore = [
 # Misinterpreted regex
 "greedybear/consts.py" = ["S105"]
 # Dummy key for certego-saas compatibility and useful print statements
-"greedybear/settings.py" = ["S105", "T201"]
+"greedybear/settings.py" = ["S105", "S108", "T201"]
 # String-based query (no equvalent ORM call exists)
 "greedybear/cronjobs/repositories/trending_bucket.py" = ["S608"]
 # Print statements

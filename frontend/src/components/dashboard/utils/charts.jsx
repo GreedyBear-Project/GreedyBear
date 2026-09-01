@@ -6,69 +6,130 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Cell,
+  ComposedChart,
 } from "recharts";
-
-import {
-  AnyChartWidget,
-  getRandomColorsArray,
-  useTimePickerStore,
-} from "@greedybear/gb-ui";
+import { format } from "date-fns";
+import { getRandomColorsArray, useTimePickerStore } from "@greedybear/gb-ui";
 import {
   FEEDS_STATISTICS_SOURCES_URI,
   FEEDS_STATISTICS_DOWNLOADS_URI,
   FEEDS_STATISTICS_TYPES_URI,
   ENRICHMENT_STATISTICS_SOURCES_URI,
   ENRICHMENT_STATISTICS_REQUESTS_URI,
+  IOC_ATTACKER_COUNTRIES_URI,
 } from "../../../constants/api";
-import useAttackerCountriesStore from "../../../stores/useAttackerCountriesStore";
-
 import { FEED_COLOR_MAP, ENRICHMENT_COLOR_MAP } from "../../../constants";
+import useWidgetData, {
+  normalizeAttackerCountries,
+} from "../../../hooks/useWidgetData";
 
 const COUNTRY_BAR_COLOR = "#e05252";
+const CHART_HEIGHT = 250;
+const CHART_MARGIN = { top: 0, right: 0, left: 20, bottom: 0 };
+const TOOLTIP_STYLE = {
+  backgroundColor: "var(--darker)",
+  border: 0,
+  borderRadius: 5,
+};
 
 // constants
 const colors = getRandomColorsArray(30, true);
 
 /**
- * Creates an area chart component to avoid duplicating chart setup code.
- *
- * @param {string} name - Display name for the generated chart component.
- * @param {string} url - API endpoint used to fetch chart data.
- * @param {Object} colorMap - Map of data keys to color values.
- * @param {number} start - Start index for slicing the color map.
- * @param {number} end - End index for slicing the color map.
+ * Shared chart skeleton: handles loading / empty / error states and renders a
+ * ResponsiveContainer
  */
+function ChartSkeleton({ data, loading, error, children }) {
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center py-4 text-muted">
+        Loading…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="d-flex justify-content-center align-items-center py-4 text-muted">
+        {error}
+      </div>
+    );
+  }
+  if (!data || data.length === 0) {
+    return (
+      <h6 className="center text-muted">No data in the selected range.</h6>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+      <ComposedChart data={data} margin={CHART_MARGIN}>
+        <Legend verticalAlign="top" height={40} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} />
+        <CartesianGrid stroke="#25404b" strokeDasharray="1 1" />
+        <XAxis dataKey="date" />
+        <YAxis allowDecimals={false} />
+        {children}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+/**
+ * Transforms raw API response for a time-series chart:
+ * sorts by date ascending and formats date strings using the current dateFormat.
+ */
+function useChartData(rawData, dateFormat) {
+  return React.useMemo(() => {
+    if (!rawData || !Array.isArray(rawData) || rawData.length === 0) return [];
+    return [...rawData]
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .map((o) => ({ ...o, date: format(new Date(o.date), dateFormat) }));
+  }, [rawData, dateFormat]);
+}
+
+/**
+ * Creates an area chart component for a given API endpoint and colorMap slice.
+ */
+export const AreaChartWidget = React.memo(({ url, colorMap, start, end }) => {
+  const { dateFormat } = useTimePickerStore();
+  const { data: rawData, loading, error } = useWidgetData(url);
+  const data = useChartData(rawData, dateFormat);
+
+  const areas = React.useMemo(
+    () =>
+      Object.entries(colorMap)
+        .slice(start, end)
+        .map(([key, color]) => (
+          <Area
+            key={key}
+            type="monotone"
+            dataKey={key}
+            fill={color}
+            stroke={color}
+          />
+        )),
+    [colorMap, start, end],
+  );
+
+  return (
+    <ChartSkeleton data={data} loading={loading} error={error}>
+      {areas}
+    </ChartSkeleton>
+  );
+});
+AreaChartWidget.displayName = "AreaChartWidget";
+
 export const createAreaChart = (name, url, colorMap, start, end) => {
   const Component = React.memo(() => {
     console.debug(`${name} rendered!`);
-
-    const chartProps = React.useMemo(
-      () => ({
-        url,
-        accessorFnAggregation: (d) => d,
-        componentsFn: () =>
-          Object.entries(colorMap)
-            .slice(start, end)
-            .map(([key, color]) => (
-              <Area
-                key={key}
-                type="monotone"
-                dataKey={key}
-                fill={color}
-                stroke={color}
-              />
-            )),
-      }),
-      [url, colorMap, start, end],
+    return (
+      <AreaChartWidget url={url} colorMap={colorMap} start={start} end={end} />
     );
-
-    return <AnyChartWidget {...chartProps} />;
   });
-
   Component.displayName = name;
-
   return Component;
 };
 
@@ -95,6 +156,7 @@ export const EnrichmentSourcesChart = createAreaChart(
   0,
   1,
 );
+
 export const EnrichmentRequestsChart = createAreaChart(
   "EnrichmentRequestsChart",
   ENRICHMENT_STATISTICS_REQUESTS_URI,
@@ -106,48 +168,44 @@ export const EnrichmentRequestsChart = createAreaChart(
 export const FeedsTypesChart = React.memo(() => {
   console.debug("FeedsTypesChart rendered!");
 
-  const chartProps = React.useMemo(
-    () => ({
-      url: FEEDS_STATISTICS_TYPES_URI,
-      accessorFnAggregation: (d) => d,
-      componentsFn: (respData) => {
-        console.debug("respData", respData);
-        if (!respData || !respData?.length) return null;
+  const { dateFormat } = useTimePickerStore();
+  const {
+    data: rawData,
+    loading,
+    error,
+  } = useWidgetData(FEEDS_STATISTICS_TYPES_URI);
+  const data = useChartData(rawData, dateFormat);
 
-        // Exctract keys only from respData[0]:
-        // feed types are the same for all elements of respData.
-        // Slice "date" field: we are only interested in feeds types.
-        const feedsTypes = [];
-        Object.entries(respData[0])
-          .slice(1)
-          .map(([dKey], i) => (feedsTypes[i] = dKey));
+  const bars = React.useMemo(() => {
+    if (!data || data.length === 0) return null;
+    // Extract feed type keys from first data point (everything except "date")
+    const feedsTypes = Object.keys(data[0]).filter((k) => k !== "date");
+    return feedsTypes.map((dKey, i) => (
+      <Bar stackId="feedtype" key={dKey} dataKey={dKey} fill={colors[i]} />
+    ));
+  }, [data]);
 
-        // map each feed type to a color
-        return feedsTypes.map((dKey, i) => (
-          <Bar stackId="feedtype" key={dKey} dataKey={dKey} fill={colors[i]} />
-        ));
-      },
-    }),
-    [],
+  return (
+    <ChartSkeleton data={data} loading={loading} error={error}>
+      {bars}
+    </ChartSkeleton>
   );
-
-  return <AnyChartWidget {...chartProps} />;
 });
+FeedsTypesChart.displayName = "FeedsTypesChart";
 
 export const AttackOriginCountriesChart = React.memo(() => {
   console.debug("AttackOriginCountriesChart rendered!");
 
-  const { range } = useTimePickerStore();
   const {
-    normalizedData: data,
+    data: rawData,
     loading,
     error,
-    fetchData,
-  } = useAttackerCountriesStore();
+  } = useWidgetData(IOC_ATTACKER_COUNTRIES_URI);
 
-  React.useEffect(() => {
-    fetchData(range);
-  }, [range, fetchData]);
+  const { normalizedData: data } = React.useMemo(
+    () => normalizeAttackerCountries(rawData),
+    [rawData],
+  );
 
   if (loading) {
     return (
@@ -168,7 +226,7 @@ export const AttackOriginCountriesChart = React.memo(() => {
   if (!data || data.length === 0) {
     return (
       <div className="d-flex justify-content-center align-items-center py-4 text-muted">
-        No country data available for the selected time range.
+        No data in the selected range.
       </div>
     );
   }
@@ -217,3 +275,4 @@ export const AttackOriginCountriesChart = React.memo(() => {
     </ResponsiveContainer>
   );
 });
+AttackOriginCountriesChart.displayName = "AttackOriginCountriesChart";

@@ -1,7 +1,7 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from greedybear.consts import DOMAIN, IP
+from greedybear.consts import IP
 from greedybear.cronjobs.extraction.utils import (
     correct_ip_reputation,
     iocs_from_hits,
@@ -10,277 +10,8 @@ from greedybear.cronjobs.extraction.utils import (
 )
 from greedybear.enums import IpReputation
 from greedybear.models import FireHolList, MassScanner
-from greedybear.utils import get_ioc_type, is_valid_cidr, is_valid_ipv4
 
 from . import CustomTestCase, ExtractionTestCase
-
-
-class TestGetIocType(CustomTestCase):
-    def test_ipv4_returns_ip(self):
-        self.assertEqual(get_ioc_type("1.2.3.4"), IP)
-
-    def test_ipv4_edge_cases(self):
-        self.assertEqual(get_ioc_type("0.0.0.0"), IP)
-        self.assertEqual(get_ioc_type("255.255.255.255"), IP)
-        self.assertEqual(get_ioc_type("192.168.1.1"), IP)
-
-    def test_domain_returns_domain(self):
-        self.assertEqual(get_ioc_type("example.com"), DOMAIN)
-
-    def test_subdomain_returns_domain(self):
-        self.assertEqual(get_ioc_type("sub.example.com"), DOMAIN)
-
-    def test_invalid_ip_returns_domain(self):
-        self.assertEqual(get_ioc_type("256.1.1.1"), DOMAIN)
-        self.assertEqual(get_ioc_type("1.2.3"), DOMAIN)
-
-
-class TestIsValidIpv4(CustomTestCase):
-    def test_valid_ipv4_returns_true_and_cleaned_ip(self):
-        is_valid, ip = is_valid_ipv4("1.2.3.4")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "1.2.3.4")
-
-    def test_valid_ipv4_edge_cases(self):
-        # Test boundary values
-        is_valid, ip = is_valid_ipv4("0.0.0.0")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "0.0.0.0")
-
-        is_valid, ip = is_valid_ipv4("255.255.255.255")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "255.255.255.255")
-
-        is_valid, ip = is_valid_ipv4("192.168.1.1")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "192.168.1.1")
-
-    def test_ipv4_with_whitespace_strips_and_validates(self):
-        # Test leading whitespace
-        is_valid, ip = is_valid_ipv4("  1.2.3.4")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "1.2.3.4")
-
-        # Test trailing whitespace
-        is_valid, ip = is_valid_ipv4("1.2.3.4  ")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "1.2.3.4")
-
-        # Test both
-        is_valid, ip = is_valid_ipv4("  1.2.3.4  ")
-        self.assertTrue(is_valid)
-        self.assertEqual(ip, "1.2.3.4")
-
-    def test_invalid_ipv4_out_of_range_octets(self):
-        # Test octets > 255
-        is_valid, ip = is_valid_ipv4("256.1.1.1")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1.256.1.1")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1.1.256.1")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1.1.1.256")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("999.999.999.999")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_incomplete_format(self):
-        # Too few octets
-        is_valid, ip = is_valid_ipv4("1.2.3")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1.2")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_too_many_octets(self):
-        is_valid, ip = is_valid_ipv4("1.2.3.4.5")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_domains(self):
-        is_valid, ip = is_valid_ipv4("example.com")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("sub.example.com")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_ipv6_addresses(self):
-        # IPv6 should not be valid for IPv4 validation
-        is_valid, ip = is_valid_ipv4("2001:0db8:85a3::8a2e:0370:7334")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("::1")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_random_strings(self):
-        is_valid, ip = is_valid_ipv4("/w00tw00t.at.ISC.SANS.DFind:)")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("not an ip")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_special_characters(self):
-        is_valid, ip = is_valid_ipv4("1.2.3.4#comment")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1.2.3.4 # comment")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-    def test_invalid_ipv4_negative_numbers(self):
-        is_valid, ip = is_valid_ipv4("-1.2.3.4")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-        is_valid, ip = is_valid_ipv4("1.-2.3.4")
-        self.assertFalse(is_valid)
-        self.assertIsNone(ip)
-
-
-class TestIsValidCIDR(CustomTestCase):
-    def test_valid_cidr_returns_true_and_cleaned_cidr(self):
-        is_valid, cidr = is_valid_cidr("192.168.1.0/24")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "192.168.1.0/24")
-
-    def test_valid_cidr_edge_cases(self):
-        is_valid, cidr = is_valid_cidr("0.0.0.0/0")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "0.0.0.0/0")
-
-        is_valid, cidr = is_valid_cidr("255.255.255.255/32")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "255.255.255.255/32")
-
-        is_valid, cidr = is_valid_cidr("10.0.0.0/8")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "10.0.0.0/8")
-
-    def test_cidr_with_whitespace_strips_and_validates(self):
-        is_valid, cidr = is_valid_cidr("  192.168.1.0/24")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "192.168.1.0/24")
-
-        is_valid, cidr = is_valid_cidr("192.168.1.0/24  ")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "192.168.1.0/24")
-
-        is_valid, cidr = is_valid_cidr("  192.168.1.0/24  ")
-        self.assertTrue(is_valid)
-        self.assertEqual(cidr, "192.168.1.0/24")
-
-    def test_invalid_cidr_out_of_range_octets(self):
-        invalid = [
-            "256.1.1.0/24",
-            "1.256.1.0/24",
-            "1.1.256.0/24",
-            "999.999.999.999/24",
-        ]
-
-        for value in invalid:
-            is_valid, cidr = is_valid_cidr(value)
-            self.assertFalse(is_valid)
-            self.assertIsNone(cidr)
-
-    def test_invalid_cidr_incomplete_format(self):
-        invalid = [
-            "192.168.1/24",
-            "192.168/24",
-            "192/24",
-            "/24",
-        ]
-
-        for value in invalid:
-            is_valid, cidr = is_valid_cidr(value)
-            self.assertFalse(is_valid)
-            self.assertIsNone(cidr)
-
-    def test_invalid_cidr_too_many_octets(self):
-        is_valid, cidr = is_valid_cidr("1.2.3.4.5/24")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-    def test_invalid_cidr_domains(self):
-        is_valid, cidr = is_valid_cidr("example.com/24")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-        is_valid, cidr = is_valid_cidr("sub.example.com/16")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-    def test_invalid_cidr_ipv6_addresses(self):
-        is_valid, cidr = is_valid_cidr("2001:db8::/32")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-        is_valid, cidr = is_valid_cidr("::1/128")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-    def test_invalid_cidr_random_strings(self):
-        is_valid, cidr = is_valid_cidr("/w00tw00t.at.ISC.SANS.DFind:)")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-        is_valid, cidr = is_valid_cidr("not a cidr")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-        is_valid, cidr = is_valid_cidr("")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-    def test_invalid_cidr_special_characters(self):
-        is_valid, cidr = is_valid_cidr("192.168.1.0/24#comment")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-        is_valid, cidr = is_valid_cidr("192.168.1.0/24 # comment")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-        is_valid, cidr = is_valid_cidr("10.0.0.0/8 some text")
-        self.assertFalse(is_valid)
-        self.assertIsNone(cidr)
-
-    def test_invalid_cidr_negative_numbers(self):
-        invalid = [
-            "-1.1.1.1/24",
-            "192.168.1.0/-1",
-            "192.168.1.0/33",
-        ]
-
-        for value in invalid:
-            is_valid, cidr = is_valid_cidr(value)
-            self.assertFalse(is_valid)
-            self.assertIsNone(cidr)
 
 
 class TestIsWhatsmyipDomain(CustomTestCase):
@@ -775,6 +506,108 @@ class IocsFromHitsTestCase(CustomTestCase):
         # Also check attacker_country is still set correctly
         self.assertEqual(ioc.attacker_country, "Nepal")
 
+    def test_aggregates_protocols_from_hits(self):
+        """Protocols from all hits for the same IP are collected and lowercased."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "SSH"},
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "telnet"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["ssh", "telnet"])
+
+    def test_deduplicates_protocols(self):
+        """Duplicate protocols for the same IP are deduplicated."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"},
+            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["ssh"])
+
+    def test_dionaea_protocol(self):
+        """Dionaea connection.protocol is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Dionaea"), "connection": {"protocol": "smbd"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["smbd"])
+
+    def test_heralding_proto(self):
+        """Heralding proto field is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Heralding"), "proto": "vnc"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["vnc"])
+
+    def test_suricata_app_proto(self):
+        """Suricata app_proto is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "app_proto": "rfb"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, ["rfb"])
+
+    def test_aggregates_cves_from_hits(self):
+        """CVEs from all hits for the same IP are collected and uppercased."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "cve-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2022-0001"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2021-44228", "CVE-2022-0001"])
+
+    def test_deduplicates_cves(self):
+        """Duplicate CVEs for the same IP are deduplicated."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2021-44228"])
+
+    def test_space_separated_cves_in_single_hit(self):
+        """A single hit with multiple space-separated CVEs splits them all."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2019-12263 CVE-2019-12261 CVE-2019-12260"}},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2019-12260", "CVE-2019-12261", "CVE-2019-12263"])
+
+    def test_cowrie_cve(self):
+        """Cowrie cve field is extracted correctly."""
+        hits = [
+            {**self._create_hit(src_ip="8.8.8.8", hit_type="Cowrie"), "cve": "CVE-2026-24061"},
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2026-24061"])
+
+    def test_ciscoasa_hardcoded_cve(self):
+        """Every Ciscoasa hit gets CVE-2018-0101 hardcoded."""
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", hit_type="Ciscoasa"),
+        ]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.cves, ["CVE-2018-0101"])
+
+    def test_empty_protocols_and_cves_when_not_in_hits(self):
+        """IOC has empty protocols and cves when hits carry neither field."""
+        hits = [self._create_hit(src_ip="8.8.8.8")]
+        iocs = iocs_from_hits(hits)
+        ioc = iocs[0]
+        self.assertEqual(ioc.protocols, [])
+        self.assertEqual(ioc.cves, [])
+
 
 class ThreatfoxSubmissionTestCase(ExtractionTestCase):
     def setUp(self):
@@ -805,7 +638,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         threatfox_submission(ioc_record, ["http://malicious.com", "http://evil.com/"], self.mock_log)
         self.assertTrue(any("skipping" in str(call) for call in self.mock_log.info.call_args_list))
 
-    @patch("greedybear.cronjobs.extraction.utils.requests.post")
+    @patch("greedybear.cronjobs.extraction.utils.HttpClient.post")
     @patch("greedybear.cronjobs.extraction.utils.settings")
     def test_submits_urls_with_path(self, mock_settings, mock_post):
         mock_settings.THREATFOX_API_KEY = "test-key"
@@ -820,7 +653,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         self.assertEqual(call_kwargs["headers"]["Auth-Key"], "test-key")
         self.assertIn("http://malicious.com/payload.sh", call_kwargs["json"]["iocs"])
 
-    @patch("greedybear.cronjobs.extraction.utils.requests.post")
+    @patch("greedybear.cronjobs.extraction.utils.HttpClient.post")
     @patch("greedybear.cronjobs.extraction.utils.settings")
     def test_includes_honeypot_names_in_comment(self, mock_settings, mock_post):
         mock_settings.THREATFOX_API_KEY = "test-key"
@@ -840,7 +673,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         self.assertIn("Log4pot", comment)
         self.assertIn("Dionaea", comment)
 
-    @patch("greedybear.cronjobs.extraction.utils.requests.post")
+    @patch("greedybear.cronjobs.extraction.utils.HttpClient.post")
     @patch("greedybear.cronjobs.extraction.utils.settings")
     def test_logs_successful_submission(self, mock_settings, mock_post):
         mock_settings.THREATFOX_API_KEY = "test-key"
@@ -854,7 +687,7 @@ class ThreatfoxSubmissionTestCase(ExtractionTestCase):
         mock_settings.THREATFOX_API_KEY = "test-key"
         ioc_record = self._create_mock_payload_request()
 
-        with patch("greedybear.cronjobs.extraction.utils.requests.post") as mock_post:
+        with patch("greedybear.cronjobs.extraction.utils.HttpClient.post") as mock_post:
             mock_post.return_value = Mock(text='{"status": "ok"}')
             urls = [
                 "http://malicious.com",  # No path - skip

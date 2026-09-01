@@ -19,6 +19,16 @@ def extract_all():
     if midnight_extraction:
         train_and_update()
 
+    # After every extraction, attempt to fetch new payloads from
+    # the tpot-payload-server (no-op if URL is not configured).
+    extract_honeypot_payloads()
+
+
+def extract_honeypot_payloads():
+    from greedybear.cronjobs.payload_extraction import PayloadExtractionJob
+
+    PayloadExtractionJob().execute()
+
 
 def monitor_honeypots():
     from greedybear.cronjobs.monitor_honeypots import MonitorHoneypots
@@ -117,3 +127,10 @@ def detect_credential_reuse():
     from greedybear.cronjobs.credential_reuse import CredentialReuseCron
 
     CredentialReuseCron().execute()
+
+
+# MALWAREBAZAAR
+def submit_payloads_to_mbazaar():
+    from greedybear.cronjobs.malwarebazaar import MalwareBazaarCron
+
+    MalwareBazaarCron().execute()

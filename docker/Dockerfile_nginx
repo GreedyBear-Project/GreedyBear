@@ -1,11 +1,11 @@
-FROM library/nginx:1.31.0-alpine
+FROM library/nginx:1.31.4-alpine
 
 ENV NGINX_LOG_DIR=/var/log/nginx
 
 RUN apk add --no-cache bash
 
 # this is to avoid having logs redirected to stdout/stderr
-RUN mkdir -p /var/cache/nginx /var/cache/nginx/feeds \
+RUN mkdir -p /var/cache/nginx \
 	&& rm $NGINX_LOG_DIR/access.log $NGINX_LOG_DIR/error.log \
 	&& touch $NGINX_LOG_DIR/access.log $NGINX_LOG_DIR/error.log
 

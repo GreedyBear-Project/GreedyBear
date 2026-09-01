@@ -52,14 +52,14 @@ class TestTorExitNodesCron(CustomTestCase):
         self.mock_ioc_repo = Mock()
         self.cron = TorExitNodesCron(tor_repo=self.mock_tor_repo, ioc_repo=self.mock_ioc_repo)
 
-    @patch("greedybear.cronjobs.tor_exit_nodes.requests.get")
+    @patch("greedybear.cronjobs.tor_exit_nodes.HttpClient.get")
     @patch("greedybear.cronjobs.tor_exit_nodes.is_valid_ipv4")
-    def test_run_success(self, mock_is_valid, mock_requests_get):
+    def test_run_success(self, mock_is_valid, mock_client_get):
         """Test successful Tor exit nodes fetching."""
         # Arrange
         mock_response = Mock()
         mock_response.text = "ExitAddress 1.2.3.4\\nExitAddress 5.6.7.8"
-        mock_requests_get.return_value = mock_response
+        mock_client_get.return_value = mock_response
 
         # Mock validation to return valid for both IPs
         mock_is_valid.side_effect = [(True, "1.2.3.4"), (True, "5.6.7.8")]
@@ -71,15 +71,15 @@ class TestTorExitNodesCron(CustomTestCase):
         self.cron.run()
 
         # Assert
-        mock_requests_get.assert_called_once_with("https://check.torproject.org/exit-addresses", timeout=10)
+        mock_client_get.assert_called_once_with("https://check.torproject.org/exit-addresses")
         self.assertEqual(self.mock_tor_repo.get_or_create.call_count, 2)
         self.assertEqual(self.mock_ioc_repo.update_ioc_reputation.call_count, 2)
 
-    @patch("greedybear.cronjobs.tor_exit_nodes.requests.get")
-    def test_run_request_failure(self, mock_requests_get):
+    @patch("greedybear.cronjobs.tor_exit_nodes.HttpClient.get")
+    def test_run_request_failure(self, mock_client_get):
         """Test handling of request failures."""
         # Arrange
-        mock_requests_get.side_effect = requests.RequestException("Network error")
+        mock_client_get.side_effect = requests.RequestException("Network error")
 
         # Act & Assert
         with self.assertRaises(requests.RequestException):

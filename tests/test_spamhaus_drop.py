@@ -8,11 +8,10 @@ from greedybear.cronjobs.spamhaus_drop import SpamhausDropCron
 
 
 class TestSpamhausDropCron(TestCase):
-    @patch("greedybear.cronjobs.spamhaus_drop.requests.get")
+    @patch("greedybear.cronjobs.spamhaus_drop.HttpClient.get")
     def test_fetch_drop_feed_adds_entries(self, mock_requests_get):
         """Test that valid CIDRs are processed successfully."""
         mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
         mock_response.text = """
         {"cidr":"1.2.3.0/24","sblid":"SBL123","rir":"arin"}
         {"cidr":"4.5.6.0/24","sblid":"SBL456","rir":"arin"}"""
@@ -21,11 +20,10 @@ class TestSpamhausDropCron(TestCase):
         cron = SpamhausDropCron()
         cron._fetch_drop_feed()
 
-    @patch("greedybear.cronjobs.spamhaus_drop.requests.get")
+    @patch("greedybear.cronjobs.spamhaus_drop.HttpClient.get")
     def test_invalid_cidrs_are_skipped(self, mock_requests_get):
         """Test that invalid CIDRs are skipped without error."""
         mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
         mock_response.text = """
         {"cidr":"invalid_cidr"}
         {"cidr":"999.999.999.999/24"}"""
@@ -34,7 +32,7 @@ class TestSpamhausDropCron(TestCase):
         cron = SpamhausDropCron()
         cron._fetch_drop_feed()
 
-    @patch("greedybear.cronjobs.spamhaus_drop.requests.get")
+    @patch("greedybear.cronjobs.spamhaus_drop.HttpClient.get")
     def test_request_exception_is_handled(self, mock_requests_get):
         """Test that network errors are logged but do not crash the cronjob."""
         mock_requests_get.side_effect = RequestException("Network error")
@@ -42,7 +40,7 @@ class TestSpamhausDropCron(TestCase):
         cron = SpamhausDropCron()
         cron._fetch_drop_feed()
 
-    @patch("greedybear.cronjobs.spamhaus_drop.requests.get")
+    @patch("greedybear.cronjobs.spamhaus_drop.HttpClient.get")
     def test_unexpected_exception_is_raised(self, mock_requests_get):
         """Test that unexpected exceptions are re-raised."""
         mock_requests_get.side_effect = ValueError("Unexpected error")

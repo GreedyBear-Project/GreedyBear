@@ -92,6 +92,17 @@ class FeedsTagsTestCase(CustomTestCase):
         values = {i["value"] for i in iocs}
         self.assertIn(self.ioc.name, values)
 
+    def test_200_filter_by_tag_key_case_insensitive(self):
+        """tag_key filtering must match regardless of the key's case in the DB or the query."""
+        Tag.objects.create(ioc=self.ioc_2, key="Campaign", value="emotet", source="threatfox")
+
+        for query_key in ("campaign", "CAMPAIGN", "Campaign"):
+            with self.subTest(tag_key=query_key):
+                response = self.client.get(f"/api/feeds/advanced/?tag_key={query_key}")
+                self.assertEqual(response.status_code, 200)
+                values = {i["value"] for i in response.json()["iocs"]}
+                self.assertIn(self.ioc_2.name, values)
+
     def test_200_filter_by_tag_key_no_match(self):
         """Filtering by a non-existent tag_key should return no IOCs."""
         response = self.client.get("/api/feeds/advanced/?tag_key=nonexistent")
