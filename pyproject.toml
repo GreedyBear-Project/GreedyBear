@@ -47,7 +47,7 @@ dev = [
     "django-watchfiles~=1.4",
 ]
 test = [
-    "coverage==7.15.4",
+    "coverage==7.16.0",
     "django-test-migrations==1.6.0",
 ]
 lint = [
