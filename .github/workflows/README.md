@@ -210,20 +210,34 @@ It is composed of three jobs:
 
 ## [Release and publish](release.yml)
 
-TODO
+This workflow runs when a **pull request targeting *main* is closed**, and cuts a release when that PR was merged and its title is a version number.
 
-## [Reusable release and tag workflow](_release_and_tag.yml)
+It is composed of two jobs:
 
-TODO
+1. **release** - Checks whether the PR title matches `X.Y.Z`. If it does, the tag and the GitHub release are created by [**softprops/action-gh-release**](https://github.com/softprops/action-gh-release), with release notes generated automatically. The job exports the outcome as the `match` and `version` outputs.
+2. **publish-image** - If `match` is true, calls the [**docker_publish**](docker_publish.yml) workflow with the new version as both `ref` and `version`, so the version-tagged images are built from the tag that was just created.
 
 ## [Build and publish Docker images](docker_publish.yml)
 
-This workflow builds the `greedybear` and `greedybear_nginx` images and publishes them to the **GitHub Container Registry (GHCR)** under `ghcr.io/greedybear-project`, decoupling image hosting from the IntelOwl-owned DockerHub account.
+This workflow builds the `greedybear` and `greedybear_nginx` images and publishes them to the **GitHub Container Registry (GHCR)** under `ghcr.io/greedybear-project`.
 
 It runs on:
 
 * pushes to **main** — tagged `prod`
 * pushes to **develop** — tagged `stag`
-* pushes of a **`X.Y.Z` git tag** — tagged with that version
+* a call from [**release**](release.yml) — tagged with the `version` input, and also `prod` (see below)
+* a manual `workflow_dispatch` — tagged with the version in the ref, when dispatched against a `X.Y.Z` tag
 
-Each image is built via a job matrix and pushed by [**docker/build-push-action**](https://github.com/docker/build-push-action), with tags/labels derived by [**docker/metadata-action**](https://github.com/docker/metadata-action) and layer caching backed by the GitHub Actions cache.
+There is deliberately **no `tags:` filter**: release tags are created with the automatic `GITHUB_TOKEN`, whose events do not start workflow runs, so such a filter could never match. Version builds arrive as a `workflow_call` instead. To rebuild the images for an existing tag, dispatch this workflow against that tag.
+
+On a `workflow_call` from **release**, `github.ref` is `refs/heads/main` — the caller's branch, not the tag. Three things follow, all verified against a live run:
+
+* `type=semver` does not fire, because the ref is not a tag. The `version` input is what produces the `X.Y.Z` tag, and the `ref` input is what gets checked out. `type=semver` is still required for the `workflow_dispatch` path, where the ref *is* the tag.
+* `prod` **is** applied on a release call, since its `enable` condition tests exactly that ref. That is harmless — the tag points at the same commit as `main`, so both builds have identical input.
+* The concurrency group must be a literal string rather than `github.workflow`, which in a called workflow resolves to the *caller's* workflow name and would cancel the called job before it could start.
+
+### Caching
+
+Merging a release PR starts **two** builds of the same commit: the push to `main` and the call from **release**. Only the branch builds export to the GitHub Actions cache; release builds set `cache-to` to an empty string and read the cache only. Letting both export to the same scope makes the second fail with `failed to reserve cache`, which cancels the image push it had already started — so the release would produce a tag and a GitHub release but no version-tagged image. The release build is rebuilding an already-cached commit, so it has nothing to contribute anyway.
+
+Each image is built via a job matrix and pushed by [**docker/build-push-action**](https://github.com/docker/build-push-action), with tags/labels derived by [**docker/metadata-action**](https://github.com/docker/metadata-action).
