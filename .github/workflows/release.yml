@@ -1,28 +1,66 @@
 name: Release and publish
 
+# Creates the X.Y.Z release and tag when a PR titled with a version number is
+# merged into main, then builds and publishes the version-tagged Docker images.
+
 on:
   pull_request:
     types:
       - closed
+    branches:
+      - main
 
-# discard previous execution if you commit to a branch that is already running
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
+  release:
+    name: Create release and tag
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    permissions:
+      contents: write
+    outputs:
+      match: ${{ steps.check-tag.outputs.match }}
+      version: ${{ steps.check-tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
 
-  release_and_tag:
-    uses: ./.github/workflows/_release_and_tag.yml
-    secrets: inherit
+      - name: Check version tag format
+        id: check-tag
+        env:
+          # via the environment, so a crafted PR title cannot inject shell code
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$PR_TITLE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "match=true" >> "$GITHUB_OUTPUT"
+            echo "version=$PR_TITLE" >> "$GITHUB_OUTPUT"
+            echo "PR title matches semver: $PR_TITLE"
+          else
+            echo "match=false" >> "$GITHUB_OUTPUT"
+            echo "PR title does not match semver - skipping release"
+          fi
+
+      - name: Create release
+        if: steps.check-tag.outputs.match == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.check-tag.outputs.version }}
+          name: Version ${{ steps.check-tag.outputs.version }}
+          draft: false
+          generate_release_notes: true
+          prerelease: false
+          target_commitish: ${{ github.base_ref }}
+          append_body: true
+
+  publish-image:
+    name: Publish Docker images
+    needs: release
+    if: needs.release.outputs.match == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker_publish.yml
     with:
-      publish_on_pypi: false
-      publish_on_test_pypi: false
-      publish_on_npm: false
-      publish_on_twitter: false
-      publish_on_ecr: false
-      repository: certego-test
-      working_directory: .github/test/python_test
-      dockerfiles: >-
-        ["Dockerfile"]
-      aws_region: eu-central-1
+      ref: ${{ needs.release.outputs.version }}
+      version: ${{ needs.release.outputs.version }}

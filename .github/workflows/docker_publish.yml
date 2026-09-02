@@ -5,17 +5,26 @@ name: Build and publish Docker images
 
 on:
   push:
+    # Version builds arrive as a workflow_call from release.yml, not as a tag push
     branches:
       - main
       - develop
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build. Defaults to the triggering ref.
+        type: string
+        required: false
+      version:
+        description: Semver version to tag the image with, e.g. 1.2.3.
+        type: string
+        required: false
 
-# cancel superseded runs for the same ref
+# Cancel superseded runs for the same ref. 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: docker-publish-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ inputs.version == '' }}
 
 env:
   GHCR_NAMESPACE: ghcr.io/greedybear-project
@@ -38,6 +47,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -54,13 +65,15 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.GHCR_NAMESPACE }}/${{ matrix.image }}
-          #   main branch    -> prod
-          #   develop branch -> stag
-          #   X.Y.Z git tag  -> X.Y.Z
+          #   main branch      -> prod
+          #   develop branch   -> stag
+          #   dispatch on a tag -> X.Y.Z (from the ref)
+          #   release.yml call -> X.Y.Z (from the version input)
           tags: |
             type=raw,value=prod,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=stag,enable=${{ github.ref == 'refs/heads/develop' }}
             type=semver,pattern={{version}}
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
           flavor: |
             latest=false
 
@@ -73,4 +86,4 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-to: ${{ inputs.version == '' && format('type=gha,mode=max,scope={0}', matrix.image) || '' }}
