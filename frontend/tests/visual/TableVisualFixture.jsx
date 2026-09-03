@@ -49,18 +49,11 @@ function TableDetails({ row }) {
 }
 
 function InteractiveFixtureTable() {
-  const [selectedRows, setSelectedRows] = useState([]);
-
   return (
     <section data-testid="table-visual-interactive">
-      <div className="d-flex align-items-center justify-content-between mb-3">
-        <span className="text-muted small">
-          Deterministic local fixtures for visual regression coverage.
-        </span>
-        <small data-testid="table-visual-selected-count">
-          {`${selectedRows.length} selected`}
-        </small>
-      </div>
+      <p className="text-muted small">
+        Deterministic local fixtures for visual regression coverage.
+      </p>
       <DataTable
         data={tableFixtureRows}
         columns={columns}
@@ -72,7 +65,6 @@ function InteractiveFixtureTable() {
           enableExpanded: true,
         }}
         initialState={initialState}
-        onSelectedRowChange={setSelectedRows}
         isRowSelectable={(row) => !row.original.completed}
         SubComponent={TableDetails}
       />

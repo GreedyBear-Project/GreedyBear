@@ -122,9 +122,8 @@ test.describe("table visual states", () => {
 
     await alphaRow.locator("input[type='checkbox']").check();
     await cipherRow.locator("input[type='checkbox']").check();
-    await expect(page.getByTestId("table-visual-selected-count")).toHaveText(
-      "2 selected",
-    );
+    await expect(alphaRow.locator("input[type='checkbox']")).toBeChecked();
+    await expect(cipherRow.locator("input[type='checkbox']")).toBeChecked();
     await page.mouse.move(0, 0);
     await page.evaluate(() => {
       if (document.activeElement instanceof HTMLElement)

@@ -304,21 +304,15 @@ function DataTable({
     [pageRows, toLegacyRow],
   );
 
-  const selectedFlatRows = table
-    .getSelectedRowModel()
-    .flatRows.map((row) => toLegacyRow(row));
-
-  const selectedRowSignature = selectedFlatRows
-    .map((row) => row.id)
-    .sort()
-    .join(",");
-  const selectedRowsRef = React.useRef(selectedFlatRows);
-  selectedRowsRef.current = selectedFlatRows;
+  const selectedFlatRows = React.useMemo(
+    () => table.getSelectedRowModel().flatRows.map((row) => toLegacyRow(row)),
+    [table, toLegacyRow],
+  );
 
   React.useEffect(() => {
     if (!onSelectedRowChange) return;
-    onSelectedRowChange(selectedRowsRef.current.map((row) => row.original));
-  }, [onSelectedRowChange, selectedRowSignature]);
+    onSelectedRowChange(selectedFlatRows.map((row) => row.original));
+  }, [onSelectedRowChange, selectedFlatRows]);
 
   const tableInstanceContext = React.useMemo(
     () => ({
