@@ -3,7 +3,6 @@ export { default as CopyToClipboardButton } from "./components/buttons/CopyToCli
 export { default as IconButton } from "./components/buttons/IconButton";
 export { default as PopupFormButton } from "./components/buttons/PopupFormButton";
 export { default as ScrollToTopButton } from "./components/buttons/ScrollToTopButton";
-export { default as AnyChartWidget } from "./components/charts/AnyChartWidget";
 export { default as ContentSection } from "./components/containers/ContentSection";
 export { default as Loader } from "./components/containers/Loader";
 export { default as LoadingBoundary } from "./components/containers/LoadingBoundary";
