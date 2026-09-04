@@ -137,7 +137,7 @@ jobs:
         if: ${{ inputs.check_packages_licenses }}
         id: license_check_report
         continue-on-error: true
-        uses: pilosus/action-pip-license-checker@v2
+        uses: pilosus/action-pip-license-checker@v3
         with:
           requirements: ${{ inputs.requirements_path }}
           external: ${{ inputs.working_directory }}/licenses.csv
