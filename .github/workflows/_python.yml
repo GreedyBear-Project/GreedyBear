@@ -460,7 +460,7 @@ jobs:
 
       - name: Upload coverage report as artifact
         if: inputs.use_coverage && inputs.upload_coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report-py${{ matrix.python_version }}
           path: ${{ inputs.working_directory }}/coverage.xml
