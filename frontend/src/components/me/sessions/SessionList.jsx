@@ -8,7 +8,7 @@ import {
   DateHoverable,
   useAxiosComponentLoader,
   confirm,
-} from "@greedybear/gb-ui";
+} from "../../common/gb-ui/index";
 
 import { deleteOtherSessions, deleteTokenById } from "./api";
 import { SESSIONS_BASE_URI } from "../../../constants/api";

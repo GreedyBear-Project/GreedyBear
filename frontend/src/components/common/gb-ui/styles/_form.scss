@@ -1,0 +1,83 @@
+/* form */
+
+label.required:after {
+  content: "  *";
+  color: red;
+}
+
+.input-dark {
+  background-color: $darker !important;
+  border-color: $dark !important;
+  .custom-file-label {
+    background-color: $darker;
+    border-color: $dark;
+  }
+}
+
+textarea {
+  display: block;
+  background-color: $pre-bg;
+  color: $pre-color;
+  border: 2px solid $tertiary;
+  min-height: 100px;
+}
+
+.form-control-xs {
+  width: 75px;
+  height: 33px;
+}
+
+/* Weight range slider */
+
+input[type="range"] {
+  &.color-range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    border: none;
+    border-radius: 4px;
+    height: 5px;
+    background: linear-gradient(
+      to right,
+      var(--slider-fill-color, $range-fill-color),
+      var(--slider-fill-color, $range-fill-color)
+        var(--fill-percentage, $range-fill-percentage),
+      grey var(--fill-percentage, $range-fill-percentage),
+      grey
+    );
+  }
+  // Chrome
+  &::-webkit-slider-runnable-track {
+    -webkit-appearance: none;
+    overflow: hidden;
+    height: 12px;
+    background: transparent;
+    border: none;
+  }
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    cursor: ew-resize;
+    height: 12px;
+    width: 12px;
+    border-radius: 50%;
+    background: var(--slider-fill-color, $range-fill-color);
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.4);
+    margin-top: 0px;
+  }
+
+  // Firefox
+  &::-moz-range-progress {
+    background: var(--slider-fill-color, $range-fill-color);
+  }
+  &::-moz-range-track {
+    height: 2.5px;
+    background-color: grey;
+    border-radius: 4px;
+  }
+  &::-moz-range-thumb {
+    cursor: ew-resize;
+    height: 12px;
+    width: 12px;
+    border-radius: 50%;
+    background: var(--slider-fill-color, $range-fill-color);
+  }
+}

@@ -1,0 +1,28 @@
+// Ripple effect
+// this mixes default grow and border styles
+.spinner-ripple {
+  display: inline-block;
+  width: $spinner-width;
+  height: $spinner-height;
+  vertical-align: text-bottom;
+  border: $spinner-border-width solid currentColor;
+  border-radius: 50%;
+  opacity: 0;
+  animation: spinner-grow 0.75s linear infinite;
+}
+
+.spinner-ripple-sm {
+  width: $spinner-width-sm;
+  height: $spinner-height-sm;
+  border-width: $spinner-border-width-sm;
+}
+
+@each $size, $width in $spinner-sizes {
+  .spinner-ripple-#{$size},
+  .spinner-border#{$size},
+  .spinner-grow-#{$size} {
+    width: $width;
+    height: $width;
+    border-width: map-get($spinner-borders-widths, $size);
+  }
+}

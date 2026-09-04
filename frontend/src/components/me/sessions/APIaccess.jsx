@@ -12,7 +12,7 @@ import {
   CopyToClipboardButton,
   useAxiosComponentLoader,
   confirm,
-} from "@greedybear/gb-ui";
+} from "../../common/gb-ui/index";
 
 import { createNewToken, deleteToken } from "./api";
 import { APIACCESS_BASE_URI } from "../../../constants/api";

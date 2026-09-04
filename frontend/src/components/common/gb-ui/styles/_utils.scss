@@ -1,0 +1,111 @@
+/* utils */
+
+.glow {
+  box-shadow: 4px 1px 8px 4px $light-bluish-grey !important;
+}
+
+.glow-gradient {
+  box-shadow: 1px 0 6px 1px $gradient-color-1 !important;
+}
+
+.w-auto {
+  width: auto !important;
+}
+
+.w-33 {
+  width: 33% !important;
+}
+
+.center {
+  display: grid;
+  place-items: center;
+}
+
+.vertical-center {
+  min-height: 75%;
+  min-height: 75vh;
+
+  display: flex;
+  align-items: center;
+}
+
+.pointer {
+  cursor: pointer !important;
+}
+
+.cursor-normal {
+  cursor: unset !important;
+}
+
+.user-select-none {
+  user-select: none;
+}
+
+.d-flex-custom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.d-flex-start-start {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+}
+
+.d-flex-start-center {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.d-flex-start-end {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.d-flex-between-start {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.d-flex-between-center {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.d-flex-between-end {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.d-flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.d-flex-end-center {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.disabled {
+  cursor: not-allowed !important;
+}
+
+.waiting {
+  cursor: wait;
+}

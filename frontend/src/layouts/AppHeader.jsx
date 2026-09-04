@@ -17,7 +17,7 @@ import {
 import { RiBookReadFill } from "react-icons/ri";
 
 // lib
-import { NavLink } from "@greedybear/gb-ui";
+import { NavLink } from "../components/common/gb-ui/index";
 
 // constants
 import { GREEDYBEAR_DOCS_URL } from "../constants/environment";
