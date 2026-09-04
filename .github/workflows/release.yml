@@ -24,7 +24,7 @@ jobs:
       match: ${{ steps.check-tag.outputs.match }}
       version: ${{ steps.check-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check version tag format
         id: check-tag

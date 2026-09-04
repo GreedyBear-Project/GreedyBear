@@ -97,7 +97,7 @@ jobs:
         language: ['javascript']
     steps:
       - name: Check out latest commit for current branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

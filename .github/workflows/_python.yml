@@ -258,7 +258,7 @@ jobs:
     env: ${{ fromJson(inputs.env) }}
     steps:
       - name: Check out latest commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
         id: setup_python

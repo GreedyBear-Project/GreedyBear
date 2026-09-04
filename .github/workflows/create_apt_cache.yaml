@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out latest commit on current branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Remember to set the same APT requirements file path set before!
       - name: Install APT dependencies

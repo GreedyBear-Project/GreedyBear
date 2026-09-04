@@ -46,12 +46,12 @@ jobs:
       frontend: ${{steps.diff_check_frontend.outputs.frontend}}
     steps:
     - name: Check out PR target branch
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: ${{ github.base_ref }}
 
     - name: Check out source branch latest commit
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         clean: false
 
