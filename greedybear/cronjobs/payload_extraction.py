@@ -101,7 +101,7 @@ class PayloadExtractionJob(Cronjob):
         headers = self._build_auth_headers()
 
         try:
-            response = client.get(url, params=params, headers=headers)
+            response = client.get(url, params=params, headers=headers, verify=False)
             data = response.json()
         except requests.RequestException:
             self.log.exception("Failed to fetch payload metadata from server.")
@@ -172,7 +172,7 @@ class PayloadExtractionJob(Cronjob):
         headers = self._build_auth_headers()
 
         try:
-            response = client.get(download_url, timeout=self.DOWNLOAD_TIMEOUT, headers=headers)
+            response = client.get(download_url, timeout=self.DOWNLOAD_TIMEOUT, headers=headers, verify=False)
         except requests.RequestException:
             self.log.exception(f"Failed to download payload {sha256[:12]}…")
             return False
