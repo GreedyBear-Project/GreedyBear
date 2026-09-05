@@ -11,6 +11,7 @@ from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
+from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
 
 
@@ -26,12 +27,18 @@ class PayloadExtractionJob(Cronjob):
     3. Checks quarantine disk usage against MAX_QUARANTINE_SIZE_GB before downloading.
     4. Downloads new payload files via ``/api/v1/payloads/download/{locator}``
        and saves them via QuarantineStorage.
+    5. Links each downloaded payload to any Cowrie sessions that already
+       transferred a file with the same SHA256.
     """
 
     # Timeout for the metadata listing request (seconds).
     METADATA_TIMEOUT = 30
     # Timeout for individual file download requests (seconds).
     DOWNLOAD_TIMEOUT = 120
+
+    def __init__(self, payload_repo: PayloadRepository = None):
+        super().__init__()
+        self.payload_repo = payload_repo if payload_repo is not None else PayloadRepository()
 
     def run(self) -> None:
         server_url = settings.TPOT_PAYLOAD_SERVER_URL
@@ -161,7 +168,8 @@ class PayloadExtractionJob(Cronjob):
 
     def _download_and_store(self, client: HttpClient, server_url: str, payload_meta: dict) -> bool:
         """
-        Download a single payload file and create its database record.
+        Download a single payload file, create its database record, and link
+        it to any Cowrie sessions that already transferred the same file.
 
         Args:
             client: HttpClient instance.
@@ -208,4 +216,8 @@ class PayloadExtractionJob(Cronjob):
         payload_obj.save()
 
         self.log.info(f"Stored new payload {sha256[:12]}… ({len(file_content)} bytes).")
+
+        linked = self.payload_repo.link_sessions_to_payload(payload_obj)
+        if linked:
+            self.log.info(f"Linked payload {sha256[:12]}… to {linked} cowrie session(s).")
         return True
