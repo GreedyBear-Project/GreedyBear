@@ -61,7 +61,7 @@ class PayloadExtractionJob(Cronjob):
             for payload_meta in new_payloads:
                 # Check disk usage before each download.
                 if self._quarantine_usage_bytes() >= max_size_bytes:
-                    self.log.warning(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
+                    self.log.error(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
                     break
 
                 if self._download_and_store(client, server_url, payload_meta):
