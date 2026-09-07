@@ -146,8 +146,12 @@ class TestPayloadExtractionJob(CustomTestCase):
         # Report disk usage above the limit (0.001 GB ~ 1,073,741 bytes).
         mock_usage.return_value = 2_000_000
 
-        self.job.run()
+        with patch.object(self.job.log, "error") as mock_error:
+            self.job.run()
 
+        mock_error.assert_called_once_with(
+            "Quarantine directory has reached the 0.001 GB limit. Stopping downloads."
+        )
         # No payload should have been downloaded.
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
