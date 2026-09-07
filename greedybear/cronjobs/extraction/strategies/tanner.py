@@ -103,11 +103,11 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         self._classify_attacks(hits)
 
         tag_entries = [{"ioc_id": ioc_id, "key": "attack_type", "value": attack_type} for ioc_id, attack_type in self.attack_tags_set]
-	# Using add_tags instead of replace_tags_for_source because this
-	# strategy only processes the current extraction chunk (new
-	# hits) each run. replace would delete attack_type tags from
-	# previously processed attacks just because they aren't in
-	# today's chunk.
+        # Using add_tags instead of replace_tags_for_source because this
+        # strategy only processes the current extraction chunk (new
+        # hits) each run. replace would delete attack_type tags from
+        # previously processed attacks just because they aren't in
+        # today's chunk.
         self.attack_tags_added += self.tag_repo.add_tags(TANNER_SOURCE, tag_entries)
 
         self.log.info(
