@@ -14,26 +14,6 @@ from greedybear.cronjobs.http_client import HttpClient
 from greedybear.models import HoneypotPayload
 
 
-def normalize_sha256(value: str) -> str:
-    """
-    Lower-case a SHA256 hash so it matches the way hashes are stored.
-
-    HoneypotPayload enforces uniqueness with UniqueConstraint(Lower("sha256")),
-    and the event-injection path already lower-cases before writing (see
-    greedybear/process_event.py::_process_payload_hashes). Normalizing the
-    payload-server path too keeps both writers consistent, so a hash that
-    differs only in case is recognised as a duplicate instead of reaching the
-    insert and violating the constraint.
-
-    Args:
-        value: SHA256 hash as received from the payload server.
-
-    Returns:
-        The hash in lower case.
-    """
-    return value.lower()
-
-
 class PayloadExtractionJob(Cronjob):
     """
     Fetch new payloads from the tpot-payload-server, deduplicate them
@@ -147,11 +127,11 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             list[dict]: Only the unique payloads not yet stored locally.
         """
-        incoming_hashes = {normalize_sha256(p["sha256"]) for p in payloads if "sha256" in p}
-        # Compare case-insensitively on both sides: rows written before this
-        # normalization existed may still hold a mixed-case hash, and the unique
-        # constraint is on Lower("sha256"). A case-sensitive lookup would miss
-        # them, letting the insert through to fail on the constraint instead.
+        # HoneypotPayload is unique on Lower("sha256"), so compare case-insensitively
+        # on both sides. Rows written before this normalization existed may still hold
+        # a mixed-case hash; a case-sensitive lookup would miss them and let the insert
+        # through to fail on the constraint instead.
+        incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
         existing_hashes = set(
             HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower__in=incoming_hashes).values_list("sha256_lower", flat=True)
         )
@@ -164,7 +144,7 @@ class PayloadExtractionJob(Cronjob):
         unique = []
         for p in payloads:
             raw_sha = p.get("sha256")
-            sha = normalize_sha256(raw_sha) if raw_sha else None
+            sha = raw_sha.lower() if raw_sha else None
             if sha in new_hashes and sha not in seen:
                 seen.add(sha)
                 unique.append(p)
@@ -191,9 +171,9 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             bool: True if download and storage succeeded, False otherwise.
         """
-        # Normalized here as well as in _deduplicate, so the stored row and the
-        # quarantine filename always use the same case as every other writer.
-        sha256 = normalize_sha256(payload_meta["sha256"])
+        # Lower-cased like in _deduplicate, so the stored row and the quarantine
+        # filename always use the same case as every other writer.
+        sha256 = payload_meta["sha256"].lower()
         locator = payload_meta.get("locator", "")
 
         if not locator:

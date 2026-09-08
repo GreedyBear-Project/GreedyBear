@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, Mock, patch
 import requests
 from django.test import override_settings
 
-from greedybear.cronjobs.payload_extraction import PayloadExtractionJob, normalize_sha256
+from greedybear.cronjobs.payload_extraction import PayloadExtractionJob
 from greedybear.models import HoneypotPayload
 
 from . import CustomTestCase
@@ -334,12 +334,6 @@ class TestPayloadExtractionJob(CustomTestCase):
     # in case must be treated as a duplicate. Before the fix, the case-sensitive
     # lookup missed it, the insert went ahead and the unique constraint aborted
     # the whole run.
-
-    def test_normalize_sha256_lower_cases_the_hash(self):
-        """normalize_sha256 should lower-case whatever the server sent."""
-        self.assertEqual(normalize_sha256("A" * 64), "a" * 64)
-        self.assertEqual(normalize_sha256("a" * 64), "a" * 64)
-        self.assertEqual(normalize_sha256("AbCd" * 16), "abcd" * 16)
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
