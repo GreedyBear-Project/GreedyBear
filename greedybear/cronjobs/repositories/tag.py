@@ -58,6 +58,14 @@ class TagRepository:
         leaves previously stored tags intact. Suitable for sources that
         build up results over many runs (e.g., reverse DNS lookups).
 
+        Use this when the calling job only processes a subset of new
+        candidates each run (typically by excluding IOCs already tagged
+        by that source in its query). replace_tags_for_source would be
+        incorrect here, since it deletes all existing tags for the source
+        before writing, which would wipe out tags from previous runs for
+        IOCs that simply weren't part of the current batch.
+
+
         Args:
             source: Source name (e.g., "rdns").
             tag_entries: List of dicts with keys: ioc_id, key, value.
