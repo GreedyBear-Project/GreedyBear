@@ -1,7 +1,6 @@
 from django.db.models import Count
 
-from greedybear.cronjobs.base import Cronjob
-from greedybear.cronjobs.repositories.tag import TagRepository
+from greedybear.cronjobs.base_enrichment import BaseEnrichmentCron
 from greedybear.models import IOC, IocType
 
 # source name used for tagging
@@ -16,7 +15,7 @@ MIN_CREDENTIAL_REUSE = 10
 MAX_CANDIDATES = 500
 
 
-class CredentialReuseCron(Cronjob):
+class CredentialReuseCron(BaseEnrichmentCron):
     """
     Experimental heuristic to highlight IPs that:
     - perform repeated login attempts
@@ -27,10 +26,6 @@ class CredentialReuseCron(Cronjob):
     to help analyze patterns in login activity, not a
     definitive classification of attacker behavior.
     """
-
-    def __init__(self, tag_repo=None):
-        super().__init__()
-        self.tag_repo = tag_repo or TagRepository()
 
     def run(self) -> None:
         candidates = self._get_candidates()

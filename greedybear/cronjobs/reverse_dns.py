@@ -4,9 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.db.models import F
 
 from greedybear.consts import MASS_SCANNER_DOMAINS
-from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.base_enrichment import BaseEnrichmentCron
 from greedybear.cronjobs.repositories import IocRepository
-from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, IocType
 
@@ -22,7 +21,7 @@ DNS_TIMEOUT = 2
 SOURCE_NAME = "rdns"
 
 
-class ReverseDNSCron(Cronjob):
+class ReverseDNSCron(BaseEnrichmentCron):
     """
     Identify mass scanning services via reverse DNS lookups.
 
@@ -42,8 +41,7 @@ class ReverseDNSCron(Cronjob):
             tag_repo: Optional TagRepository instance for testing.
             ioc_repo: Optional IocRepository instance for testing.
         """
-        super().__init__()
-        self.tag_repo = tag_repo if tag_repo is not None else TagRepository()
+        super().__init__(tag_repo)
         self.ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
 
     def run(self) -> None:

@@ -1,16 +1,15 @@
 import requests
 from django.conf import settings
 
-from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.base_enrichment import BaseEnrichmentCron
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC
 from greedybear.utils import is_valid_ipv4
 
 SOURCE_NAME = "abuseipdb"
 
 
-class AbuseIPDBCron(Cronjob):
+class AbuseIPDBCron(BaseEnrichmentCron):
     """
     Fetch AbuseIPDB blocklist and directly enrich matching IOCs with tags.
 
@@ -21,16 +20,6 @@ class AbuseIPDBCron(Cronjob):
     """
 
     MAX_ENTRIES = 10000  # Hard limit as per free API tier
-
-    def __init__(self, tag_repo=None):
-        """
-        Initialize the AbuseIPDB cronjob.
-
-        Args:
-            tag_repo: Optional TagRepository instance for testing.
-        """
-        super().__init__()
-        self.tag_repo = tag_repo if tag_repo is not None else TagRepository()
 
     def run(self) -> None:
         """
