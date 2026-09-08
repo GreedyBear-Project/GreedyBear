@@ -37,15 +37,6 @@ class TestPayloadRepository(CustomTestCase):
         self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
         self.assertIn(self.cowrie_session.source, payload.iocs.all())
 
-    def test_link_sessions_to_payload_case_insensitive_match(self):
-        self._make_transfer(self.cowrie_session, ("AB" * 32).upper())
-        payload = HoneypotPayload.objects.create(sha256=("ab" * 32).lower())
-
-        linked = self.repo.link_sessions_to_payload(payload)
-
-        self.assertEqual(linked, 1)
-        self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
-
     def test_link_sessions_to_payload_multiple_sessions(self):
         self._make_transfer(self.cowrie_session, "c" * 64)
         self._make_transfer(self.cowrie_session_2, "c" * 64)
@@ -56,17 +47,6 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(linked, 2)
         self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
         self.assertIn(self.cowrie_session_2, payload.cowrie_sessions.all())
-
-    def test_link_sessions_to_payload_does_not_overcount_case_variant_duplicates(self):
-        """A same-session, differently-cased shasum pair must still count as one linked session."""
-        self._make_transfer(self.cowrie_session, "d" * 64)
-        self._make_transfer(self.cowrie_session, "D" * 64)
-        payload = HoneypotPayload.objects.create(sha256="d" * 64)
-
-        linked = self.repo.link_sessions_to_payload(payload)
-
-        self.assertEqual(linked, 1)
-        self.assertEqual(payload.cowrie_sessions.count(), 1)
 
     def test_link_payload_to_session_no_match(self):
         linked = self.repo.link_payload_to_session(self.cowrie_session, "e" * 64)

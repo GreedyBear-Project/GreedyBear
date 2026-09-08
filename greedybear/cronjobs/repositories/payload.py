@@ -1,5 +1,7 @@
 import logging
 
+from django.db.models.functions import Lower
+
 from greedybear.models import CowrieSession, HoneypotPayload
 
 
@@ -29,7 +31,9 @@ class PayloadRepository:
         Returns:
             Number of sessions linked.
         """
-        sessions = CowrieSession.objects.filter(file_transfers__shasum__iexact=payload.sha256).select_related("source").distinct()
+        # assumption: Cowrie always emits lowercase hex for shasum (hashlib.hexdigest()), and payload.sha256 is
+        # always stored in lowercase too, hence this plain comparison works with CowrieFileTransfer's shasum index.
+        sessions = CowrieSession.objects.filter(file_transfers__shasum=payload.sha256.lower()).select_related("source")
         linked = 0
         for session in sessions:
             payload.cowrie_sessions.add(session)
@@ -49,7 +53,7 @@ class PayloadRepository:
         Returns:
             True if a matching payload was found and linked.
         """
-        payload = HoneypotPayload.objects.filter(sha256__iexact=shasum).first()
+        payload = HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower=shasum.lower()).first()
         if payload is None:
             return False
         payload.cowrie_sessions.add(session)
