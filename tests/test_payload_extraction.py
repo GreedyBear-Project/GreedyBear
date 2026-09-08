@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, Mock, patch
 import requests
 from django.test import override_settings
 
-from greedybear.cronjobs.payload_extraction import PayloadExtractionJob
+from greedybear.cronjobs.payload_extraction import PayloadExtractionJob, normalize_sha256
 from greedybear.models import HoneypotPayload
 
 from . import CustomTestCase
@@ -328,6 +328,132 @@ class TestPayloadExtractionJob(CustomTestCase):
         """_quarantine_usage_bytes should return 0 if quarantine dir doesn't exist."""
         result = self.job._quarantine_usage_bytes()
         self.assertEqual(result, 0)
+
+    # SHA256 case normalization (see issue #1556).
+    # HoneypotPayload is unique on Lower("sha256"), so a hash that differs only
+    # in case must be treated as a duplicate. Before the fix, the case-sensitive
+    # lookup missed it, the insert went ahead and the unique constraint aborted
+    # the whole run.
+
+    def test_normalize_sha256_lower_cases_the_hash(self):
+        """normalize_sha256 should lower-case whatever the server sent."""
+        self.assertEqual(normalize_sha256("A" * 64), "a" * 64)
+        self.assertEqual(normalize_sha256("a" * 64), "a" * 64)
+        self.assertEqual(normalize_sha256("AbCd" * 16), "abcd" * 16)
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_uppercase_hash_matches_existing_lowercase_row(self, mock_http_class, mock_usage):
+        """An uppercase hash from the server must not re-insert a known payload."""
+        HoneypotPayload.objects.create(sha256="a" * 64)
+
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "A" * 64, "locator": "cowrie/aaa"},
+        ]
+        mock_client.get.return_value = mock_metadata_resp
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        # Recognised as a duplicate: nothing inserted, no download attempted.
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        self.assertEqual(mock_client.get.call_count, 1)
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_lowercase_hash_matches_existing_uppercase_row(self, mock_http_class, mock_usage):
+        """Rows stored in upper case before the fix must still be matched."""
+        HoneypotPayload.objects.create(sha256="B" * 64)
+
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "b" * 64, "locator": "cowrie/bbb"},
+        ]
+        mock_client.get.return_value = mock_metadata_resp
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        self.assertEqual(mock_client.get.call_count, 1)
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_new_payload_is_stored_lower_cased(self, mock_http_class, mock_usage):
+        """A new uppercase hash should be persisted in lower case."""
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "C" * 64, "locator": "cowrie/ccc"},
+        ]
+        mock_download_resp = Mock()
+        mock_download_resp.content = b"\xde\xad"
+        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        payload = HoneypotPayload.objects.get()
+        self.assertEqual(payload.sha256, "c" * 64)
+        self.assertIn("c" * 64, payload.payload_file.name)
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_same_hash_in_different_cases_within_one_batch(self, mock_http_class, mock_usage):
+        """Two entries differing only in case must collapse into a single insert."""
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "d" * 64, "locator": "cowrie/ddd"},
+            {"sha256": "D" * 64, "locator": "cowrie/DDD"},
+        ]
+        mock_download_resp = Mock()
+        mock_download_resp.content = b"\xbe\xef"
+        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        self.assertEqual(HoneypotPayload.objects.get().sha256, "d" * 64)
+        # One metadata request plus exactly one download.
+        self.assertEqual(mock_client.get.call_count, 2)
 
 
 class TestExtractAllPayloadIntegration(CustomTestCase):
