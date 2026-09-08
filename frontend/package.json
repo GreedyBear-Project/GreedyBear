@@ -55,7 +55,7 @@
     "eslint": "^9.39.5",
     "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
-    "stylelint": "^17.14.1",
+    "stylelint": "^17.15.0",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   }
