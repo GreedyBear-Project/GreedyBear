@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
@@ -126,15 +127,24 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             list[dict]: Only the unique payloads not yet stored locally.
         """
-        incoming_hashes = {p["sha256"] for p in payloads if "sha256" in p}
-        existing_hashes = set(HoneypotPayload.objects.filter(sha256__in=incoming_hashes).values_list("sha256", flat=True))
+        # HoneypotPayload is unique on Lower("sha256"), so compare case-insensitively
+        # on both sides. Rows written before this normalization existed may still hold
+        # a mixed-case hash; a case-sensitive lookup would miss them and let the insert
+        # through to fail on the constraint instead.
+        incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
+        existing_hashes = set(
+            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower__in=incoming_hashes).values_list("sha256_lower", flat=True)
+        )
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
         # Keep only the first occurrence of each sha256 to avoid IntegrityError.
+        # Hashes are compared normalized, so entries differing only in case
+        # collapse into one instead of colliding on the constraint.
         seen = set()
         unique = []
         for p in payloads:
-            sha = p.get("sha256")
+            raw_sha = p.get("sha256")
+            sha = raw_sha.lower() if raw_sha else None
             if sha in new_hashes and sha not in seen:
                 seen.add(sha)
                 unique.append(p)
@@ -161,7 +171,9 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             bool: True if download and storage succeeded, False otherwise.
         """
-        sha256 = payload_meta["sha256"]
+        # Lower-cased like in _deduplicate, so the stored row and the quarantine
+        # filename always use the same case as every other writer.
+        sha256 = payload_meta["sha256"].lower()
         locator = payload_meta.get("locator", "")
 
         if not locator:
