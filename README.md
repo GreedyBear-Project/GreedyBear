@@ -45,8 +45,8 @@ This project was started as a personal Christmas project by [Matteo Lodi](https:
 Special thanks to:
 - [Tim Leonhard](https://github.com/regulartim) for having greatly improved the project and added Machine Learning Models during his master thesis. He's the current Principal Maintainer.
 - [Martina Carella](https://github.com/carellamartina) for having created the GUI during her master thesis.
-- [Daniele Rosetti](https://github.com/drosetti) for helping maintaining the Frontend.
-- and everyone who has contributed to GreedyBear!
+- Our GSoC participants [Drona Raj Gyawali](https://github.com/drona-gyawali), [Krishna Awasthi](https://github.com/opbot-xd) and [Rachit Kumar Pandey](https://github.com/armoredvortex).
+- and everyone else who has contributed to GreedyBear!
 
 <a href="https://github.com/GreedyBear-Project/GreedyBear/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=GreedyBear-Project/GreedyBear" alt="GreedyBear contributors" />
