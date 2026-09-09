@@ -84,6 +84,10 @@ class ReverseDNSCron(Cronjob):
             updated_count = self.ioc_repo.bulk_update_ioc_reputation(matched_ips, IpReputation.MASS_SCANNER.value)
             self.log.info(f"Marked {updated_count} IPs as mass scanners via rDNS")
 
+        # Using add_tags instead of replace_tags_for_source because this job only checks
+        # new candidate IPs each run and excludes ones already
+        # tagged. replace would delete previously found ptr records
+        # just because those IPs aren't in today's batch.
         created_count = self.tag_repo.add_tags(SOURCE_NAME, tag_entries)
         self.log.info(f"Reverse DNS check completed. Checked {len(ptr_results)} IPs, created {created_count} tags, {len(matched_ips)} matched mass scanners")
 

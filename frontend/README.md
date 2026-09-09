@@ -1,6 +1,10 @@
 # GreedyBear - frontend
 
-Built with [gb-ui](https://github.com/GreedyBear-Project/gb-ui).
+## Shared UI components
+
+Shared UI components in `src/components/common/gb-ui/` were originally derived
+from [certego-ui](https://github.com/certego/certego-ui) and are now maintained
+locally in GreedyBear.
 
 ## Design thesis
 
@@ -58,5 +62,4 @@ npm start
 - Now you can access the auto-reloading frontend on `http://localhost:3001`. It acts as proxy for API requests to original app web server.
 
 - JS app main configs are available in `package.json` and `enviroments.js`.
-
 

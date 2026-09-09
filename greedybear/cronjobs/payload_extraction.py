@@ -7,9 +7,11 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
+from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
 
 
@@ -25,12 +27,18 @@ class PayloadExtractionJob(Cronjob):
     3. Checks quarantine disk usage against MAX_QUARANTINE_SIZE_GB before downloading.
     4. Downloads new payload files via ``/api/v1/payloads/download/{locator}``
        and saves them via QuarantineStorage.
+    5. Links each downloaded payload to any Cowrie sessions that already
+       transferred a file with the same SHA256.
     """
 
     # Timeout for the metadata listing request (seconds).
     METADATA_TIMEOUT = 30
     # Timeout for individual file download requests (seconds).
     DOWNLOAD_TIMEOUT = 120
+
+    def __init__(self, payload_repo: PayloadRepository = None):
+        super().__init__()
+        self.payload_repo = payload_repo if payload_repo is not None else PayloadRepository()
 
     def run(self) -> None:
         server_url = settings.TPOT_PAYLOAD_SERVER_URL
@@ -61,7 +69,7 @@ class PayloadExtractionJob(Cronjob):
             for payload_meta in new_payloads:
                 # Check disk usage before each download.
                 if self._quarantine_usage_bytes() >= max_size_bytes:
-                    self.log.warning(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
+                    self.log.error(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
                     break
 
                 if self._download_and_store(client, server_url, payload_meta):
@@ -126,15 +134,24 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             list[dict]: Only the unique payloads not yet stored locally.
         """
-        incoming_hashes = {p["sha256"] for p in payloads if "sha256" in p}
-        existing_hashes = set(HoneypotPayload.objects.filter(sha256__in=incoming_hashes).values_list("sha256", flat=True))
+        # HoneypotPayload is unique on Lower("sha256"), so compare case-insensitively
+        # on both sides. Rows written before this normalization existed may still hold
+        # a mixed-case hash; a case-sensitive lookup would miss them and let the insert
+        # through to fail on the constraint instead.
+        incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
+        existing_hashes = set(
+            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower__in=incoming_hashes).values_list("sha256_lower", flat=True)
+        )
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
         # Keep only the first occurrence of each sha256 to avoid IntegrityError.
+        # Hashes are compared normalized, so entries differing only in case
+        # collapse into one instead of colliding on the constraint.
         seen = set()
         unique = []
         for p in payloads:
-            sha = p.get("sha256")
+            raw_sha = p.get("sha256")
+            sha = raw_sha.lower() if raw_sha else None
             if sha in new_hashes and sha not in seen:
                 seen.add(sha)
                 unique.append(p)
@@ -151,7 +168,8 @@ class PayloadExtractionJob(Cronjob):
 
     def _download_and_store(self, client: HttpClient, server_url: str, payload_meta: dict) -> bool:
         """
-        Download a single payload file and create its database record.
+        Download a single payload file, create its database record, and link
+        it to any Cowrie sessions that already transferred the same file.
 
         Args:
             client: HttpClient instance.
@@ -161,7 +179,9 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             bool: True if download and storage succeeded, False otherwise.
         """
-        sha256 = payload_meta["sha256"]
+        # Lower-cased like in _deduplicate, so the stored row and the quarantine
+        # filename always use the same case as every other writer.
+        sha256 = payload_meta["sha256"].lower()
         locator = payload_meta.get("locator", "")
 
         if not locator:
@@ -196,4 +216,8 @@ class PayloadExtractionJob(Cronjob):
         payload_obj.save()
 
         self.log.info(f"Stored new payload {sha256[:12]}… ({len(file_content)} bytes).")
+
+        linked = self.payload_repo.link_sessions_to_payload(payload_obj)
+        if linked:
+            self.log.info(f"Linked payload {sha256[:12]}… to {linked} cowrie session(s).")
         return True

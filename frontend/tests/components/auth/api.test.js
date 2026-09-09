@@ -1,5 +1,5 @@
 import axios from "axios";
-import { addToast } from "@greedybear/gb-ui";
+import { addToast } from "../../../src/components/common/gb-ui/index";
 
 import {
   registerUser,
@@ -12,7 +12,7 @@ import {
 import { AUTH_BASE_URI } from "../../../src/constants/api";
 
 vi.mock("axios");
-vi.mock("@greedybear/gb-ui", () => ({
+vi.mock("../../../src/components/common/gb-ui/index", () => ({
   addToast: vi.fn(),
 }));
 

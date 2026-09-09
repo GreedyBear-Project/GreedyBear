@@ -10,7 +10,10 @@ import { FiLogOut } from "react-icons/fi";
 import { IoMdKey, IoMdSettings } from "react-icons/io";
 import { MdPassword } from "react-icons/md";
 
-import { UserBubble, DropdownNavLink } from "@greedybear/gb-ui";
+import {
+  UserBubble,
+  DropdownNavLink,
+} from "../../components/common/gb-ui/index";
 
 import { useAuthStore } from "../../stores";
 

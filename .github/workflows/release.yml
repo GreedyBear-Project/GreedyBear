@@ -24,7 +24,7 @@ jobs:
       match: ${{ steps.check-tag.outputs.match }}
       version: ${{ steps.check-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check version tag format
         id: check-tag
@@ -43,7 +43,7 @@ jobs:
 
       - name: Create release
         if: steps.check-tag.outputs.match == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.check-tag.outputs.version }}
           name: Version ${{ steps.check-tag.outputs.version }}
