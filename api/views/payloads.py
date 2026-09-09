@@ -49,7 +49,7 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
     :class:`~api.permissions.IsThreatResearcherOrAdmin`.
     """
 
-    queryset = HoneypotPayload.objects.prefetch_related("source_honeypots").order_by("-id")
+    queryset = HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_sessions").order_by("-id")
     serializer_class = HoneypotPayloadSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "sha256"
