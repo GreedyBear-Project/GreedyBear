@@ -4,11 +4,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import FeedsTrending from "../../../src/components/feeds/FeedsTrending";
-import { useAxiosComponentLoader } from "@greedybear/gb-ui";
+import { useAxiosComponentLoader } from "../../../src/components/common/gb-ui/index";
 import { FEEDS_TRENDING_URI, HONEYPOT_URI } from "../../../src/constants/api";
 
-vi.mock("@greedybear/gb-ui", async () => {
-  const actual = await vi.importActual("@greedybear/gb-ui");
+vi.mock("../../../src/components/common/gb-ui/index", async () => {
+  const actual = await vi.importActual(
+    "../../../src/components/common/gb-ui/index",
+  );
   return {
     ...actual,
     ContentSection: ({ children, className }) => (

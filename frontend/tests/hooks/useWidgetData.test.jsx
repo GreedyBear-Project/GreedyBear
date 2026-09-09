@@ -9,7 +9,7 @@ import useWidgetData, {
 
 vi.mock("axios");
 
-vi.mock("@greedybear/gb-ui", () => ({
+vi.mock("../../src/components/common/gb-ui/index", () => ({
   useTimePickerStore: () => ({ range: "7d" }),
 }));
 

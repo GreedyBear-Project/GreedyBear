@@ -23,7 +23,7 @@ import { RiBookReadFill } from "react-icons/ri";
 import { SiGithub, SiSwagger } from "react-icons/si";
 
 // lib
-import { NavLink } from "@greedybear/gb-ui";
+import { NavLink } from "../components/common/gb-ui/index";
 
 // constants
 import {

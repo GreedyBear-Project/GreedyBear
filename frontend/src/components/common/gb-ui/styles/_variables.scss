@@ -1,0 +1,278 @@
+$enable-shadows: true;
+
+$min-contrast-ratio: 2.5;
+
+// font
+$font-family-sans-serif: "Montserrat", sans-serif;
+$font-family-monospace: "Montserrat", monospace;
+$font-size-base: 1rem;
+
+// color palette
+$sev-critical: #ee4544;
+$sev-high: #d98e16;
+$sev-medium: #feb607;
+$sev-low: #b5ba66;
+$sev-very-low: #808a8f;
+
+$primary: #00adef;
+$secondary: #5593ab;
+$tertiary: #2f515e;
+$dark: #0b2b38;
+$success: #02cc56;
+$danger: $sev-critical;
+$warning: $sev-medium;
+$info: #45b8e6;
+$light: rgba(255, 255, 255, 0.85);
+$error: #ce1b28;
+$accent-1: #4f1885;
+$accent-2: #9441b7;
+$gray: $sev-very-low;
+
+$darker: #000f12;
+$light-bluish-grey: #00485a;
+$dark-bluish-grey: #1a2d35;
+$link-color: $light;
+
+$color-contrast-dark: #010101;
+$color-contrast-light: #fefefe;
+$text-muted-color: rgb(108, 117, 125);
+
+$gradient-color-1: #e55d87;
+$gradient-color-2: $secondary;
+$gradient: linear-gradient(to right, $gradient-color-1, $gradient-color-2);
+
+$custom-colors: (
+  "accent": $sev-high,
+  "accent-1": $accent-1,
+  "accent-2": $accent-2,
+  "tertiary": $tertiary,
+  "advisory": $sev-low,
+  "gray": $gray,
+  "darker": $darker,
+);
+
+$scrollbar-size: 8px;
+
+$component-active-bg: $primary;
+
+$sizes: (
+  33: 33.333333%,
+  66: 66.666667%,
+);
+
+// generic shadows
+$box-shadow-sm: 0 0.125rem 0.375rem 0.125rem #030405;
+$box-shadow: 0 0.25rem 0.65rem 0.2rem #030405;
+$box-shadow-lg: 0 0.5rem 1rem 0.25rem #030405;
+
+// border radius
+$border-radius: 0.75rem;
+$border-radius-lg: 1.5 * $border-radius;
+$border-radius-sm: 0.75 * $border-radius;
+
+$reduced-border-radius: 0.4rem;
+$reduced-border-radius-lg: 1.5 * $reduced-border-radius;
+$reduced-border-radius-sm: 0.75 * $reduced-border-radius;
+
+// badge
+$badge-border-radius: $reduced-border-radius;
+
+// body
+$body-bg: #00161f;
+$body-color: $color-contrast-light;
+
+// dropdown
+$dropdown-bg: tint-color($body-bg, 10%);
+$dropdown-box-shadow: $box-shadow;
+
+$dropdown-link-color: $secondary;
+$dropdown-link-hover-color: $dark;
+$dropdown-link-hover-bg: $secondary;
+
+// list group
+$list-group-bg: transparent;
+$list-group-hover-bg: $secondary;
+
+// tooltip
+$tooltip-color: $color-contrast-light;
+$tooltip-border-radius: 0;
+
+// jumbotron
+$jumbotron-bg: rgba($dark-bluish-grey, 0.85);
+$jumbotron-color: $info;
+
+// card
+$card-shadow: $box-shadow-sm;
+$card-bg: $dark;
+
+// alert
+$alert-item-dft-height: 3.375rem;
+$alert-time-width: 8rem;
+$alert-customer-width: 13.5rem;
+$alert-events-width: 6rem;
+$alert-module-width: 6rem;
+$alert-check-width: 2.375rem;
+$alert-filters-height: 75vh;
+
+// close
+$close-color: $color-contrast-dark;
+
+// modal
+$modal-dialog-margin-y-sm-up: 1rem;
+$modal-inner-padding: 0.75rem;
+$modal-content-bg: $dark;
+$modal-content-box-shadow-sm-up: $box-shadow-lg;
+$modal-header-border-color: $tertiary;
+$modal-header-background: rgba(255, 255, 255, 0.1);
+$modal-header-padding-y: 0.5rem;
+$modal-header-padding-x: 0.75rem;
+
+// tooltip
+$tooltip-border-radius: $reduced-border-radius;
+
+// code
+$code-font-size: 92.5%;
+$code-color: $sev-high;
+$pre-bg: rgba(#427285, 0.25);
+$pre-color: $color-contrast-light;
+
+// popover
+$popover-bg: tint-color($body-bg, 5%);
+$popover-header-bg: $tertiary;
+$popover-border-color: $dark;
+$popover-box-shadow: $box-shadow-lg;
+$popover-border-radius: $reduced-border-radius-lg;
+$popover-max-width: 1500px;
+
+// spinners
+$spinner-sizes: (
+  "sm": 1rem,
+  "md": 3rem,
+  "lg": 4rem,
+  "xl": 5rem,
+);
+$spinner-borders-widths: (
+  "sm": 0.2em,
+  "md": 0.3em,
+  "lg": 0.5em,
+  "xl": 0.75em,
+);
+
+// progress
+$progress-bg: rgba(255, 255, 255, 0.85);
+$progress-border-radius: $reduced-border-radius;
+
+// toast
+$toast-color: tint-color($color-contrast-dark, 20%);
+
+// recharts
+$rc-axis-font-size: 0.75rem;
+
+// datetime
+$datetime-border-color: $sev-very-low;
+$datetime-boder: 1px solid $datetime-border-color;
+$datetime-picker-width: 250px;
+$datetime-today-marker-width: math.div($font-size-base, 2);
+$datetime-active-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+$datetime-active-color: #428bca;
+
+// input
+$input-bg: $tertiary;
+$input-disabled-bg: rgba(255, 255, 255, 0.3);
+$input-color: $color-contrast-light;
+$input-group-addon-bg: rgba(255, 255, 255, 0.25);
+$input-btn-focus-color: rgba($primary, 0.25);
+
+$input-border-radius: $reduced-border-radius;
+$input-border-radius-lg: $reduced-border-radius-lg;
+$input-border-radius-sm: $reduced-border-radius-sm;
+
+$custom-select-indicator-color: $color-contrast-light;
+$custom-select-border-radius: $reduced-border-radius;
+$custom-select-disabled-color: $input-color;
+$custom-select-disabled-bg: $input-disabled-bg;
+
+$custom-control-indicator-size: 1.25rem;
+$custom-checkbox-indicator-border-radius: 0.25rem;
+
+$custom-range-thumb-box-shadow: 0 0.1rem 0.25rem rgba(#fff, 0.1);
+
+$custom-file-button-bg: $dark;
+
+$range-fill-color: $info;
+$range-fill-percentage: 0%;
+
+// button
+$btn-font-weight: 600;
+$btn-box-shadow: none;
+$btn-border-radius: $reduced-border-radius;
+$btn-border-radius-lg: $reduced-border-radius-lg;
+$btn-border-radius-sm: $reduced-border-radius-sm;
+
+$hr-border-color: rgba(#fff, 0.1);
+
+// nav
+$nav-tabs-link-active-border-color: transparent transparent transparent;
+$nav-tabs-link-color: $color-contrast-light;
+$nav-tabs-link-active-color: $info;
+$nav-tabs-link-active-bg: $dark;
+$nav-tabs-link-hover-border-color: transparent transparent transparent;
+$nav-tabs-border-width: 2px;
+$nav-tabs-border-color: transparent;
+$nav-tabs-border-radius: 0;
+
+// navbar
+$navbar-dark-bg: #001d24;
+$navbar-padding-y: 0.25rem;
+$navbar-dark-color: $light;
+$nav-link-disabled-color: #6c757d;
+$navbar-crosshair-height: 0.5rem;
+
+// table
+$table-bg: $body-bg;
+$table-color: $light;
+$table-hover-bg: $color-contrast-dark;
+$table-accent-bg: rgba($light-bluish-grey, 0.1);
+$table-row-disabled-bg: shade-color($dark-bluish-grey, 6.5%);
+$table-border-color: $dark;
+$table-border-width: 1px;
+
+// pagination
+$pagination-active-color: $info;
+$pagination-hover-color: $info;
+$pagination-disabled-color: $text-muted-color;
+$pagination-bg: $darker;
+$pagination-active-bg: tint-color($pagination-bg, 9%);
+$pagination-hover-bg: tint-color($pagination-bg, 6%);
+$pagination-disabled-bg: $pagination-bg;
+$pagination-border-width: 0;
+$pagination-border-radius-sm: 0;
+$pagination-border-radius-lg: 0;
+$pagination-border-color: $light;
+$pagination-line-height: 0.75rem;
+
+// chat
+$chat-color: #ebebeb;
+$chat-bubble-color: #427285;
+$chat-bubble-font-size: $font-size-base * 1.25;
+$chat-bubble-padding: $font-size-base * 0.5 $font-size-base * 0.25;
+$chat-bubble-width: $font-size-base * 3;
+$chat-bubble-font-size-sm: $font-size-base;
+$chat-bubble-padding-sm: $font-size-base * 0.4 $font-size-base * 0.2;
+$chat-bubble-width-sm: math.div($chat-bubble-width, 1.25);
+$chat-bubble-font-size-xs: $font-size-base * 0.66;
+$chat-bubble-padding-xs: $chat-bubble-font-size-xs * 0.4
+  $chat-bubble-font-size-xs * 0.2;
+$chat-bubble-width-xs: math.div($chat-bubble-font-size-xs * 3, 1.25);
+$chat-nav-bubble-color: linear-gradient(
+  315deg,
+  rgba(255, 255, 255, 0.6) 0%,
+  #fff 100%
+);
+
+@import "bootstrap/scss/functions";
+@import "bootstrap/scss/variables";
+
+// merge colors (Workaround BUG Bootstrap 5.1 https://github.com/twbs/bootstrap/issues/34756)
+// bug should be fixed after 5.2.0 so we removed the code after the following line
+$theme-colors: map.merge($theme-colors, $custom-colors);

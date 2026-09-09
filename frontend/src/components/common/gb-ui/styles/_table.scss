@@ -1,0 +1,72 @@
+/* table */
+
+table {
+  thead {
+    position: sticky;
+    inset-block-start: 0; /* "top" */
+    tr.head-row {
+      background-color: $darker;
+      th {
+        border-width: $table-border-width;
+        /* for no outer borders in thead
+        &:first-child,
+        &:last-child {
+          border-left: none !important;
+          border-right: none !important;
+        }
+        */
+      }
+    }
+  }
+  th,
+  td {
+    // force borders
+    border: $table-border-width solid $table-border-color !important;
+    border-collapse: collapse;
+  }
+}
+
+// table row selection
+
+tr {
+  background-color: $table-bg;
+  &.row-selected {
+    background-color: $tertiary !important;
+    td:first-child {
+      background-color: $info !important;
+    }
+  }
+  &.row-disabled {
+    background-color: $table-row-disabled-bg !important;
+  }
+}
+
+.custom-checkbox {
+  text-align: center !important;
+  :checked ~ .custom-control-label {
+    &::before {
+      background-color: $dark-bluish-grey;
+      border-color: $dark-bluish-grey;
+    }
+  }
+}
+
+// Pagination
+
+.table-paginator {
+  @extend .d-flex;
+  @extend .justify-content-sm-start;
+  @extend .justify-content-lg-center;
+  position: sticky;
+  inset-block-end: 0; /* "bottom" */
+  margin-top: 1rem;
+}
+
+.pagination {
+  @extend .content-section;
+  background-color: $pagination-bg !important;
+  padding: 0.5rem !important;
+  .page-link {
+    border-radius: 0 !important;
+  }
+}

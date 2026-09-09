@@ -10,7 +10,7 @@ import {
 import { Form, Formik } from "formik";
 import { useTitle } from "react-use";
 
-import { ContentSection } from "@greedybear/gb-ui";
+import { ContentSection } from "../../common/gb-ui/index";
 
 import { useAuthStore } from "../../../stores";
 import {
