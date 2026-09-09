@@ -138,6 +138,22 @@ class FeedsViewTestCase(CustomTestCase):
             # Verify all returned values are domains (contain alphabetic characters)
             self.assertRegex(ioc["value"], r"[a-zA-Z]")
 
+    def test_lookback_minutes_filters_correct_window(self):
+        response = self.client.get("/api/feeds/all/all/recent.json?lookback_minutes=30")
+        self.assertEqual(response.status_code, 200)
+
+        ioc_values = [ioc["value"] for ioc in response.json()["iocs"]]
+        self.assertIn("101.101.101.101", ioc_values)
+        self.assertNotIn("102.102.102.102", ioc_values)
+
+    def test_loockback_minutes_bypasses_default_max_age(self):
+        response = self.client.get("/api/feeds/all/all/recent.json?lookback_minutes=10000")
+        self.assertEqual(response.status_code, 200)
+
+        ioc_values = [ioc["value"] for ioc in response.json()["iocs"]]
+        self.assertIn("101.101.101.101", ioc_values)
+        self.assertIn("102.102.102.102", ioc_values)
+
     def test_200_feeds_pagination_filter_ip(self):
         response = self.client.get(
             "/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&ioc_type=ip&include_mass_scanners&include_tor_exit_nodes"

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 from unittest.mock import Mock
 
@@ -106,6 +106,28 @@ class CustomTestCase(TestCase):
             attacker_country_code="US",
         )
 
+        cls.ioc_recent = IOC.objects.create(
+            name="101.101.101.101",
+            type=IocType.IP.value,
+            first_seen=cls.current_time - timedelta(minutes=10),
+            last_seen=cls.current_time - timedelta(minutes=10),
+            days_seen=[cls.current_time.date()],
+            number_of_days_seen=1,
+            attack_count=1,
+            scanner=True,
+        )
+
+        cls.ioc_old = IOC.objects.create(
+            name="102.102.102.102",
+            type=IocType.IP.value,
+            first_seen=cls.current_time - timedelta(days=5),
+            last_seen=cls.current_time - timedelta(days=5),
+            days_seen=[cls.current_time.date()],
+            number_of_days_seen=1,
+            attack_count=1,
+            scanner=True,
+        )
+
         cls.ioc_domain = IOC.objects.create(
             name="malicious.example.com",
             type=IocType.DOMAIN.value,
@@ -138,6 +160,8 @@ class CustomTestCase(TestCase):
         cls.ioc_2.save()
         cls.ioc_3.honeypots.add(cls.cowrie_hp)  # Cowrie honeypot
         cls.ioc_3.save()
+        cls.ioc_recent.save()
+        cls.ioc_old.save()
         cls.ioc_domain.honeypots.add(cls.heralding)  # FEEDS
         cls.ioc_domain.honeypots.add(cls.log4pot_hp)  # Log4pot honeypot
         cls.ioc_domain.save()
