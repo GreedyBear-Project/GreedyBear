@@ -6,6 +6,8 @@ from django.utils import timezone
 
 from greedybear.models import IOC
 
+MINUTES_PER_DAY = 60 * 24
+
 
 class FeedsFilterSet(django_filters.FilterSet):
     asn = django_filters.NumberFilter(field_name="autonomous_system__asn")
@@ -16,6 +18,7 @@ class FeedsFilterSet(django_filters.FilterSet):
     tag_key = django_filters.CharFilter(field_name="tags__key", lookup_expr="iexact")
     tag_value = django_filters.CharFilter(field_name="tags__value", lookup_expr="icontains")
 
+    lookback_minutes = django_filters.NumberFilter(method="filter_lookback_minutes")
     attack_type = django_filters.CharFilter(method="filter_attack_type")
     ioc_type = django_filters.CharFilter(method="filter_ioc_type")
     port = django_filters.NumberFilter(method="filter_port")
@@ -66,9 +69,14 @@ class FeedsFilterSet(django_filters.FilterSet):
         qualifying = IOC.objects.annotate(cc=Count("credentials", distinct=True)).filter(**{f"cc__{lookup}": value}).values("id")
         return queryset.filter(id__in=qualifying)
 
+    def filter_lookback_minutes(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
+        if value and int(value) > 0:
+            cutoff = timezone.now() - timedelta(minutes=int(value))
+            return queryset.filter(last_seen__gte=cutoff)
+        return queryset
+
     def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
-        # drop max_age id an explicit date range replaces is set
-        if self.data.get("start_date") or self.data.get("end_date"):
+        # drop max_age if an explicit date range or time window is set
+        if any(self.data.get(k) for k in ("start_date", "end_date", "lookback_minutes")):
             return queryset
-        cutoff = timezone.now() - timedelta(days=int(value))
-        return queryset.filter(last_seen__gte=cutoff)
+        return self.filter_lookback_minutes(queryset, name, int(value) * MINUTES_PER_DAY)

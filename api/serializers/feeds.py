@@ -134,6 +134,7 @@ class SimpleFeedRequestSerializer(BaseFeedRequestSerializer):
     include_tor_exit_nodes = PresenceFlagField(default=False, help_text="Include IOCs that are Tor exit nodes.")
     # allows explicit override of the ordering in PRIORITIZATION_PRESETS
     ordering = serializers.CharField(required=False, help_text="Override the preset ordering, e.g. `-attack_count`.")
+    lookback_minutes = serializers.IntegerField(required=False, min_value=1, allow_null=True, help_text="Filter IOCs seen since the last N minutes.")
 
     def validate(self, data: dict) -> dict:
         logger.debug("Validating simple feed request")
