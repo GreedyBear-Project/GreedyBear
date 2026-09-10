@@ -34,9 +34,9 @@ Thanks to [The Honeynet Project](https://www.honeynet.org) we are providing free
 #### Google Summer of Code
 <a href="https://summerofcode.withgoogle.com/"> <img style="border: 0.2px solid black" width=150 height=89 src="static/gsoc_logo.png" alt="GSoC logo"> </a>
 
-In 2026 we started participating in the [Google Summer of Code](https://summerofcode.withgoogle.com/) (GSoC)!
+In 2026 we participated in the [Google Summer of Code](https://summerofcode.withgoogle.com/) and three projects were successfully implemented.
 
-If you are interested in participating in the next Google Summer of Code, check all the info available in the [dedicated repository](https://github.com/intelowlproject/gsoc)!
+If you are interested in participating in the next Google Summer of Code, check all the info available in the [wiki](https://github.com/GreedyBear-Project/GreedyBear/wiki/Google-Summer-of-Code)!
 
 ## Maintainers and Contributors
 
@@ -45,8 +45,8 @@ This project was started as a personal Christmas project by [Matteo Lodi](https:
 Special thanks to:
 - [Tim Leonhard](https://github.com/regulartim) for having greatly improved the project and added Machine Learning Models during his master thesis. He's the current Principal Maintainer.
 - [Martina Carella](https://github.com/carellamartina) for having created the GUI during her master thesis.
-- [Daniele Rosetti](https://github.com/drosetti) for helping maintaining the Frontend.
-- and everyone who has contributed to GreedyBear!
+- Our GSoC 2026 participants [Drona Raj Gyawali](https://github.com/drona-gyawali), [Krishna Awasthi](https://github.com/opbot-xd) and [Rachit Kumar Pandey](https://github.com/armoredvortex) for having built the [event collector API](https://www.honeynet.org/2026/08/11/11/), the [payload access feature](https://www.honeynet.org/2026/08/17/17/) and the [dashboard modularization](https://www.honeynet.org/2026/08/14/16/).
+- and everyone else who has contributed to GreedyBear!
 
 <a href="https://github.com/GreedyBear-Project/GreedyBear/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=GreedyBear-Project/GreedyBear" alt="GreedyBear contributors" />
