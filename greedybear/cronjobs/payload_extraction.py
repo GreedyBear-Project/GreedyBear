@@ -1,7 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 
-import time
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -10,6 +10,7 @@ from django.core.files.base import ContentFile
 from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.extraction.utils import get_time_window
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
@@ -101,11 +102,14 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             list[dict]: List of payload metadata dicts, or empty list on error.
         """
-        end_ts = time.time()
-        start_ts = end_ts - (settings.EXTRACTION_INTERVAL * 60)
+        window_start, window_end = get_time_window(
+            datetime.now(),
+            settings.EXTRACTION_INTERVAL,
+            settings.EXTRACTION_INTERVAL,
+        )
 
         url = f"{server_url.rstrip('/')}/api/v1/payloads/recent"
-        params = {"start_ts": start_ts, "end_ts": end_ts}
+        params = {"start_ts": window_start.timestamp(), "end_ts": window_end.timestamp()}
         headers = self._build_auth_headers()
 
         try:

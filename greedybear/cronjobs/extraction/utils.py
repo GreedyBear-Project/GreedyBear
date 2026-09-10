@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from datetime import datetime, timedelta
 from ipaddress import ip_address, ip_network
 from logging import Logger
 from urllib.parse import urlparse
@@ -9,10 +10,41 @@ from django.conf import settings
 
 from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, FireHolList, MassScanner
 from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
+
+
+def get_time_window(
+    reference_time: datetime,
+    lookback_minutes: int,
+    extraction_interval: int = settings.EXTRACTION_INTERVAL,
+) -> tuple[datetime, datetime]:
+    """
+    Calculate a time window ending at the last extraction interval boundary.
+
+    Args:
+        reference_time: Reference point in time.
+        lookback_minutes: Minutes to look back.
+        extraction_interval: Minutes between two subsequent extraction runs.
+
+    Returns:
+        The start and end of the time window.
+
+    Raises:
+        ValueError: If lookback_minutes is less than extraction_interval.
+        ValueError: If extraction_interval is not a positive divisor of 60.
+    """
+    if extraction_interval <= 0 or 60 % extraction_interval > 0:
+        raise ValueError("Argument extraction_interval must be a positive divisor of 60.")
+
+    if lookback_minutes < extraction_interval:
+        raise ValueError(f"Argument lookback_minutes size must be at least {extraction_interval} minutes.")
+
+    rounded_minute = (reference_time.minute // extraction_interval) * extraction_interval
+    window_end = reference_time.replace(minute=rounded_minute, second=0, microsecond=0)
+    window_start = window_end - timedelta(minutes=lookback_minutes)
+    return (window_start, window_end)
 
 
 def normalize_credential_field(value: object, max_length: int = 256) -> str:
@@ -104,6 +136,10 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
     Returns:
         List of IOC instances, one per unique source IP.
     """
+    # Imported here to avoid a cycle while repositories import get_time_window
+    # from this module during package initialization.
+    from greedybear.cronjobs.repositories.autonomous_system import ASRepository
+
     hits_by_ip = defaultdict(list)
     for hit in hits:
         hits_by_ip[hit["src_ip"]].append(hit)

@@ -6,6 +6,7 @@ from django.conf import settings
 from elasticsearch.dsl import Q, Search
 
 from greedybear.consts import FIELDS_TO_EXTRACT
+from greedybear.cronjobs.extraction.utils import get_time_window
 from greedybear.settings import EXTRACTION_INTERVAL
 
 
@@ -88,35 +89,3 @@ class ElasticRepository:
         if not self.elastic_client.ping():
             raise self.ElasticServerDownError("elastic server is not reachable, could be down")
         self.log.debug("elastic server is reachable")
-
-
-def get_time_window(
-    reference_time: datetime,
-    lookback_minutes: int,
-    extraction_interval: int = EXTRACTION_INTERVAL,
-) -> tuple[datetime, datetime]:
-    """
-    Calculates a time window that ends at the last completed extraction interval and looks back a specified number of minutes.
-
-    Args:
-        reference_time (datetime): Reference point in time
-        lookback_minutes (int): Minutes to look back
-        extraction_interval (int): Minutes between two subsequent extraction runs
-
-    Returns:
-        tuple: A tuple containing the start and end time of the time window as datetime objects
-
-    Raises:
-        ValueError: If lookback_minutes is less than extraction_interval
-        ValueError: If extraction_interval is not a positive divisor of 60
-    """
-    if extraction_interval <= 0 or 60 % extraction_interval > 0:
-        raise ValueError("Argument extraction_interval must be a positive divisor of 60.")
-
-    if lookback_minutes < extraction_interval:
-        raise ValueError(f"Argument lookback_minutes size must be at least {extraction_interval} minutes.")
-
-    rounded_minute = (reference_time.minute // extraction_interval) * extraction_interval
-    window_end = reference_time.replace(minute=rounded_minute, second=0, microsecond=0)
-    window_start = window_end - timedelta(minutes=lookback_minutes)
-    return (window_start, window_end)

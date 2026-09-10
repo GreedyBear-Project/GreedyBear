@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
 
 import requests
@@ -23,6 +24,21 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.job.run()
         # No exception, no payloads created.
         self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    @override_settings(EXTRACTION_INTERVAL=10)
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_fetch_metadata_uses_aligned_time_window(self, mock_datetime):
+        """Metadata lookup should use the last completed extraction interval."""
+        reference_time = datetime(2026, 1, 1, 8, 12, 37)
+        mock_datetime.now.return_value = reference_time
+        client = MagicMock()
+        client.get.return_value.json.return_value = []
+
+        self.job._fetch_metadata(client, "http://payload-server:8000")
+
+        params = client.get.call_args.kwargs["params"]
+        self.assertEqual(params["start_ts"], datetime(2026, 1, 1, 8, 0).timestamp())
+        self.assertEqual(params["end_ts"], datetime(2026, 1, 1, 8, 10).timestamp())
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
