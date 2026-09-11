@@ -2,8 +2,8 @@ import socket
 from datetime import date
 from unittest.mock import Mock, patch
 
-from greedybear.cronjobs import reverse_dns as reverse_dns_module
-from greedybear.cronjobs.reverse_dns import ReverseDNSCron
+from greedybear.cronjobs.enrichment import reverse_dns as reverse_dns_module
+from greedybear.cronjobs.enrichment.reverse_dns import ReverseDNSCron
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, IocType, Tag
 
@@ -231,7 +231,7 @@ class TestReverseDNSCronResolveBatch(CustomTestCase):
     def setUp(self):
         self.cron = ReverseDNSCron(tag_repo=Mock(), ioc_repo=Mock())
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_batch_returns_results_for_all_ips(self, mock_gethostbyaddr):
         mock_gethostbyaddr.side_effect = lambda ip: (f"host-{ip}.example.com", [], [ip])
 
@@ -240,7 +240,7 @@ class TestReverseDNSCronResolveBatch(CustomTestCase):
         self.assertEqual(results["1.2.3.4"], "host-1.2.3.4.example.com")
         self.assertEqual(results["5.6.7.8"], "host-5.6.7.8.example.com")
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_batch_handles_mixed_results(self, mock_gethostbyaddr):
         def side_effect(ip):
             if ip == "1.2.3.4":
@@ -276,7 +276,7 @@ class TestReverseDNSCronResolvePTR(CustomTestCase):
     def setUp(self):
         self.cron = ReverseDNSCron(tag_repo=Mock(), ioc_repo=Mock())
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_ptr_success(self, mock_gethostbyaddr):
         mock_gethostbyaddr.return_value = ("scanner.shodan.io", [], ["1.2.3.4"])
 
@@ -285,7 +285,7 @@ class TestReverseDNSCronResolvePTR(CustomTestCase):
         self.assertEqual(result, "scanner.shodan.io")
         mock_gethostbyaddr.assert_called_once_with("1.2.3.4")
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_ptr_herror(self, mock_gethostbyaddr):
         mock_gethostbyaddr.side_effect = socket.herror("Host not found")
 
@@ -293,7 +293,7 @@ class TestReverseDNSCronResolvePTR(CustomTestCase):
 
         self.assertEqual(result, "")
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_ptr_timeout(self, mock_gethostbyaddr):
         mock_gethostbyaddr.side_effect = TimeoutError("timed out")
 
@@ -301,7 +301,7 @@ class TestReverseDNSCronResolvePTR(CustomTestCase):
 
         self.assertEqual(result, "")
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_ptr_gaierror(self, mock_gethostbyaddr):
         mock_gethostbyaddr.side_effect = socket.gaierror("Name resolution failed")
 
@@ -309,7 +309,7 @@ class TestReverseDNSCronResolvePTR(CustomTestCase):
 
         self.assertEqual(result, "")
 
-    @patch("greedybear.cronjobs.reverse_dns.socket.gethostbyaddr")
+    @patch("greedybear.cronjobs.enrichment.reverse_dns.socket.gethostbyaddr")
     def test_resolve_ptr_oserror(self, mock_gethostbyaddr):
         mock_gethostbyaddr.side_effect = OSError("Network unreachable")
 

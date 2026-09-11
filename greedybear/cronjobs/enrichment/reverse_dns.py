@@ -4,9 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.db.models import F
 
 from greedybear.consts import MASS_SCANNER_DOMAINS
-from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.enrichment.base_enrichment import BaseEnrichmentJob
 from greedybear.cronjobs.repositories import IocRepository
-from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, IocType
 
@@ -22,7 +21,7 @@ DNS_TIMEOUT = 2
 SOURCE_NAME = "rdns"
 
 
-class ReverseDNSCron(Cronjob):
+class ReverseDNSCron(BaseEnrichmentJob):
     """
     Identify mass scanning services via reverse DNS lookups.
 
@@ -34,6 +33,9 @@ class ReverseDNSCron(Cronjob):
     are rechecked on subsequent runs.
     """
 
+    SOURCE_NAME = "rdns"
+    WRITE_METHOD = "add"
+
     def __init__(self, tag_repo=None, ioc_repo=None):
         """
         Initialize the cron job with repository dependencies.
@@ -42,8 +44,7 @@ class ReverseDNSCron(Cronjob):
             tag_repo: Optional TagRepository instance for testing.
             ioc_repo: Optional IocRepository instance for testing.
         """
-        super().__init__()
-        self.tag_repo = tag_repo if tag_repo is not None else TagRepository()
+        super().__init__(tag_repo)
         self.ioc_repo = ioc_repo if ioc_repo is not None else IocRepository()
 
     def run(self) -> None:
@@ -88,7 +89,7 @@ class ReverseDNSCron(Cronjob):
         # new candidate IPs each run and excludes ones already
         # tagged. replace would delete previously found ptr records
         # just because those IPs aren't in today's batch.
-        created_count = self.tag_repo.add_tags(SOURCE_NAME, tag_entries)
+        created_count = self._write_tags(tag_entries)
         self.log.info(f"Reverse DNS check completed. Checked {len(ptr_results)} IPs, created {created_count} tags, {len(matched_ips)} matched mass scanners")
 
     def _get_candidates(self):
