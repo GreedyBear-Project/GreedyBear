@@ -213,8 +213,143 @@ class TestPayloadExtractionJob(CustomTestCase):
             self.job.run()
 
         mock_error.assert_called_once_with("Quarantine directory has reached the 0.001 GB limit. Stopping downloads.")
-        # No payload should have been downloaded.
+        # Only the metadata request was made, no download was attempted.
+        self.assertEqual(mock_client.get.call_count, 1)
+        # The payload is kept as metadata only so it is not lost with the window.
+        obj = HoneypotPayload.objects.get(sha256="d" * 64)
+        self.assertFalse(obj.payload_file)
+        self.assertEqual(obj.locator, "cowrie/ddd")
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=0.001,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_stores_metadata_for_whole_remaining_batch(self, mock_http_class, mock_usage):
+        """Every payload left undownloaded when the quota trips should be recorded."""
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "d" * 64, "locator": "cowrie/ddd", "md5": "d" * 32, "sha1": "d" * 40, "mime_type": "application/x-executable", "mtime": 1234.5},
+            {"sha256": "e" * 64, "locator": "cowrie/eee"},
+            {"sha256": "f" * 64, "locator": "cowrie/fff"},
+        ]
+        mock_client.get.return_value = mock_metadata_resp
+        mock_usage.return_value = 2_000_000
+
+        self.job.run()
+
+        # All three are recorded, none downloaded. payload_file expresses "no file"
+        # as both "" and NULL today, so check falsiness rather than one of the two.
+        self.assertEqual(HoneypotPayload.objects.count(), 3)
+        self.assertTrue(all(not p.payload_file for p in HoneypotPayload.objects.all()))
+        # Metadata from the listing is carried over to the stub.
+        obj = HoneypotPayload.objects.get(sha256="d" * 64)
+        self.assertEqual(obj.md5, "d" * 32)
+        self.assertEqual(obj.sha1, "d" * 40)
+        self.assertEqual(obj.mime_type, "application/x-executable")
+        self.assertEqual(obj.mtime, 1234.5)
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=0.001,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_downloads_until_quota_then_stores_metadata(self, mock_http_class, mock_usage):
+        """Payloads downloaded before the quota trips keep their file, the rest do not."""
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "a" * 64, "locator": "cowrie/aaa"},
+            {"sha256": "b" * 64, "locator": "cowrie/bbb"},
+        ]
+        mock_download_resp = Mock()
+        mock_download_resp.content = b"\x00" * 128
+        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
+
+        # Under the limit for the first payload, over it for the second.
+        mock_usage.side_effect = [0, 2_000_000]
+
+        self.job.run()
+
+        downloaded = HoneypotPayload.objects.get(sha256="a" * 64)
+        self.assertTrue(downloaded.payload_file)
+        self.assertEqual(downloaded.size, 128)
+
+        deferred = HoneypotPayload.objects.get(sha256="b" * 64)
+        self.assertFalse(deferred.payload_file)
+        self.assertEqual(deferred.locator, "cowrie/bbb")
+
+    def test_metadata_only_skips_payload_without_locator(self):
+        """A payload with no locator can never be fetched, so no row is written."""
+        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": ""}])
+
+        self.assertEqual(stored, 0)
         self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    def test_metadata_only_links_cowrie_session(self):
+        """A payload recorded without its file still gets its session and IOC links."""
+        CowrieFileTransfer.objects.create(
+            session=self.cowrie_session,
+            shasum="c" * 64,
+            url="",
+            outfile="",
+            timestamp=timezone.now(),
+        )
+
+        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}])
+
+        self.assertEqual(stored, 1)
+        obj = HoneypotPayload.objects.get(sha256="c" * 64)
+        self.assertFalse(obj.payload_file)
+        self.assertIn(self.cowrie_session, obj.cowrie_sessions.all())
+        self.assertIn(self.cowrie_session.source, obj.iocs.all())
+
+    def test_metadata_only_links_existing_stub_to_session(self):
+        """An existing hash-only stub picked up here is linked as well, not just new rows."""
+        HoneypotPayload.objects.create(sha256="c" * 64)
+        CowrieFileTransfer.objects.create(
+            session=self.cowrie_session,
+            shasum="c" * 64,
+            url="",
+            outfile="",
+            timestamp=timezone.now(),
+        )
+
+        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}])
+
+        self.assertEqual(stored, 1)
+        obj = HoneypotPayload.objects.get(sha256="c" * 64)
+        self.assertIn(self.cowrie_session, obj.cowrie_sessions.all())
+        self.assertIn(self.cowrie_session.source, obj.iocs.all())
+
+    def test_metadata_only_is_idempotent(self):
+        """Recording the same payload twice should not create a duplicate row."""
+        payloads = [{"sha256": "c" * 64, "locator": "cowrie/ccc"}]
+
+        self.assertEqual(self.job._store_metadata_only(payloads), 1)
+        self.assertEqual(self.job._store_metadata_only(payloads), 1)
+        self.assertEqual(HoneypotPayload.objects.filter(sha256="c" * 64).count(), 1)
+
+    def test_metadata_only_fills_locator_on_existing_stub(self):
+        """A hash-only stub gets its locator filled in so it stays recoverable."""
+        HoneypotPayload.objects.create(sha256="c" * 64)
+
+        stored = self.job._store_metadata_only([{"sha256": "C" * 64, "locator": "cowrie/ccc"}])
+
+        self.assertEqual(stored, 1)
+        obj = HoneypotPayload.objects.get(sha256="c" * 64)
+        self.assertEqual(obj.locator, "cowrie/ccc")
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
