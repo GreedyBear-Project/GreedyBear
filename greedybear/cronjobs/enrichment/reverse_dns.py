@@ -18,8 +18,6 @@ MAX_CANDIDATES = 500
 # Timeout in seconds for each DNS lookup.
 DNS_TIMEOUT = 2
 
-SOURCE_NAME = "rdns"
-
 
 class ReverseDNSCron(BaseEnrichmentJob):
     """
@@ -113,7 +111,7 @@ class ReverseDNSCron(BaseEnrichmentJob):
                 login_attempts=0,
                 interaction_count__lt=F("attack_count") * 2,
             )
-            .exclude(tags__source=SOURCE_NAME)
+            .exclude(tags__source=self.SOURCE_NAME)
             .order_by("-number_of_days_seen")
             .values_list("id", "name")
             .distinct()[:MAX_CANDIDATES]

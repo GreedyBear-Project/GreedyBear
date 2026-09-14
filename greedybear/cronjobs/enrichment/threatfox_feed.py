@@ -40,11 +40,11 @@ class ThreatFoxCron(HttpEnrichmentJob):
 
         if json_data.get("query_status") != "ok":
             self.log.warning(f"ThreatFox API returned non-OK status: {json_data.get('query_status')}")
-            return []
+            return None
 
         return json_data.get("data", [])
 
-    def _parse_tags(self, iocs_data: list) -> dict[str, list[dict]]:
+    def _parse_feed(self, iocs_data: list) -> dict[str, list[dict]]:
         """
         Parse ThreatFox IOC data into a dict keyed by validated IP address.
 

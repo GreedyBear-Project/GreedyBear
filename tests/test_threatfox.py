@@ -4,7 +4,7 @@ import requests
 
 from greedybear.cronjobs.enrichment.threatfox_feed import ThreatFoxCron
 from greedybear.cronjobs.repositories.tag import TagRepository
-from greedybear.models import Tag
+from greedybear.models import IOC, IocType, Tag
 from tests import CustomTestCase
 
 
@@ -188,6 +188,32 @@ class TestThreatFoxCron(CustomTestCase):
         self.cron.run()
 
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 0)
+
+    @patch("greedybear.cronjobs.enrichment.threatfox_feed.HttpClient.post")
+    @patch("greedybear.cronjobs.enrichment.threatfox_feed.settings")
+    def test_tag_persists_failed_update(self, mock_settings, mock_post):
+        """Existing tags should survive when the API returns a non-OK status."""
+        mock_settings.THREATFOX_API_KEY = "test_key"
+
+        self.ioc = IOC.objects.create(name="1.2.3.4", type=IocType.IP)
+
+        # create some tags for threatfox
+        Tag.objects.create(ioc=self.ioc, key="malware", value="OldMalware", source="threatfox")
+
+        # run the enrichment job (update tags) and make it fail by returning non 200
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "query_status": "no_result",
+            "data": [],
+        }
+        mock_post.return_value = mock_response
+
+        self.cron.run()
+
+        # check if the created tag is still there
+        self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="threatfox").first().key, "malware")
+        self.assertEqual(Tag.objects.filter(source="threatfox").first().value, "OldMalware")
 
     @patch("greedybear.cronjobs.enrichment.threatfox_feed.HttpClient.post")
     @patch("greedybear.cronjobs.enrichment.threatfox_feed.settings")

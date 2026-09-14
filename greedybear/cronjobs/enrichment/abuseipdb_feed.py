@@ -37,7 +37,7 @@ class AbuseIPDBCron(HttpEnrichmentJob):
         json_data = response.json()
         return json_data.get("data", [])
 
-    def _parse_tags(self, blocklist_data: list) -> dict[str, int]:
+    def _parse_feed(self, blocklist_data: list) -> dict[str, int]:
         """
         Parse AbuseIPDB blocklist data into a dict keyed by validated IP address.
 
