@@ -6,8 +6,8 @@ from django.conf import settings
 from elasticsearch.dsl import Q, Search
 
 from greedybear.consts import FIELDS_TO_EXTRACT
-from greedybear.cronjobs.extraction.utils import get_time_window
 from greedybear.settings import EXTRACTION_INTERVAL
+from greedybear.utils import get_time_window
 
 
 class ElasticRepository:

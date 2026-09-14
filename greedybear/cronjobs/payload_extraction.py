@@ -10,10 +10,10 @@ from django.core.files.base import ContentFile
 from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
-from greedybear.cronjobs.extraction.utils import get_time_window
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
+from greedybear.utils import get_time_window
 
 
 class PayloadExtractionJob(Cronjob):
@@ -103,9 +103,9 @@ class PayloadExtractionJob(Cronjob):
             list[dict]: List of payload metadata dicts, or empty list on error.
         """
         window_start, window_end = get_time_window(
-            datetime.now(),
-            settings.EXTRACTION_INTERVAL,
-            settings.EXTRACTION_INTERVAL,
+            reference_time=datetime.now(),
+            lookback_minutes=settings.EXTRACTION_INTERVAL,
+            extraction_interval=settings.EXTRACTION_INTERVAL,
         )
 
         url = f"{server_url.rstrip('/')}/api/v1/payloads/recent"
