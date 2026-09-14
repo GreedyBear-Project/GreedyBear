@@ -31,6 +31,7 @@ from greedybear.models import (
 logger = logging.getLogger(__name__)
 
 MAX_LISTED_ITEMS = 6
+TITLE_MAX_CHARS = 2000
 
 
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
@@ -41,14 +42,16 @@ def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITE
         values = getattr(obj, attribute)
         if hasattr(values, "all"):
             values = values.all()
+        # str() normalizes dates/ints/model instances (and strips any SafeString flag) so format_html escapes uniformly.
         values = [str(value) for value in values or []]
-        values_str = ", ".join(values)
         if len(values) <= max_items:
-            return values_str
+            return format_html("{}", ", ".join(values))
         preview_values_str = ", ".join(values[: max_items - 2])
         hidden_count = len(values) - max_items + 2
-        html = f'<span title="{values_str}">{preview_values_str}, … (+{hidden_count} more)</span>'
-        return format_html(html)
+        full_values_str = ", ".join(values)
+        if len(full_values_str) > TITLE_MAX_CHARS:
+            full_values_str = full_values_str[:TITLE_MAX_CHARS] + "…"
+        return format_html('<span title="{}">{}, … (+{} more)</span>', full_values_str, preview_values_str, hidden_count)
 
     return display
 
