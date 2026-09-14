@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from greedybear.cronjobs.abuseipdb_feed import AbuseIPDBCron
+from greedybear.cronjobs.enrichment.abuseipdb_feed import AbuseIPDBCron
 from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import Tag
 from tests import CustomTestCase
@@ -15,7 +15,7 @@ class TestAbuseIPDBCron(CustomTestCase):
         self.tag_repo = TagRepository()
         self.cron = AbuseIPDBCron(tag_repo=self.tag_repo)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_skips_when_no_api_key(self, mock_settings):
         """Should skip enrichment when ABUSEIPDB_API_KEY is not set."""
         mock_settings.ABUSEIPDB_API_KEY = ""
@@ -24,8 +24,8 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_enriches_matching_iocs(self, mock_settings, mock_get):
         """Should create tags for IOCs that match blocklist IPs."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -52,8 +52,8 @@ class TestAbuseIPDBCron(CustomTestCase):
         confidence_tag = tags.get(key="confidence_of_abuse")
         self.assertEqual(confidence_tag.value, "84%")
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_no_tags_for_non_matching_iocs(self, mock_settings, mock_get):
         """Should not create tags for IPs not in our IOC table."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -73,8 +73,8 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_replaces_stale_tags(self, mock_settings, mock_get):
         """Tags should be replaced on each run, not accumulated."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -101,8 +101,8 @@ class TestAbuseIPDBCron(CustomTestCase):
         self.assertEqual(confidence_tags.count(), 1)
         self.assertEqual(confidence_tags.first().value, "95%")
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_clears_tags_when_ip_delisted(self, mock_settings, mock_get):
         """Tags should be removed when an IP is no longer in the blocklist."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -119,8 +119,8 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb", ioc=self.ioc).count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_handles_request_exception(self, mock_settings, mock_get):
         """Should raise on network errors."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -129,8 +129,8 @@ class TestAbuseIPDBCron(CustomTestCase):
         with self.assertRaises(requests.RequestException):
             self.cron.run()
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_skips_invalid_ips(self, mock_settings, mock_get):
         """Should skip entries with invalid IP addresses."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -154,8 +154,8 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 0)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_does_not_affect_threatfox_tags(self, mock_settings, mock_get):
         """AbuseIPDB enrichment should not touch tags from other sources."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
@@ -172,8 +172,8 @@ class TestAbuseIPDBCron(CustomTestCase):
         # ThreatFox tag should still exist
         self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
 
-    @patch("greedybear.cronjobs.abuseipdb_feed.HttpClient.get")
-    @patch("greedybear.cronjobs.abuseipdb_feed.settings")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
     def test_enriches_multiple_iocs(self, mock_settings, mock_get):
         """Should enrich multiple IOCs from a single feed download."""
         mock_settings.ABUSEIPDB_API_KEY = "test_key"
