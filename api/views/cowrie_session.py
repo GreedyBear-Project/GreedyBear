@@ -53,8 +53,7 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
         observable = request_serializer.validated_data.get("query")
 
         if session_id is not None:
-            # A session ID points at one specific session, so no duration filter here.
-            sessions = CowrieSession.objects.filter(session_id=int(session_id, 16)).prefetch_related("source", "commands", "credentials")
+            sessions = CowrieSession.objects.filter(session_id=int(session_id, 16), duration__gt=0).prefetch_related("source", "commands", "credentials")
             if not sessions.exists():
                 raise Http404(f"No session found with ID: {session_id}")
 

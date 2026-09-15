@@ -1,4 +1,8 @@
+import re
+
 from rest_framework import serializers
+
+from greedybear.regex import REGEX_COWRIE_SESSION_ID
 
 
 class CowrieSessionRequestSerializer(serializers.Serializer):
@@ -13,7 +17,7 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
     )
     id = serializers.CharField(
         required=False,
-        max_length=32,
+        max_length=16,
         help_text=("Hex session ID, in the same format the payloads API returns. Mutually exclusive with `query`."),
     )
 
@@ -34,17 +38,15 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
     )
 
     def validate_id(self, value: str) -> str:
-        """Session IDs are stored as integers, so the hex has to parse."""
-        try:
-            int(value, 16)
-        except ValueError as exc:
-            raise serializers.ValidationError(f"Not a valid hex session ID: {value}") from exc
+        if not re.fullmatch(REGEX_COWRIE_SESSION_ID, value):
+            raise serializers.ValidationError(f"Not a valid hex session ID: {value}")
         return value
 
     def validate(self, data: dict) -> dict:
-        """Exactly one of query or id, they select different things."""
-        if bool(data.get("query")) == bool(data.get("id")):
+        if data.get("query") and data.get("id"):
             raise serializers.ValidationError("Provide either `query` or `id`, not both.")
+        if not data.get("query") and not data.get("id"):
+            raise serializers.ValidationError("Provide either `query` or `id`.")
         return data
 
 
@@ -63,7 +65,7 @@ class CowrieSessionSerializer(serializers.Serializer):
     """Aggregated view of the sessions matching a query."""
 
     query = serializers.CharField(required=False, max_length=256, help_text="The query this result was produced for. Present when searching by `query`.")
-    id = serializers.CharField(required=False, max_length=32, help_text="The session ID this result was produced for. Present when searching by `id`.")
+    id = serializers.CharField(required=False, max_length=16, help_text="The session ID this result was produced for. Present when searching by `id`.")
     license = serializers.CharField(required=False, help_text="Present when a feed license is configured.")
     commands = serializers.ListField(child=serializers.CharField(), help_text="Unique command sequences, each newline-delimited.")
     sources = serializers.ListField(child=serializers.IPAddressField(), help_text="Unique source IP addresses.")
