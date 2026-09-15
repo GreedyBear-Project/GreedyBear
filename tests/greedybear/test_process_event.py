@@ -1,6 +1,8 @@
 import hashlib
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -316,6 +318,27 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.batch.refresh_from_db()
         self.assertEqual(self.batch.status, "completed")
         self.assertIsNotNone(self.batch.processed_at)
+
+    def test_recent_processing_batch_is_skipped(self):
+        started_at = timezone.now()
+        EventStatus.objects.filter(pk=self.batch.pk).update(status="processing", started_at=started_at)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "processing")
+        self.assertEqual(self.batch.started_at, started_at)
+
+    def test_stale_processing_batch_is_taken_over(self):
+        # a worker killed mid-run leaves the batch in PROCESSING; the redelivered task must resume it
+        stale = timezone.now() - timedelta(seconds=settings.Q_CLUSTER["timeout"] + 60)
+        EventStatus.objects.filter(pk=self.batch.pk).update(status="processing", started_at=stale)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertGreater(self.batch.started_at, stale)
 
     @patch(PATCH_IOCS_FROM_HITS, return_value=[])
     def test_all_raw_events_invalid_sets_failed(self, mock_hits):
