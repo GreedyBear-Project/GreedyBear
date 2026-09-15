@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db.models import Q
 from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
@@ -23,7 +24,7 @@ class PayloadExtractionJob(Cronjob):
     This job:
     1. Queries the payload server's ``/api/v1/payloads/recent`` endpoint for
        metadata of files modified within the last extraction interval.
-    2. Skips any payload whose SHA256 already exists in the database.
+    2. Skips any payload whose SHA256 already has a downloaded file in the database.
     3. Checks quarantine disk usage against MAX_QUARANTINE_SIZE_GB before downloading.
     4. Downloads new payload files via ``/api/v1/payloads/download/{locator}``
        and saves them via QuarantineStorage.
@@ -147,7 +148,8 @@ class PayloadExtractionJob(Cronjob):
         existing_hashes = set(
             HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
             .filter(sha256_lower__in=incoming_hashes)
-            .exclude(payload_file="")  # Django stores an unset FileField as an empty string.
+            # Django stores an unset FileField as an empty string, but exclude NULL as well.
+            .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
             .values_list("sha256_lower", flat=True)
         )
         new_hashes = incoming_hashes - existing_hashes
@@ -208,9 +210,8 @@ class PayloadExtractionJob(Cronjob):
 
         file_content = response.content
 
-        # Upgrade the existing stub if one exists. The unique constraint is on
-        # Lower("sha256"), so a case-sensitive get_or_create(sha256=sha256) could
-        # miss a differently-cased row and hit IntegrityError on insert instead.
+        # Create the database record, or upgrade an existing hash-only stub with
+        # the real file and fresh metadata.
         fields = {
             "md5": payload_meta.get("md5", ""),
             "sha1": payload_meta.get("sha1", ""),
@@ -219,12 +220,12 @@ class PayloadExtractionJob(Cronjob):
             "locator": locator,
             "mtime": payload_meta.get("mtime"),
         }
-        payload_obj = HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower=sha256).first()
-        created = payload_obj is None
-        if created:
-            payload_obj = HoneypotPayload(sha256=sha256)
-        for field, value in fields.items():
-            setattr(payload_obj, field, value)
+        payload_obj, created = HoneypotPayload.objects.get_or_create(sha256=sha256, defaults=fields)
+        if not created:
+            for field, value in fields.items():
+                # Always overwrite size and locator, but only overwrite other fields if the new value is not empty
+                if field in ("size", "locator") or value:
+                    setattr(payload_obj, field, value)
 
         # Save the binary content via QuarantineStorage.
         filename = f"{sha256}.vir"
