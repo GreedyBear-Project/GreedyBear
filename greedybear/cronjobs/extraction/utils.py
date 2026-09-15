@@ -9,7 +9,7 @@ from django.conf import settings
 
 from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories.autonomous_system import ASRepository
+from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, FireHolList, MassScanner
 from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
@@ -104,7 +104,6 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
     Returns:
         List of IOC instances, one per unique source IP.
     """
-
     hits_by_ip = defaultdict(list)
     for hit in hits:
         hits_by_ip[hit["src_ip"]].append(hit)
