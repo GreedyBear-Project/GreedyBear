@@ -9,7 +9,7 @@
     "prettier": "../.github/configurations/node_linters/prettier/.prettierrc.js"
   },
   "dependencies": {
-    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-table": "^9.2.4",
     "@vnedyalk0v/react19-simple-maps": "^2.0.10",
     "axios": "^1.20.0",
     "axios-hooks": "^5.1.1",
