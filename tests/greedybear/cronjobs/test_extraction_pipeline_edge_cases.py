@@ -15,6 +15,7 @@ from the E2E tests which use real strategies for happy-path testing.
 from unittest.mock import MagicMock, patch
 
 from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY
+from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
 from tests import E2ETestCase, MockElasticHit
 
 
@@ -221,3 +222,21 @@ class TestLargeBatches(E2ETestCase):
 
         # Should have processed hits and produced IOCs
         self.assertGreaterEqual(result, 0)
+
+
+class TestNoElasticsearch(E2ETestCase):
+    """Tests for ExtractionPipeline when Elasticsearch is unavailable."""
+
+    @patch("greedybear.cronjobs.extraction.pipeline.SensorRepository")
+    @patch("greedybear.cronjobs.extraction.pipeline.IocRepository")
+    @patch("greedybear.cronjobs.extraction.pipeline.ElasticRepository")
+    def test_execute_returns_zero_when_search_yields_nothing(self, mock_elastic, mock_ioc, mock_sensor):
+        """execute() must return 0 when search yields no chunks (unavailable ES)."""
+        mock_elastic.return_value.search.return_value = iter([])
+        pipeline = ExtractionPipeline()
+        pipeline.log = MagicMock()
+
+        result = pipeline.execute()
+
+        self.assertEqual(result, 0)
+        mock_elastic.return_value.search.assert_called_once()

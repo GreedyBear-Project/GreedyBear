@@ -58,10 +58,6 @@ class ExtractionPipeline:
         Returns:
             Number of IOC records processed.
         """
-        if self.elastic_repo.elastic_client is None:
-            self.log.warning("Elasticsearch is not configured: skipping extraction")
-            return 0
-
         ioc_record_count = 0
         bucket_updater = BucketUpdater()
         factory = ExtractionStrategyFactory(self.ioc_repo, self.sensor_repo)

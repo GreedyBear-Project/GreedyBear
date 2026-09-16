@@ -27,9 +27,6 @@ class MonitorHoneypots(Cronjob):
 
     def run(self):
         """Check all active honeypots for recent log activity."""
-        if self.elastic_repo.elastic_client is None:
-            self.log.warning("Elasticsearch is not configured: skipping honeypot monitoring")
-            return
         for honeypot in self.ioc_repo.get_active_honeypots():
             honeypot_name = honeypot.name
             self.log.info(f"checking if logs from the honeypot {honeypot} are available")
