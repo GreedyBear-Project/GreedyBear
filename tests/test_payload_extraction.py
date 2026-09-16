@@ -182,8 +182,8 @@ class TestPayloadExtractionJob(CustomTestCase):
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
     def test_deduplicates_existing_payloads(self, mock_http_class, mock_usage):
         """Job should skip payloads that already exist in the database."""
-        # Pre-create a payload record.
-        HoneypotPayload.objects.create(sha256="a" * 64)
+        # payload_file must be set for a HoneypotPayload to be considered "existing".
+        HoneypotPayload.objects.create(sha256="a" * 64, payload_file="existing.vir")
 
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
@@ -400,8 +400,8 @@ class TestPayloadExtractionJob(CustomTestCase):
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
     def test_mixed_new_and_existing_payloads(self, mock_http_class, mock_usage):
         """Job should only download payloads not already in the database."""
-        # Pre-create one payload.
-        HoneypotPayload.objects.create(sha256="a" * 64)
+        # payload_file must be set for a HoneypotPayload to be considered "existing".
+        HoneypotPayload.objects.create(sha256="a" * 64, payload_file="existing.vir")
 
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
@@ -558,7 +558,7 @@ class TestPayloadExtractionJob(CustomTestCase):
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
     def test_uppercase_hash_matches_existing_lowercase_row(self, mock_http_class, mock_usage):
         """An uppercase hash from the server must not re-insert a known payload."""
-        HoneypotPayload.objects.create(sha256="a" * 64)
+        HoneypotPayload.objects.create(sha256="a" * 64, payload_file="existing.vir")
 
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
@@ -586,7 +586,7 @@ class TestPayloadExtractionJob(CustomTestCase):
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
     def test_lowercase_hash_matches_existing_uppercase_row(self, mock_http_class, mock_usage):
         """Rows stored in upper case before the fix must still be matched."""
-        HoneypotPayload.objects.create(sha256="B" * 64)
+        HoneypotPayload.objects.create(sha256="B" * 64, payload_file="existing.vir")
 
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
@@ -662,6 +662,114 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(HoneypotPayload.objects.get().sha256, "d" * 64)
         # One metadata request plus exactly one download.
         self.assertEqual(mock_client.get.call_count, 2)
+
+    # Stub-aware deduplication (see issue #1530).
+    # A HoneypotPayload row can exist without a file - a metadata-only stub
+    # created from a raw event before the file itself was ever downloaded.
+    # Such a row must not block the real download, and downloading it must
+    # upgrade the existing row rather than fail on the unique sha256 constraint.
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_hash_only_stub_is_not_treated_as_duplicate(self, mock_http_class, mock_usage):
+        """A stub row with no payload_file must still be downloaded, not skipped."""
+        stub = HoneypotPayload.objects.create(sha256="e" * 64)
+        stub.refresh_from_db()
+        self.assertEqual(stub.payload_file.name, "")
+
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "e" * 64, "locator": "cowrie/eee"},
+        ]
+        mock_download_resp = Mock()
+        mock_download_resp.content = b"\xca\xfe"
+        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        # Metadata fetch plus a real download attempt, not skipped as a duplicate.
+        self.assertEqual(mock_client.get.call_count, 2)
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        payload = HoneypotPayload.objects.get()
+        self.assertNotEqual(payload.payload_file, "")
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_downloading_a_stub_upgrades_the_same_row(self, mock_http_class, mock_usage):
+        """Downloading a known stub must update its row, not raise IntegrityError."""
+        stub = HoneypotPayload.objects.create(sha256="f" * 64, md5="", mime_type="")
+
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "f" * 64, "locator": "cowrie/fff", "md5": "1" * 32, "mime_type": "application/x-elf"},
+        ]
+        mock_download_resp = Mock()
+        mock_download_resp.content = b"\xfe\xed\xfa\xce"
+        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        # No IntegrityError, and the existing row was upgraded rather than duplicated.
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        stub.refresh_from_db()
+        self.assertEqual(stub.md5, "1" * 32)
+        self.assertEqual(stub.mime_type, "application/x-elf")
+        self.assertEqual(stub.size, len(b"\xfe\xed\xfa\xce"))
+        self.assertNotEqual(stub.payload_file, "")
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        MAX_QUARANTINE_SIZE_GB=5,
+    )
+    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_upgrading_a_stub_keeps_fields_missing_from_the_response(self, mock_http_class, mock_usage):
+        """A field already on the stub must survive an upgrade where the response omits it."""
+        stub = HoneypotPayload.objects.create(sha256="h" * 64, md5="c" * 32)
+
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+
+        mock_metadata_resp = Mock()
+        mock_metadata_resp.json.return_value = [
+            {"sha256": "h" * 64, "locator": "cowrie/hhh"},  # no md5 this time
+        ]
+        mock_download_resp = Mock()
+        mock_download_resp.content = b"\x01\x02\x03"
+        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
+        mock_usage.return_value = 0
+
+        self.job.run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        stub.refresh_from_db()
+        # md5 wasn't in the response, so the existing value must be kept, not blanked.
+        self.assertEqual(stub.md5, "c" * 32)
+        # size/locator are always known from this download, so they still update.
+        self.assertEqual(stub.size, len(b"\x01\x02\x03"))
+        self.assertEqual(stub.locator, "cowrie/hhh")
 
 
 class TestExtractAllPayloadIntegration(CustomTestCase):

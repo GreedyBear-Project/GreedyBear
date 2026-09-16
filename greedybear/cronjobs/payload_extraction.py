@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db.models import Q
 from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
@@ -24,7 +25,7 @@ class PayloadExtractionJob(Cronjob):
     This job:
     1. Queries the payload server's ``/api/v1/payloads/recent`` endpoint for
        metadata of files modified within the last extraction interval.
-    2. Skips any payload whose SHA256 already exists in the database.
+    2. Skips any payload whose SHA256 already has a downloaded file in the database.
     3. Checks quarantine disk usage against MAX_QUARANTINE_SIZE_GB before downloading.
     4. Downloads new payload files via ``/api/v1/payloads/download/{locator}``
        and saves them via QuarantineStorage.
@@ -136,8 +137,13 @@ class PayloadExtractionJob(Cronjob):
 
     def _deduplicate(self, payloads: list[dict]) -> list[dict]:
         """
-        Filter out payloads whose SHA256 already exists in the database
-        and remove duplicates within the response itself.
+        Filter out payloads whose SHA256 already has a downloaded file in the
+        database, and remove duplicates within the response itself.
+
+        A hash can already have a HoneypotPayload row without a file attached -
+        a metadata-only stub created from a raw event before the file was
+        available. Those hashes are treated as new so the file can still be
+        downloaded.
 
         Args:
             payloads: List of payload metadata dicts (must contain 'sha256' key).
@@ -151,7 +157,11 @@ class PayloadExtractionJob(Cronjob):
         # through to fail on the constraint instead.
         incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
         existing_hashes = set(
-            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower__in=incoming_hashes).values_list("sha256_lower", flat=True)
+            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
+            .filter(sha256_lower__in=incoming_hashes)
+            # Django stores an unset FileField as an empty string, but exclude NULL as well.
+            .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
+            .values_list("sha256_lower", flat=True)
         )
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
@@ -240,8 +250,9 @@ class PayloadExtractionJob(Cronjob):
 
     def _download_and_store(self, client: HttpClient, server_url: str, payload_meta: dict) -> bool:
         """
-        Download a single payload file, create its database record, and link
-        it to any Cowrie sessions that already transferred the same file.
+        Download a single payload file, create its database record (or upgrade
+        an existing hash-only stub with the real file), and link it to any
+        Cowrie sessions that already transferred the same file.
 
         Args:
             client: HttpClient instance.
@@ -271,23 +282,32 @@ class PayloadExtractionJob(Cronjob):
 
         file_content = response.content
 
-        # Create the database record with metadata.
-        payload_obj = HoneypotPayload(
-            sha256=sha256,
-            md5=payload_meta.get("md5", ""),
-            sha1=payload_meta.get("sha1", ""),
-            mime_type=payload_meta.get("mime_type", ""),
-            size=len(file_content),
-            locator=locator,
-            mtime=payload_meta.get("mtime"),
-        )
+        # Create the database record, or upgrade an existing hash-only stub with
+        # the real file and fresh metadata.
+        fields = {
+            "md5": payload_meta.get("md5", ""),
+            "sha1": payload_meta.get("sha1", ""),
+            "mime_type": payload_meta.get("mime_type", ""),
+            "size": len(file_content),
+            "locator": locator,
+            "mtime": payload_meta.get("mtime"),
+        }
+        payload_obj, created = HoneypotPayload.objects.get_or_create(sha256=sha256, defaults=fields)
+        if not created:
+            for field, value in fields.items():
+                # Always overwrite size and locator, but only overwrite other fields if the new value is not empty
+                if field in ("size", "locator") or value:
+                    setattr(payload_obj, field, value)
 
         # Save the binary content via QuarantineStorage.
         filename = f"{sha256}.vir"
         payload_obj.payload_file.save(filename, ContentFile(file_content), save=False)
         payload_obj.save()
 
-        self.log.info(f"Stored new payload {sha256[:12]}… ({len(file_content)} bytes).")
+        if created:
+            self.log.info(f"Stored new payload {sha256[:12]}… ({len(file_content)} bytes).")
+        else:
+            self.log.info(f"Upgraded hash-only stub {sha256[:12]}… with the downloaded file ({len(file_content)} bytes).")
 
         linked = self.payload_repo.link_sessions_to_payload(payload_obj)
         if linked:
