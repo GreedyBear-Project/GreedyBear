@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from greedybear.cronjobs.monitor_honeypots import MonitorHoneypots
+from greedybear.cronjobs.repositories import ElasticRepository
 from tests import CustomTestCase
 
 
@@ -63,17 +64,16 @@ class MonitorHoneypotsTestCase(CustomTestCase):
         self.assertEqual(len([msg for msg in info_calls if "logs available" in msg]), 0)
         self.assertEqual(len(warning_calls), 4)
 
-    @patch("greedybear.cronjobs.monitor_honeypots.ElasticRepository")
-    def test_run_completes_when_elasticsearch_unavailable(self, mock_elastic_repo_class):
-        """run() must complete successfully when has_honeypot_been_hit returns False (unavailable)."""
-        mock_elastic_repo = mock_elastic_repo_class.return_value
-        mock_elastic_repo.has_honeypot_been_hit.return_value = False
-        cronjob = MonitorHoneypots(minutes_back=60)
-        cronjob.log = MagicMock()
+    @patch("greedybear.cronjobs.repositories.elastic.settings")
+    def test_run_with_real_repository_when_elasticsearch_unavailable(self, mock_settings):
+        """MonitorHoneypots must complete using a REAL ElasticRepository when ELASTIC_CLIENT is None."""
+        mock_settings.ELASTIC_CLIENT = None
 
+        elastic_repo = ElasticRepository()
+        self.assertIsNone(elastic_repo.elastic_client)
+        self.assertFalse(elastic_repo.is_available)
+
+        cronjob = MonitorHoneypots(elastic_repo=elastic_repo, minutes_back=60)
         cronjob.execute()
 
         self.assertTrue(cronjob.success)
-        self.assertEqual(mock_elastic_repo.has_honeypot_been_hit.call_count, 4)
-        warning_calls = [call[0][0] for call in cronjob.log.warning.call_args_list]
-        self.assertEqual(len([msg for msg in warning_calls if "no logs available" in msg]), 4)

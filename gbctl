@@ -394,7 +394,7 @@ init_env_files() {
             log_success "Created docker/env_file from template"
             
             if [ "$SILENT_MODE" = false ] && [ -z "$ELASTIC_ENDPOINT" ]; then
-                log_warning "Please edit docker/env_file and configure required settings"
+                log_warning "Elasticsearch endpoint not configured. Elasticsearch-dependent features (extraction, monitoring) will be unavailable."
             fi
         else
             log_error "docker/env_file_template not found"
