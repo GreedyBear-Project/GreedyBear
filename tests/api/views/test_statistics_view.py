@@ -90,6 +90,26 @@ class StatisticsViewTestCase(CustomTestCase):
         count_values = [item["count"] for item in data]
         self.assertEqual(count_values, sorted(count_values, reverse=True))
 
+    def test_400_invalid_range_countries(self):
+        response = self.client.get("/api/statistics/countries?range=invalid")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid 'range' parameter", str(response.json()))
+
+    def test_400_invalid_range_feeds_types(self):
+        response = self.client.get("/api/statistics/feeds_types?range=invalid")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid 'range' parameter", str(response.json()))
+
+    def test_400_invalid_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=invalid")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid 'range' parameter", str(response.json()))
+
+    def test_400_invalid_range_enrichment_sources(self):
+        response = self.client.get("/api/statistics/sources/enrichment?range=invalid")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid 'range' parameter", str(response.json()))
+
 
 @override_settings(CACHES=TEST_CACHES)
 class StatisticsIocCacheTestCase(CustomTestCase):
