@@ -1,8 +1,11 @@
 import hashlib
 import logging
 from collections import defaultdict
+from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
@@ -192,6 +195,30 @@ def _process_payload_hashes(saved_ioc: IOC, ip_hits: list[dict]) -> None:
         logger.debug(f"linked payload {sha256_hash[:12]}… → IOC {saved_ioc.name}")
 
 
+def _claim_batch(task_id: str) -> bool:
+    """
+    Atomically move a batch to PROCESSING, returning False if it can't be claimed.
+
+    A PROCESSING batch older than the Django-Q timeout belongs to a worker that was
+    killed mid-run (timeout, OOM, restart). Its transaction was rolled back, so the
+    redelivered task takes it over instead of skipping it forever. The same goes for
+    a PROCESSING batch without started_at, which no worker has claimed since the field
+    was introduced.
+    """
+    now = datetime.now()
+    stale_before = now - timedelta(seconds=settings.Q_CLUSTER["timeout"])
+    stale = Q(started_at__lt=stale_before) | Q(started_at__isnull=True)
+    claimable = Q(status__in=[EventStatusType.PENDING, EventStatusType.FAILED]) | (Q(status=EventStatusType.PROCESSING) & stale)
+    return bool(
+        EventStatus.objects.filter(claimable, task_id=task_id).update(
+            status=EventStatusType.PROCESSING,
+            started_at=now,
+            ioc_count=0,
+            last_error="",
+        )
+    )
+
+
 def process_incoming_event(source_id: int, task_id: str) -> None:
     """
     Asynchronously processes a tracked batch of RawEvents into refined IOCs.
@@ -214,14 +241,11 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         logger.exception(f"[batch={task_id}] EventStatus not found — aborting")
         return
 
-    if batch.status in [EventStatusType.PROCESSING, EventStatusType.COMPLETED]:
+    if not _claim_batch(task_id):
         logger.warning(f"[task={task_id}] Batch already {batch.status} — skipping to avoid race condition")
         return
 
-    batch.status = EventStatusType.PROCESSING
-    batch.ioc_count = 0
-    batch.last_error = ""
-    batch.save(update_fields=["status", "ioc_count", "last_error"])
+    batch.refresh_from_db()
     logger.info(f"[batch={task_id}] Started (source_id={source_id})")
 
     processed_iocs = []

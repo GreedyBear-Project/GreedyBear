@@ -413,6 +413,7 @@ class EventStatus(models.Model):
     ioc_count = models.PositiveIntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
     processed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

@@ -1,6 +1,8 @@
 import hashlib
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -317,6 +319,47 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.assertEqual(self.batch.status, "completed")
         self.assertIsNotNone(self.batch.processed_at)
 
+    def test_completed_batch_is_not_reclaimed(self):
+        EventStatus.objects.filter(pk=self.batch.pk).update(status="completed", ioc_count=3)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.ioc_count, 3)
+        self.assertIsNone(self.batch.started_at)
+
+    def test_recent_processing_batch_is_skipped(self):
+        started_at = datetime.now()
+        EventStatus.objects.filter(pk=self.batch.pk).update(status="processing", started_at=started_at)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "processing")
+        self.assertEqual(self.batch.started_at, started_at)
+
+    def test_stale_processing_batch_is_taken_over(self):
+        # a worker killed mid-run leaves the batch in PROCESSING; the redelivered task must resume it
+        stale = datetime.now() - timedelta(seconds=settings.Q_CLUSTER["timeout"] + 60)
+        EventStatus.objects.filter(pk=self.batch.pk).update(status="processing", started_at=stale)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertGreater(self.batch.started_at, stale)
+
+    def test_processing_batch_without_started_at_is_taken_over(self):
+        # batches left in PROCESSING before started_at existed must not stay stuck
+        EventStatus.objects.filter(pk=self.batch.pk).update(status="processing", started_at=None)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertIsNotNone(self.batch.started_at)
+
     @patch(PATCH_IOCS_FROM_HITS, return_value=[])
     def test_all_raw_events_invalid_sets_failed(self, mock_hits):
         self._make_raw(src_ip="192.168.1.1")
@@ -501,8 +544,9 @@ class TestProcessIncomingEvent(CustomTestCase):
         """
         self._make_raw(src_ip="9.9.9.9")
 
-        # Manually shift the status to processing
+        # Manually shift the status to processing, as a running worker would leave it
         self.batch.status = "processing"
+        self.batch.started_at = datetime.now()
         self.batch.save()
 
         # Execute the function - it should trigger the guard clause and return early

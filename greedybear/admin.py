@@ -321,6 +321,7 @@ class EventStatusAdmin(GreedyBearModelAdmin):
         "ioc_count",
         "last_error",
         "created_at",
+        "started_at",
         "processed_at",
     ]
     list_filter = ["status"]
@@ -333,6 +334,7 @@ class EventStatusAdmin(GreedyBearModelAdmin):
         "ioc_count",
         "last_error",
         "created_at",
+        "started_at",
         "processed_at",
     ]
 
