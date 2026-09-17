@@ -25,10 +25,19 @@ class ElasticRepository:
         """Initialize the repository with an Elasticsearch client."""
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.elastic_client = settings.ELASTIC_CLIENT
+        if self.elastic_client is None:
+            self.log.warning("Elasticsearch is not configured")
+
+    @property
+    def is_available(self) -> bool:
+        """Return True when an Elasticsearch client is configured."""
+        return self.elastic_client is not None
 
     def has_honeypot_been_hit(self, minutes_back_to_lookup: int, honeypot_name: str) -> bool:
         """
         Check if a specific honeypot has been hit within a given time window.
+
+        Returns False immediately when Elasticsearch is not configured.
 
         Args:
             minutes_back_to_lookup: Number of minutes to look back from the current
@@ -39,6 +48,8 @@ class ElasticRepository:
             True if at least one hit was recorded for the specified honeypot within
             the time window, False otherwise.
         """
+        if not self.is_available:
+            return False
         search = Search(using=self.elastic_client, index="logstash-*")
         window_start, window_end = get_time_window(datetime.now(), minutes_back_to_lookup)
         q = Q("range", **{"@timestamp": {"gte": window_start, "lt": window_end}})
@@ -51,6 +62,8 @@ class ElasticRepository:
         Search for log entries within a specified time window, yielding results
         in chunks of at most EXTRACTION_INTERVAL minutes.
 
+        Yields nothing when Elasticsearch is not configured.
+
         Args:
             minutes_back_to_lookup: Number of minutes to look back from the current time.
 
@@ -60,6 +73,8 @@ class ElasticRepository:
         Raises:
             ElasticServerDownError: If Elasticsearch is unreachable.
         """
+        if not self.is_available:
+            return
         self._healthcheck()
         self.log.debug(f"minutes_back_to_lookup: {minutes_back_to_lookup}")
         window_start, window_end = get_time_window(datetime.now(), minutes_back_to_lookup)
