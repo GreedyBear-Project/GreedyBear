@@ -39,6 +39,7 @@ class GreedyBearModelAdmin(admin.ModelAdmin):
 
     show_facets = admin.ShowFacets.NEVER  # disable facet counts ("Show counts" button)
 
+
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
     """Build a list_display callable that renders an object attribute as a collapsed list."""
 
