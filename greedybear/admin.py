@@ -174,6 +174,7 @@ class CredentialModelAdmin(GreedyBearModelAdmin):
     list_display = ["username", "password"]
     search_fields = ["username", "password"]
     search_help_text = "search for username or password"
+    raw_id_fields = ["sources"]
 
 
 @admin.register(CommandSequence)
