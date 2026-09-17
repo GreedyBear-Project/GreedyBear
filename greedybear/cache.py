@@ -42,8 +42,7 @@ class Cache:
     def bump_data_version(self, version_key: str) -> None:
         """Invalidate every cache entry keyed off version_key by incrementing it.
 
-        The version is always stored without expiry. cache.incr() can't be used here:
-        on DatabaseCache it re-saves with the default timeout, so the version would
-        expire, fall back to 1 and start matching old cached responses again.
+        The version is stored without expiry, so it never falls back to a value
+        that old cached responses are still keyed on.
         """
-        self._get_cache().set(version_key, self.get_data_version(version_key) + 1, timeout=None)
+        self.set(version_key, self.get_data_version(version_key) + 1)
