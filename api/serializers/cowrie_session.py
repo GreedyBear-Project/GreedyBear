@@ -36,6 +36,12 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
     include_session_data = serializers.BooleanField(
         required=False, default=False, help_text="When `true`, includes detailed information about matching Cowrie sessions."
     )
+    start_date = serializers.DateField(
+        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or after this date (YYYY-MM-DD)."
+    )
+    end_date = serializers.DateField(
+        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or before this date (YYYY-MM-DD)."
+    )
 
     def validate_id(self, value: str) -> str:
         if not re.fullmatch(REGEX_COWRIE_SESSION_ID, value):
@@ -47,6 +53,12 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide either `query` or `id`, not both.")
         if not data.get("query") and not data.get("id"):
             raise serializers.ValidationError("Provide either `query` or `id`.")
+
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError("`start_date` must be less than or equal to `end_date`.")
+
         return data
 
 
