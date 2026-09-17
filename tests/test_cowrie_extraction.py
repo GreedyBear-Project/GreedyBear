@@ -13,7 +13,7 @@ from greedybear.cronjobs.extraction.strategies.cowrie import (
     normalize_credential_field,
     parse_url_hostname,
 )
-from greedybear.models import CommandSequence
+from greedybear.models import CommandSequence, HoneypotPayload
 from tests import ExtractionTestCase
 
 
@@ -100,12 +100,15 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         self.mock_ioc_repo = Mock()
         self.mock_sensor_repo = Mock()
         self.mock_session_repo = Mock()
+        self.mock_payload_repo = Mock()
+        self.mock_payload_repo.link_payload_to_session.return_value = False
 
         self.strategy = CowrieExtractionStrategy(
             "Cowrie",
             self.mock_ioc_repo,
             self.mock_sensor_repo,
             self.mock_session_repo,
+            self.mock_payload_repo,
         )
         self.strategy.ioc_processor = Mock()
 
@@ -323,7 +326,32 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
             outfile="/data/cowrie/downloads/bad.exe",
             timestamp=datetime(2023, 1, 1, 10, 0, 4),
         )
+        self.mock_payload_repo.link_payload_to_session.assert_called_once_with(session_record, "abc123def456")
         self.assertEqual(session_record.interaction_count, 1)
+
+    def test_process_session_hit_file_download_links_real_payload(self):
+        """Test that the strategy's real PayloadRepository links a matching payload."""
+        strategy = CowrieExtractionStrategy(
+            "Cowrie",
+            self.mock_ioc_repo,
+            self.mock_sensor_repo,
+            self.mock_session_repo,
+        )
+        payload = HoneypotPayload.objects.create(sha256="abc123def456")
+
+        hit = {
+            "eventid": "cowrie.session.file_download",
+            "timestamp": "2023-01-01T10:00:04",
+            "shasum": "abc123def456",
+            "url": "http://malware.com/bad.exe",
+            "outfile": "/data/cowrie/downloads/bad.exe",
+        }
+        ioc = Mock(name="1.2.3.4")
+
+        strategy._process_session_hit(self.cowrie_session, hit, ioc)
+
+        self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
+        self.assertIn(self.cowrie_session.source, payload.iocs.all())
 
     def test_process_session_hit_file_upload_creates_transfer(self):
         """Test processing of file upload event creates file transfer."""
@@ -348,6 +376,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
             outfile="/var/lib/cowrie/downloads/deadbeef123456",
             timestamp=datetime(2023, 1, 1, 10, 0, 4),
         )
+        self.mock_payload_repo.link_payload_to_session.assert_called_once_with(session_record, "deadbeef123456")
         self.assertEqual(session_record.interaction_count, 1)
 
     def test_process_session_hit_file_upload_without_shasum(self):
@@ -367,6 +396,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         self.strategy._process_session_hit(session_record, hit, ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_not_called()
+        self.mock_payload_repo.link_payload_to_session.assert_not_called()
         self.assertEqual(session_record.interaction_count, 1)
 
     def test_add_fks_both_exist(self):

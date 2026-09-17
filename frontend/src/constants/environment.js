@@ -1,5 +1,7 @@
 export const GREEDYBEAR_DOCS_URL =
   "https://github.com/GreedyBear-Project/GreedyBear/wiki";
+export const GREEDYBEAR_API_SWAGGER_URL = "/api/schema/swagger-ui/";
+export const GREEDYBEAR_API_REDOC_URL = "/api/schema/redoc/";
 
 // env variables
 // Vite uses import.meta.env, Jest uses process.env

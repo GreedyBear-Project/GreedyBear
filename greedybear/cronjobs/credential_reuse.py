@@ -52,7 +52,10 @@ class CredentialReuseCron(Cronjob):
                     "value": "high_credential_reuse",
                 }
             )
-
+        # Using add_tags instead of replace_tags_for_source because this
+        # job only processes new candidates each run and excludes ones
+        # already tagged. replace would delete previously found behavior
+        # tags just because those IPs aren't in today's batch.
         created = self.tag_repo.add_tags(SOURCE_NAME, tag_entries)
 
         self.log.info(f"Credential reuse detection complete: tagged {created} IPs")

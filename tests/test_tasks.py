@@ -84,8 +84,8 @@ class TestTasks(CustomTestCase):
             ("get_whatsmyip", "greedybear.cronjobs.whatsmyip.WhatsMyIPCron"),
             ("extract_firehol_lists", "greedybear.cronjobs.firehol.FireHolCron"),
             ("get_tor_exit_nodes", "greedybear.cronjobs.tor_exit_nodes.TorExitNodesCron"),
-            ("enrich_threatfox", "greedybear.cronjobs.threatfox_feed.ThreatFoxCron"),
-            ("enrich_abuseipdb", "greedybear.cronjobs.abuseipdb_feed.AbuseIPDBCron"),
+            ("enrich_threatfox", "greedybear.cronjobs.enrichment.threatfox_feed.ThreatFoxCron"),
+            ("enrich_abuseipdb", "greedybear.cronjobs.enrichment.abuseipdb_feed.AbuseIPDBCron"),
             ("extract_honeypot_payloads", "greedybear.cronjobs.payload_extraction.PayloadExtractionJob"),
         ]
 

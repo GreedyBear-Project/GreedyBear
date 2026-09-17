@@ -4,7 +4,7 @@ import { Container } from "reactstrap";
 import { MdSettings } from "react-icons/md";
 import { useShallow } from "zustand/shallow";
 
-import { ElasticTimePicker, useTimePickerStore } from "@greedybear/gb-ui";
+import { ElasticTimePicker, useTimePickerStore } from "../common/gb-ui/index";
 
 import DashboardRenderer from "./DashboardRenderer";
 import useDashboardStore from "../../stores/useDashboardStore";

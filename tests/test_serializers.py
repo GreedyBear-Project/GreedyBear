@@ -6,6 +6,7 @@ from rest_framework.serializers import ValidationError
 
 from api.serializers import (
     AdvancedFeedRequestSerializer,
+    HoneypotPayloadSerializer,
     IOCSerializer,
     SimpleFeedResponseSerializer,
     TrendingFeedRequestSerializer,
@@ -13,7 +14,7 @@ from api.serializers import (
 )
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, Honeypot, Sensor
+from greedybear.models import IOC, Honeypot, HoneypotPayload, Sensor
 from tests import CustomTestCase
 
 
@@ -366,3 +367,37 @@ class IOCSerializerTestCase(CustomTestCase):
         self.assertEqual(sensors_data[0]["label"], "home-pi")
         self.assertEqual(sensors_data[1]["address"], "10.0.0.2")
         self.assertEqual(sensors_data[1]["label"], "")
+
+
+class HoneypotPayloadSerializerTestCase(CustomTestCase):
+    def test_empty_relations_serialize_as_empty_lists(self):
+        payload = HoneypotPayload.objects.create(sha256="a" * 64)
+
+        serializer = HoneypotPayloadSerializer(payload)
+        data = serializer.data
+
+        self.assertEqual(data["iocs"], [])
+        self.assertEqual(data["cowrie_sessions"], [])
+
+    def test_serializes_iocs_as_names(self):
+        payload = HoneypotPayload.objects.create(sha256="b" * 64)
+        payload.iocs.add(self.ioc, self.ioc_2)
+
+        serializer = HoneypotPayloadSerializer(payload)
+        data = serializer.data
+
+        self.assertEqual(sorted(data["iocs"]), sorted([self.ioc.name, self.ioc_2.name]))
+        self.assertEqual(data["cowrie_sessions"], [])
+
+    def test_serializes_cowrie_sessions_as_hex_ids(self):
+        payload = HoneypotPayload.objects.create(sha256="c" * 64)
+        payload.cowrie_sessions.add(self.cowrie_session, self.cowrie_session_2)
+
+        serializer = HoneypotPayloadSerializer(payload)
+        data = serializer.data
+
+        self.assertEqual(
+            sorted(data["cowrie_sessions"]),
+            sorted([f"{self.cowrie_session.session_id:x}", f"{self.cowrie_session_2.session_id:x}"]),
+        )
+        self.assertEqual(data["iocs"], [])

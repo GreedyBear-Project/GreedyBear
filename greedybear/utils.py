@@ -1,10 +1,12 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
 from urllib.parse import urlparse
+
+from django.conf import settings
 
 from greedybear.consts import DOMAIN, IP, PAYLOAD_REQUEST, SCANNER
 
@@ -198,3 +200,35 @@ def get_nested_value(d: dict, *keys: str) -> Any | None:
             return None
         current = current.get(key)
     return current
+
+
+def get_time_window(
+    reference_time: datetime,
+    lookback_minutes: int,
+    extraction_interval: int = settings.EXTRACTION_INTERVAL,
+) -> tuple[datetime, datetime]:
+    """
+    Calculate a time window ending at the last extraction interval boundary.
+
+    Args:
+        reference_time: Reference point in time.
+        lookback_minutes: Minutes to look back.
+        extraction_interval: Minutes between two subsequent extraction runs.
+
+    Returns:
+        The start and end of the time window.
+
+    Raises:
+        ValueError: If lookback_minutes is less than extraction_interval.
+        ValueError: If extraction_interval is not a positive divisor of 60.
+    """
+    if extraction_interval <= 0 or 60 % extraction_interval > 0:
+        raise ValueError("Argument extraction_interval must be a positive divisor of 60.")
+
+    if lookback_minutes < extraction_interval:
+        raise ValueError(f"Argument lookback_minutes size must be at least {extraction_interval} minutes.")
+
+    rounded_minute = (reference_time.minute // extraction_interval) * extraction_interval
+    window_end = reference_time.replace(minute=rounded_minute, second=0, microsecond=0)
+    window_start = window_end - timedelta(minutes=lookback_minutes)
+    return (window_start, window_end)

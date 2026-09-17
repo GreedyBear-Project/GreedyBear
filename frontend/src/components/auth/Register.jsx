@@ -14,7 +14,7 @@ import {
 import { Form, Formik } from "formik";
 import { useTitle } from "react-use";
 
-import { ContentSection, Select } from "@greedybear/gb-ui";
+import { ContentSection, Select } from "../common/gb-ui/index";
 
 import {
   AfterRegistrationModalAlert,

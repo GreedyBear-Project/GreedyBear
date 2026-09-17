@@ -12,6 +12,13 @@ class HoneypotPayloadSerializer(serializers.ModelSerializer):
         slug_field="name",
         help_text="Names of the honeypots that captured this payload.",
     )
+    iocs = serializers.SlugRelatedField(
+        many=True,
+        read_only=True,
+        slug_field="name",
+        help_text="Attacker IPs (or other IOCs) linked to this payload.",
+    )
+    cowrie_sessions = serializers.SerializerMethodField(help_text="IDs of the Cowrie sessions that transferred this payload, as hex strings.")
 
     class Meta:
         model = HoneypotPayload
@@ -23,6 +30,8 @@ class HoneypotPayloadSerializer(serializers.ModelSerializer):
             "mime_type",
             "size",
             "source_honeypots",
+            "iocs",
+            "cowrie_sessions",
         ]
         extra_kwargs = {
             "id": {"help_text": "Unique identifier of the payload."},
@@ -32,3 +41,6 @@ class HoneypotPayloadSerializer(serializers.ModelSerializer):
             "mime_type": {"help_text": "MIME type of the payload file."},
             "size": {"help_text": "Size of the payload in bytes."},
         }
+
+    def get_cowrie_sessions(self, obj: HoneypotPayload) -> list[str]:
+        return [f"{session.session_id:x}" for session in obj.cowrie_sessions.all()]

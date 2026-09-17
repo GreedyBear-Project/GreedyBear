@@ -165,6 +165,79 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("credentials", response.data)
 
+    # # # # # Session ID Query Tests # # # # #
+    def test_id_query(self):
+        """Test lookup of a single session by its hex ID."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], "ffffffffffff")
+        self.assertNotIn("query", response.data)
+        self.assertEqual(response.data["sources"], [self.ioc.name])
+
+    def test_id_query_with_session_data(self):
+        """Test that the ID lookup returns the matching session only."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff&include_session_data=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertEqual(response.data["sessions"][0]["source"], self.ioc.name)
+
+    def test_id_query_excludes_session_with_zero_duration(self):
+        """Incomplete sessions are left out, same as the other lookups."""
+        CowrieSession.objects.create(
+            session_id=int("abc123", 16),
+            start_time=self.current_time,
+            duration=0,
+            source=self.ioc,
+        )
+        response = self.client.get("/api/cowrie_session?id=abc123")
+        self.assertEqual(response.status_code, 404)
+
+    def test_id_query_is_case_insensitive(self):
+        """Hex parses either case, so both should resolve to the same session."""
+        lower = self.client.get("/api/cowrie_session?id=ffffffffffff")
+        upper = self.client.get("/api/cowrie_session?id=FFFFFFFFFFFF")
+        self.assertEqual(lower.status_code, 200)
+        self.assertEqual(upper.status_code, 200)
+        self.assertEqual(lower.data["sources"], upper.data["sources"])
+
+    def test_nonexistent_id(self):
+        """Test that view returns 404 for an unknown session ID."""
+        response = self.client.get("/api/cowrie_session?id=abcdef123456")
+        self.assertEqual(response.status_code, 404)
+
+    def test_invalid_id_is_rejected(self):
+        """Non-hex IDs should be a validation error, not a 404."""
+        response = self.client.get("/api/cowrie_session?id=nothex")
+        self.assertEqual(response.status_code, 400)
+
+    def test_id_rejects_input_int_would_accept(self):
+        """int(x, 16) takes prefixes, signs and underscores, the regex should not."""
+        for value in ["0xff", "-ff", "f_f", "+ff"]:
+            response = self.client.get("/api/cowrie_session", {"id": value})
+            self.assertEqual(response.status_code, 400, value)
+
+    def test_id_longer_than_16_digits_is_rejected(self):
+        """session_id is a 64 bit field, so more than 16 hex digits can't exist."""
+        response = self.client.get("/api/cowrie_session?id=" + "f" * 17)
+        self.assertEqual(response.status_code, 400)
+
+    def test_id_beyond_signed_bigint_returns_404(self):
+        """16 hex digits can exceed a signed 64 bit int, that should 404 and not crash."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffffffff")
+        self.assertEqual(response.status_code, 404)
+
+    def test_query_and_id_together_is_rejected(self):
+        """The two parameters select different things, so only one is allowed."""
+        response = self.client.get("/api/cowrie_session?query=140.246.171.141&id=ffffffffffff")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not both", str(response.data))
+
+    def test_missing_query_and_id_message(self):
+        """With neither parameter the error should not mention "not both"."""
+        response = self.client.get("/api/cowrie_session")
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("not both", str(response.data))
+
     # # # # # Hash Validation Tests # # # # #
     def test_nonexistent_hash(self):
         """Test that view returns 404 for nonexistent hash."""
