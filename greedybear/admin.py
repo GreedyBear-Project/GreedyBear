@@ -162,7 +162,7 @@ class CowrieSessionModelAdmin(GreedyBearModelAdmin):
     ]
     search_fields = ["source__name"]
     search_help_text = "search for the IP address source"
-    raw_id_fields = ["source", "commands"]
+    raw_id_fields = ["source", "commands", "credentials"]
     list_filter = ["login_attempt", "command_execution"]
 
     def credential_list(self, session):
