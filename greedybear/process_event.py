@@ -1,7 +1,7 @@
 import hashlib
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.db import transaction
@@ -201,11 +201,14 @@ def _claim_batch(task_id: str) -> bool:
 
     A PROCESSING batch older than the Django-Q timeout belongs to a worker that was
     killed mid-run (timeout, OOM, restart). Its transaction was rolled back, so the
-    redelivered task takes it over instead of skipping it forever.
+    redelivered task takes it over instead of skipping it forever. The same goes for
+    a PROCESSING batch without started_at, which no worker has claimed since the field
+    was introduced.
     """
-    now = timezone.now()
+    now = datetime.now()
     stale_before = now - timedelta(seconds=settings.Q_CLUSTER["timeout"])
-    claimable = Q(status__in=[EventStatusType.PENDING, EventStatusType.FAILED]) | Q(status=EventStatusType.PROCESSING, started_at__lt=stale_before)
+    stale = Q(started_at__lt=stale_before) | Q(started_at__isnull=True)
+    claimable = Q(status__in=[EventStatusType.PENDING, EventStatusType.FAILED]) | (Q(status=EventStatusType.PROCESSING) & stale)
     return bool(
         EventStatus.objects.filter(claimable, task_id=task_id).update(
             status=EventStatusType.PROCESSING,
