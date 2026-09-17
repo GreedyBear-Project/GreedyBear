@@ -51,25 +51,31 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
 
         session_id = request_serializer.validated_data.get("id")
         observable = request_serializer.validated_data.get("query")
+        start_date = request_serializer.validated_data.get("start_date")
+        end_date = request_serializer.validated_data.get("end_date")
 
-        if session_id is not None:
-            sessions = CowrieSession.objects.filter(session_id=int(session_id, 16), duration__gt=0).prefetch_related("source", "commands", "credentials")
+        sessions_qs = CowrieSession.objects.filter(duration__gt=0)
+        if start_date:
+            sessions_qs = sessions_qs.filter(start_time__date__gte=start_date)
+        if end_date:
+            sessions_qs = sessions_qs.filter(start_time__date__lte=end_date)
+
+        if session_id:
+            sessions = sessions_qs.filter(session_id=int(session_id, 16)).prefetch_related("source", "commands", "credentials")
             if not sessions.exists():
                 raise Http404(f"No session found with ID: {session_id}")
-
         elif is_ip_address(observable):
-            sessions = CowrieSession.objects.filter(source__name=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
+            sessions = sessions_qs.filter(source__name=observable).prefetch_related("source", "commands", "credentials")
             if not sessions.exists():
                 raise Http404(f"No information found for IP: {observable}")
-
         elif is_sha256hash(observable):
             try:
                 commands = CommandSequence.objects.get(commands_hash=observable.lower())
             except CommandSequence.DoesNotExist as exc:
                 raise Http404(f"No command sequences found with hash: {observable}") from exc
-            sessions = CowrieSession.objects.filter(commands=commands, duration__gt=0).prefetch_related("source", "commands", "credentials")
+            sessions = sessions_qs.filter(commands=commands).prefetch_related("source", "commands", "credentials")
         else:
-            sessions = CowrieSession.objects.filter(credentials__password=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
+            sessions = sessions_qs.filter(credentials__password=observable).prefetch_related("source", "commands", "credentials")
             if not sessions.exists():
                 raise Http404(f"No information found for password: {observable}")
 
