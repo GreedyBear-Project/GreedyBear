@@ -9,7 +9,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from api.throttles import SharedFeedRateThrottle
-from greedybear.models import IOC, AutonomousSystem, Credential, IocType, Sensor, ShareToken
+from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken
 from tests import CustomTestCase
 
 
@@ -528,3 +528,87 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/advanced/?format=csv")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "text/csv")
+
+
+class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
+    """Payload hashes are exposed on the authenticated per-IOC feeds only."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.superuser)
+
+        self.hash_b = "b" * 64
+        self.hash_a = "a" * 64
+        self.hash_other = "c" * 64
+        # stored uppercase to cover rows written before the Lower("sha256") constraint
+        self.hash_upper = "D" * 64
+
+        for sha256_hash in (self.hash_b, self.hash_a, self.hash_upper):
+            HoneypotPayload.objects.create(sha256=sha256_hash).iocs.add(self.ioc)
+        HoneypotPayload.objects.create(sha256=self.hash_other).iocs.add(self.ioc_2)
+
+    @property
+    def expected_hashes(self) -> list[str]:
+        """The IOC's hashes, lowercased and sorted, as the feed should return them."""
+        return sorted([self.hash_a, self.hash_b, self.hash_upper.lower()])
+
+    def get_ioc(self, iocs: list[dict], value: str) -> dict:
+        target_ioc = next((i for i in iocs if i["value"] == value), None)
+        self.assertIsNotNone(target_ioc)
+        return target_ioc
+
+    def test_payload_hashes_in_json_feed(self):
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+
+        target_ioc = self.get_ioc(response.json()["iocs"], self.ioc.name)
+        self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
+
+    def test_payload_hashes_in_ndjson_feed(self):
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        iocs = [json.loads(line) for line in body.split("\n") if line.strip()]
+
+        target_ioc = self.get_ioc(iocs, self.ioc.name)
+        self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
+
+    def test_payload_hashes_in_paginated_feed(self):
+        response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1")
+        self.assertEqual(response.status_code, 200)
+
+        target_ioc = self.get_ioc(response.json()["results"]["iocs"], self.ioc.name)
+        self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
+
+    def test_payload_hashes_are_not_shared_between_iocs(self):
+        response = self.client.get("/api/feeds/advanced/")
+        iocs = response.json()["iocs"]
+
+        self.assertEqual(self.get_ioc(iocs, self.ioc.name)["payload_hashes"], self.expected_hashes)
+        self.assertEqual(self.get_ioc(iocs, self.ioc_2.name)["payload_hashes"], [self.hash_other])
+
+    def test_empty_list_when_ioc_has_no_payloads(self):
+        response = self.client.get("/api/feeds/advanced/")
+
+        target_ioc = self.get_ioc(response.json()["iocs"], self.ioc_3.name)
+        self.assertEqual(target_ioc["payload_hashes"], [])
+
+    def test_payload_hashes_in_consumed_shared_feed(self):
+        """A shared token replays the advanced feed, so it carries the hashes too."""
+        share_response = self.client.get("/api/feeds/share")
+        token = share_response.json()["url"].split("/")[-1]
+
+        self.client.logout()
+        consume_response = self.client.get(f"/api/feeds/consume/{token}")
+        self.assertEqual(consume_response.status_code, 200)
+
+        target_ioc = self.get_ioc(consume_response.json()["iocs"], self.ioc.name)
+        self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
+
+    def test_no_payload_hashes_in_txt_and_csv_feeds(self):
+        for feed_format, content_type in (("txt", "text/plain"), ("csv", "text/csv")):
+            with self.subTest(format=feed_format):
+                response = self.client.get(f"/api/feeds/advanced/?format={feed_format}")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], content_type)
+                self.assertNotIn(self.hash_a, response.content.decode("utf-8"))
