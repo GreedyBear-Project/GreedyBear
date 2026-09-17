@@ -361,3 +361,25 @@ class CowrieSessionViewTestCase(CustomTestCase):
         """Test that passwords exceeding max length return 400."""
         response = self.client.get(f"/api/cowrie_session?query={'a' * 257}")
         self.assertEqual(response.status_code, 400)
+
+    # # # # # Date Filter Tests # # # # #
+    def test_filter_by_start_date_only(self):
+        """Should return only sessions occurring on or after start_date."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date=2026-01-20")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+    def test_filter_by_end_date_only(self):
+        """Should return only sessions occurring on or before end_date."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&end_date=2026-01-20")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+    def test_filter_by_exact_date_range(self):
+        """Should return only sessions within the start_date and end_date window."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date=2026-01-15&end_date=2026-01-25")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)

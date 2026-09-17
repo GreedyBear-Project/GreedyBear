@@ -5,6 +5,7 @@ from unittest.mock import Mock
 from certego_saas.apps.user.models import User
 from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase
+from django.utils import timezone
 from django_test_migrations.migrator import Migrator
 
 from greedybear.cache import Cache
@@ -206,6 +207,27 @@ class CustomTestCase(TestCase):
         credential_2, _ = Credential.objects.get_or_create(username="user", password="user", protocol="")
         cls.cowrie_session_2.credentials.add(credential_2)
         cls.cowrie_session_2.save()
+
+        cls.session_early = CowrieSession.objects.create(
+            session_id=101,
+            source=cls.ioc_3,
+            start_time=timezone.make_aware(datetime(2026, 1, 10, 12, 0, 0)),
+            duration=15.0,
+        )
+
+        cls.session_target = CowrieSession.objects.create(
+            session_id=102,
+            source=cls.ioc_3,
+            start_time=timezone.make_aware(datetime(2026, 1, 20, 12, 0, 0)),
+            duration=20.0,
+        )
+
+        cls.session_late = CowrieSession.objects.create(
+            session_id=103,
+            source=cls.ioc_3,
+            start_time=timezone.make_aware(datetime(2026, 1, 30, 12, 0, 0)),
+            duration=25.0,
+        )
 
         try:
             cls.superuser = User.objects.get(is_superuser=True)
