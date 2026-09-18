@@ -226,6 +226,7 @@ class CustomTestCase(TestCase):
 class ExtractionTestCase(CustomTestCase):
     def setUp(self):
         self.mock_ioc_repo = Mock()
+        self.mock_ioc_repo.bulk_add_http_attack_types.return_value = 0
         self.mock_sensor_repo = Mock()
         self.mock_sensor_repo.cache = {}  # Initialize cache as empty dict for sensor filtering
         self.mock_session_repo = Mock()
@@ -249,6 +250,7 @@ class ExtractionTestCase(CustomTestCase):
         attacker_country_code="",
         protocols=None,
         cves=None,
+        http_attack_types=None,
     ):
         mock = Mock(spec=IOC)
         mock.name = name
@@ -277,6 +279,7 @@ class ExtractionTestCase(CustomTestCase):
 
         mock.protocols = protocols if protocols is not None else []
         mock.cves = cves if cves is not None else []
+        mock.http_attack_types = http_attack_types if http_attack_types is not None else []
 
         return mock
 
