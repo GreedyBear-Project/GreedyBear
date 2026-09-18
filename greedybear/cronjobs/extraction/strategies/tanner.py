@@ -9,7 +9,7 @@ from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
     threatfox_submission,
 )
-from greedybear.cronjobs.repositories import IocRepository, SensorRepository, TagRepository
+from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import IOC
 from greedybear.utils import get_ioc_type, parse_timestamp
 
@@ -62,7 +62,7 @@ TANNER_ATTACK_PATTERNS = {
     ),
 }
 
-TANNER_SOURCE = "tanner"
+
 TANNER_HONEYPOT = "Tanner"
 
 
@@ -72,7 +72,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
 
     Classifies web attack attempts (SQLi, XSS, LFI, RFI, command injection)
     by analyzing request URLs and POST bodies. Stores attack type classifications
-    as Tag records and extracts RFI hostnames as PAYLOAD_REQUEST IOCs.
+    on IOC.http_attack_types and extracts RFI hostnames as PAYLOAD_REQUEST IOCs.
     """
 
     def __init__(
@@ -82,9 +82,8 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         sensor_repo: SensorRepository,
     ):
         super().__init__(honeypot, ioc_repo, sensor_repo)
-        self.tag_repo = TagRepository()
-        self.attack_tags_set = set()
-        self.attack_tags_added = 0
+        self.attack_types_set = set()
+        self.iocs_with_attack_types = 0
         self.rfi_hostnames_added = 0
 
     def extract_from_hits(self, hits: list[dict]) -> None:
@@ -92,26 +91,29 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         Extract IOCs from Tanner honeypot log hits.
 
         Processes scanner IPs, classifies web attacks by analyzing URLs
-        and POST bodies, stores attack types as tags, and extracts
-        RFI hostnames as PAYLOAD_REQUEST IOCs.
+        and POST bodies, stores attack types on IOC.http_attack_types, and
+        extracts RFI hostnames as PAYLOAD_REQUEST IOCs.
 
         Args:
             hits: List of Elasticsearch hit dictionaries to process.
         """
-        self.attack_tags_set = set()
+        self.attack_types_set = set()
         self._get_scanners(hits)
         self._classify_attacks(hits)
 
-        tag_entries = [{"ioc_id": ioc_id, "key": "attack_type", "value": attack_type} for ioc_id, attack_type in self.attack_tags_set]
-        # Using add_tags instead of replace_tags_for_source because this
-        # strategy only processes the current extraction chunk (new
-        # hits) each run. replace would delete attack_type tags from
-        # previously processed attacks just because they aren't in
-        # today's chunk.
-        self.attack_tags_added += self.tag_repo.add_tags(TANNER_SOURCE, tag_entries)
+        attack_types_by_ioc = {}
+        for ioc_id, attack_type in self.attack_types_set:
+            attack_types_by_ioc.setdefault(ioc_id, set()).add(attack_type)
+
+        # Merging into the existing values instead of replacing them because
+        # this strategy only processes the current extraction chunk (new hits)
+        # each run. Replacing would drop attack types found for the same IOC
+        # in previous runs just because they aren't in today's chunk.
+        self.iocs_with_attack_types += self.ioc_repo.bulk_add_http_attack_types(attack_types_by_ioc)
 
         self.log.info(
-            f"added {len(self.ioc_records)} scanners, {self.attack_tags_added} attack tags, {self.rfi_hostnames_added} RFI hostnames from {self.honeypot}"
+            f"added {len(self.ioc_records)} scanners, attack types for {self.iocs_with_attack_types} IOCs, "
+            f"{self.rfi_hostnames_added} RFI hostnames from {self.honeypot}"
         )
 
     def _get_scanners(self, hits: list[dict]) -> None:
@@ -125,7 +127,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
 
     def _classify_attacks(self, hits: list[dict]) -> None:
         """
-        Classify web attacks from request data and add tags + RFI IOCs.
+        Classify web attacks from request data and record types + RFI IOCs.
 
         Analyzes URL and POST body of each hit against attack patterns.
         A single request can match multiple attack types.
@@ -151,7 +153,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             if not attack_types:
                 continue
 
-            # Find the IOC record for this scanner to attach tags.
+            # Find the IOC record for this scanner to record its attack types.
             # Use cache to avoid one DB query per hit; fall back to the repo
             # for IPs not already loaded by _get_scanners.
             if scanner_ip not in ioc_cache:
@@ -160,7 +162,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             if not ioc_record:
                 continue
 
-            self._add_attack_tags(ioc_record, attack_types)
+            self._add_attack_types(ioc_record, attack_types)
 
             # If RFI detected, extract remote hostnames as PAYLOAD_REQUEST IOCs
             if "rfi" in attack_types:
@@ -210,21 +212,22 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         """
         return [attack_type for attack_type, pattern in TANNER_ATTACK_PATTERNS.items() if pattern.search(text)]
 
-    def _add_attack_tags(self, ioc_record: IOC, attack_types: list[str]) -> None:
+    def _add_attack_types(self, ioc_record: IOC, attack_types: list[str]) -> None:
         """
-        Store detected attack types as Tag records on the IOC.
+        Buffer detected attack types for later storage on the IOC.
 
-        Creates one tag per attack type with key="attack_type",
-        source="tanner". Skips duplicates if the tag already exists.
+        Collects (ioc_id, attack_type) pairs so they can be written to
+        IOC.http_attack_types in a single bulk operation once the whole
+        chunk has been processed.
 
         Args:
-            ioc_record: Persisted IOC instance to tag.
+            ioc_record: Persisted IOC instance.
             attack_types: List of attack type strings to store.
         """
         if not ioc_record.id:
             return
         for attack_type in attack_types:
-            self.attack_tags_set.add((ioc_record.id, attack_type))
+            self.attack_types_set.add((ioc_record.id, attack_type))
 
     def _extract_rfi_hostnames(self, hit: dict, scanner_ip: str, request_text: str) -> None:
         """

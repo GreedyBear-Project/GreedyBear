@@ -366,6 +366,15 @@ class TestMergeIocs(ExtractionTestCase):
 
         self.assertEqual(result.cves, ["CVE-2021-44228", "CVE-2022-0001"])
 
+    def test_merges_http_attack_types(self):
+        """HTTP attack types from both IOCs are merged and deduplicated."""
+        existing = self._create_mock_ioc(http_attack_types=["lfi", "sqli"])
+        new = self._create_mock_ioc(http_attack_types=["sqli", "xss"])
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertEqual(result.http_attack_types, ["lfi", "sqli", "xss"])
+
     def test_handles_empty_protocols_and_cves(self):
         """Empty protocols and cves on both sides stay empty after merge."""
         existing = self._create_mock_ioc(protocols=[], cves=[])
