@@ -85,16 +85,28 @@ class StreamIocObjectsTestCase(CustomTestCase):
         """Callers that do not annotate payload_hashes (e.g. the ML scoring path) keep the old shape."""
         HoneypotPayload.objects.create(sha256="f" * 64).iocs.add(self.ioc)
 
-        for rows in (list(stream_ioc_objects(self.get_test_queryset())), build_ioc_json_list(list(IOC.objects.filter(honeypots__active=True)))):
+        for rows in (
+            list(stream_ioc_objects(self.get_test_queryset(), verbose=True)),
+            build_ioc_json_list(list(IOC.objects.filter(honeypots__active=True)), verbose=True),
+        ):
             for ioc in rows:
                 self.assertNotIn("payload_hashes", ioc)
 
-    def test_payload_hashes_included_with_annotation(self):
+    def test_payload_hashes_omitted_without_verbose(self):
+        """Even with the annotation present, payload_hashes is only emitted when verbose is requested."""
         payload_hash = "f" * 64
         HoneypotPayload.objects.create(sha256=payload_hash).iocs.add(self.ioc)
         qs = self.get_test_queryset().annotate(payload_hashes=ArraySubquery(HoneypotPayload.objects.filter(iocs=OuterRef("pk")).values("sha256")))
 
-        rows = list(stream_ioc_objects(qs))
-        self.assertEqual(build_ioc_json_list(qs), rows)
+        for ioc in stream_ioc_objects(qs):
+            self.assertNotIn("payload_hashes", ioc)
+
+    def test_payload_hashes_included_with_annotation_and_verbose(self):
+        payload_hash = "f" * 64
+        HoneypotPayload.objects.create(sha256=payload_hash).iocs.add(self.ioc)
+        qs = self.get_test_queryset().annotate(payload_hashes=ArraySubquery(HoneypotPayload.objects.filter(iocs=OuterRef("pk")).values("sha256")))
+
+        rows = list(stream_ioc_objects(qs, verbose=True))
+        self.assertEqual(build_ioc_json_list(qs, verbose=True), rows)
         target_ioc = next(ioc for ioc in rows if ioc["value"] == self.ioc.name)
         self.assertEqual(target_ioc["payload_hashes"], [payload_hash])

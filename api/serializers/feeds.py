@@ -414,7 +414,7 @@ class AdvancedFeedResponseSerializer(SimpleFeedResponseSerializer):
         allow_empty=True,
         required=False,
         default=list,
-        help_text="Lowercase SHA256 hashes of the payloads observed from this IOC.",
+        help_text="Lowercase SHA256 hashes of the payloads observed from this IOC. Only included when `verbose=true`.",
     )
     firehol_categories = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True, required=False)
     destination_ports = serializers.ListField(child=serializers.IntegerField(min_value=1, max_value=65535), required=False)

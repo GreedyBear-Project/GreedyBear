@@ -559,14 +559,14 @@ class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
         return target_ioc
 
     def test_payload_hashes_in_json_feed(self):
-        response = self.client.get("/api/feeds/advanced/")
+        response = self.client.get("/api/feeds/advanced/?verbose=true")
         self.assertEqual(response.status_code, 200)
 
         target_ioc = self.get_ioc(response.json()["iocs"], self.ioc.name)
         self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
 
     def test_payload_hashes_in_ndjson_feed(self):
-        response = self.client.get("/api/feeds/advanced/?format=ndjson")
+        response = self.client.get("/api/feeds/advanced/?format=ndjson&verbose=true")
         body = b"".join(response.streaming_content).decode("utf-8")
         iocs = [json.loads(line) for line in body.split("\n") if line.strip()]
 
@@ -574,28 +574,36 @@ class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
         self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
 
     def test_payload_hashes_in_paginated_feed(self):
-        response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1")
+        response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1&verbose=true")
         self.assertEqual(response.status_code, 200)
 
         target_ioc = self.get_ioc(response.json()["results"]["iocs"], self.ioc.name)
         self.assertEqual(target_ioc["payload_hashes"], self.expected_hashes)
 
     def test_payload_hashes_are_not_shared_between_iocs(self):
-        response = self.client.get("/api/feeds/advanced/")
+        response = self.client.get("/api/feeds/advanced/?verbose=true")
         iocs = response.json()["iocs"]
 
         self.assertEqual(self.get_ioc(iocs, self.ioc.name)["payload_hashes"], self.expected_hashes)
         self.assertEqual(self.get_ioc(iocs, self.ioc_2.name)["payload_hashes"], [self.hash_other])
 
     def test_empty_list_when_ioc_has_no_payloads(self):
-        response = self.client.get("/api/feeds/advanced/")
+        response = self.client.get("/api/feeds/advanced/?verbose=true")
 
         target_ioc = self.get_ioc(response.json()["iocs"], self.ioc_3.name)
         self.assertEqual(target_ioc["payload_hashes"], [])
 
+    def test_payload_hashes_absent_without_verbose(self):
+        """Not gated behind verbose: the field is omitted, not just emptied, to keep the default payload small."""
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+
+        target_ioc = self.get_ioc(response.json()["iocs"], self.ioc.name)
+        self.assertNotIn("payload_hashes", target_ioc)
+
     def test_payload_hashes_in_consumed_shared_feed(self):
-        """A shared token replays the advanced feed, so it carries the hashes too."""
-        share_response = self.client.get("/api/feeds/share")
+        """A shared token replays the advanced feed, so a verbose share carries the hashes too."""
+        share_response = self.client.get("/api/feeds/share?verbose=true")
         token = share_response.json()["url"].split("/")[-1]
 
         self.client.logout()
@@ -608,7 +616,7 @@ class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
     def test_no_payload_hashes_in_txt_and_csv_feeds(self):
         for feed_format, content_type in (("txt", "text/plain"), ("csv", "text/csv")):
             with self.subTest(format=feed_format):
-                response = self.client.get(f"/api/feeds/advanced/?format={feed_format}")
+                response = self.client.get(f"/api/feeds/advanced/?format={feed_format}&verbose=true")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response["Content-Type"], content_type)
                 self.assertNotIn(self.hash_a, response.content.decode("utf-8"))

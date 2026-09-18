@@ -305,7 +305,7 @@ class AdvancedFeedView(BaseFeedView):
 
     def get_queryset(self) -> QuerySet:
         """Overrides base class to include credential count,
-        sensor information and the hashes of the payloads seen from each IOC."""
+        sensor information and, when verbose, the hashes of the payloads seen from each IOC."""
         iocs = super().get_queryset()
 
         iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
@@ -319,16 +319,21 @@ class AdvancedFeedView(BaseFeedView):
                     distinct=True,
                 )
             )
-            # A subquery instead of another ArrayAgg: the aggregates above already
-            # join honeypots, tags, sensors and credentials into one GROUP BY, and
-            # every additional multi-valued join multiplies the rows per IOC.
-            # ARRAY(subquery) also yields an empty array when an IOC has no payloads.
-            # Hashes are lowercased because HoneypotPayload is unique on Lower("sha256"),
-            # so rows written before that constraint may still hold mixed case.
-            payload_hashes = (
-                HoneypotPayload.objects.filter(iocs=OuterRef("pk")).annotate(sha256_lower=Lower("sha256")).order_by("sha256_lower").values("sha256_lower")
-            )
-            iocs = iocs.annotate(payload_hashes=ArraySubquery(payload_hashes))
+            if self.request_params.get("verbose", False):
+                # Gated behind verbose: unlike tags/sensors, a payload list has no
+                # natural cap, a persistent scanner can accumulate a large number
+                # of distinct hashes over time, so it should not inflate every
+                # default response.
+                # A subquery instead of another ArrayAgg: the aggregates above already
+                # join honeypots, tags, sensors and credentials into one GROUP BY, and
+                # every additional multi-valued join multiplies the rows per IOC.
+                # ARRAY(subquery) also yields an empty array when an IOC has no payloads.
+                # Hashes are lowercased because HoneypotPayload is unique on Lower("sha256"),
+                # so rows written before that constraint may still hold mixed case.
+                payload_hashes = (
+                    HoneypotPayload.objects.filter(iocs=OuterRef("pk")).annotate(sha256_lower=Lower("sha256")).order_by("sha256_lower").values("sha256_lower")
+                )
+                iocs = iocs.annotate(payload_hashes=ArraySubquery(payload_hashes))
 
         return iocs
 
