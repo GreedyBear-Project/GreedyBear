@@ -116,7 +116,8 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
 
     Args:
         iocs (QuerySet | list): Filtered IOCs to render.
-        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
+        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories)
+            and, when the `payload_hashes` annotation is present, the payload hashes.
         include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 
     Yields:
@@ -128,19 +129,25 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
     # with the `tags` reverse FK on IOC. When the queryset comes from a repository method
     # that does not annotate `tags_json` (e.g. the ML scoring path), exclude the field.
     # `sensors_json` follows the same pattern and is only annotated for authenticated views.
+    # `payload_hashes` follows it too, and is only annotated when verbose is requested,
+    # since the list has no natural cap unlike tags/sensors.
     if isinstance(iocs, list):
         has_tags_annotation = bool(iocs) and hasattr(iocs[0], "tags_json")
         has_sensors_annotation = include_sensors and bool(iocs) and hasattr(iocs[0], "sensors_json")
         has_credential_count = bool(iocs) and hasattr(iocs[0], "credential_count")
+        has_payload_hashes = verbose and bool(iocs) and hasattr(iocs[0], "payload_hashes")
     else:
         annotations = getattr(getattr(iocs, "query", None), "annotations", {})
         has_tags_annotation = "tags_json" in annotations
         has_sensors_annotation = include_sensors and "sensors_json" in annotations
         has_credential_count = "credential_count" in annotations
+        has_payload_hashes = verbose and "payload_hashes" in annotations
     required_fields = tuple(("tags_json" if f == "tags" else f) for f in required_fields if f != "tags" or has_tags_annotation)
     required_fields = tuple(f for f in required_fields if f != "credential_count" or has_credential_count)
     if has_sensors_annotation:
         required_fields = (*required_fields, "sensors_json")
+    if has_payload_hashes:
+        required_fields = (*required_fields, "payload_hashes")
 
     if isinstance(iocs, list):
         iocs_iter = (ioc_as_dict(ioc, set(required_fields)) for ioc in iocs)
