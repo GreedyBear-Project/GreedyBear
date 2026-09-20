@@ -91,7 +91,7 @@ def command_sequence_view(request):
 
     if is_sha256hash(observable):
         try:
-            seq = CommandSequence.objects.get(commands_hash=observable)
+            seq = CommandSequence.objects.get(commands_hash=observable.lower())
             seqs = CommandSequence.objects.filter(cluster=seq.cluster) if include_similar and seq.cluster is not None else [seq]
             commands = ["\n".join(seq.commands) for seq in seqs]
             sessions = CowrieSession.objects.filter(commands__in=seqs, start_time__isnull=False)
