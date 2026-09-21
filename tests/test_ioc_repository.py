@@ -497,58 +497,6 @@ class TestIocRepository(CustomTestCase):
         self.assertIsInstance(cached, Honeypot)
         self.assertEqual(cached.pk, hp.pk)
 
-    def test_bulk_add_http_attack_types_sets_types_on_empty_ioc(self):
-        ioc = IOC.objects.create(name="7.7.7.7", type="ip")
-
-        updated = self.repo.bulk_add_http_attack_types({ioc.id: {"sqli", "lfi"}})
-
-        ioc.refresh_from_db()
-        self.assertEqual(updated, 1)
-        self.assertEqual(ioc.http_attack_types, ["lfi", "sqli"])
-
-    def test_bulk_add_http_attack_types_merges_with_existing(self):
-        """Existing attack types must be preserved, not replaced."""
-        ioc = IOC.objects.create(name="7.7.7.8", type="ip", http_attack_types=["sqli"])
-
-        updated = self.repo.bulk_add_http_attack_types({ioc.id: {"xss"}})
-
-        ioc.refresh_from_db()
-        self.assertEqual(updated, 1)
-        self.assertEqual(ioc.http_attack_types, ["sqli", "xss"])
-
-    def test_bulk_add_http_attack_types_deduplicates(self):
-        ioc = IOC.objects.create(name="7.7.7.9", type="ip", http_attack_types=["sqli"])
-
-        self.repo.bulk_add_http_attack_types({ioc.id: {"sqli", "lfi"}})
-
-        ioc.refresh_from_db()
-        self.assertEqual(ioc.http_attack_types, ["lfi", "sqli"])
-
-    def test_bulk_add_http_attack_types_skips_unchanged(self):
-        """An IOC whose types are already present is not counted as updated."""
-        ioc = IOC.objects.create(name="7.7.7.10", type="ip", http_attack_types=["sqli"])
-
-        updated = self.repo.bulk_add_http_attack_types({ioc.id: {"sqli"}})
-
-        self.assertEqual(updated, 0)
-
-    def test_bulk_add_http_attack_types_handles_empty_input(self):
-        with self.assertNumQueries(0):
-            updated = self.repo.bulk_add_http_attack_types({})
-        self.assertEqual(updated, 0)
-
-    def test_bulk_add_http_attack_types_updates_multiple_iocs(self):
-        ioc1 = IOC.objects.create(name="7.7.7.11", type="ip")
-        ioc2 = IOC.objects.create(name="7.7.7.12", type="ip", http_attack_types=["lfi"])
-
-        updated = self.repo.bulk_add_http_attack_types({ioc1.id: {"sqli"}, ioc2.id: {"xss"}})
-
-        ioc1.refresh_from_db()
-        ioc2.refresh_from_db()
-        self.assertEqual(updated, 2)
-        self.assertEqual(ioc1.http_attack_types, ["sqli"])
-        self.assertEqual(ioc2.http_attack_types, ["lfi", "xss"])
-
 
 class TestScoringIntegration(CustomTestCase):
     """Integration tests for scoring jobs using IocRepository."""

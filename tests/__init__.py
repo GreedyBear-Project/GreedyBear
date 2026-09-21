@@ -226,7 +226,6 @@ class CustomTestCase(TestCase):
 class ExtractionTestCase(CustomTestCase):
     def setUp(self):
         self.mock_ioc_repo = Mock()
-        self.mock_ioc_repo.bulk_add_http_attack_types.return_value = 0
         self.mock_sensor_repo = Mock()
         self.mock_sensor_repo.cache = {}  # Initialize cache as empty dict for sensor filtering
         self.mock_session_repo = Mock()

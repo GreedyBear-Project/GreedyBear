@@ -240,83 +240,129 @@ class TestTannerAttackClassification(ExtractionTestCase):
         )
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    def test_sqli_tagged(self, mock_iocs_from_hits):
-        mock_iocs_from_hits.return_value = []
-        mock_ioc_record = self._create_mock_ioc("1.2.3.4")
-        self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
+    def test_sqli_recorded(self, mock_iocs_from_hits):
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1 UNION SELECT * FROM users"}]
         self.strategy.extract_from_hits(hits)
 
-        attack_types_by_ioc = self.mock_ioc_repo.bulk_add_http_attack_types.call_args[0][0]
-        self.assertIn("sqli", attack_types_by_ioc[mock_ioc_record.id])
+        self.assertIn("sqli", mock_ioc.http_attack_types)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
     def test_sqli_plus_encoded_detected(self, mock_iocs_from_hits):
         """UNION+SELECT (+ as space in query string) must be detected as SQLi."""
-        mock_iocs_from_hits.return_value = []
-        mock_ioc_record = self._create_mock_ioc("1.2.3.4")
-        self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1+UNION+SELECT+*+FROM+users"}]
         self.strategy.extract_from_hits(hits)
 
-        attack_types_by_ioc = self.mock_ioc_repo.bulk_add_http_attack_types.call_args[0][0]
-        self.assertIn("sqli", attack_types_by_ioc[mock_ioc_record.id])
+        self.assertIn("sqli", mock_ioc.http_attack_types)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
     def test_mixed_attacks_produce_multiple_types(self, mock_iocs_from_hits):
-        mock_iocs_from_hits.return_value = []
-        mock_ioc_record = self._create_mock_ioc("1.2.3.4")
-        self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?file=../../../etc/passwd&q=<script>alert(1)</script>"}]
         self.strategy.extract_from_hits(hits)
 
-        attack_types_by_ioc = self.mock_ioc_repo.bulk_add_http_attack_types.call_args[0][0]
-        self.assertIn("lfi", attack_types_by_ioc[mock_ioc_record.id])
-        self.assertIn("xss", attack_types_by_ioc[mock_ioc_record.id])
+        self.assertIn("lfi", mock_ioc.http_attack_types)
+        self.assertIn("xss", mock_ioc.http_attack_types)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    def test_benign_request_no_tags(self, mock_iocs_from_hits):
-        mock_iocs_from_hits.return_value = []
+    def test_types_from_several_hits_combined(self, mock_iocs_from_hits):
+        """Attack types from different hits by the same IP end up on one IOC."""
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
+
+        hits = [
+            {"src_ip": "1.2.3.4", "url": "/page?id=1 UNION SELECT * FROM users"},
+            {"src_ip": "1.2.3.4", "url": "/comment?body=<script>alert(1)</script>"},
+        ]
+        self.strategy.extract_from_hits(hits)
+
+        self.assertEqual(mock_ioc.http_attack_types, ["sqli", "xss"])
+
+    @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
+    def test_attack_types_set_before_add_ioc(self, mock_iocs_from_hits):
+        """Types must already be on the IOC when add_ioc runs, so _merge_iocs can merge them."""
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+
+        types_at_call_time = []
+
+        def fake_add_ioc(ioc, **kwargs):
+            types_at_call_time.extend(ioc.http_attack_types)
+            return ioc
+
+        self.strategy.ioc_processor.add_ioc = Mock(side_effect=fake_add_ioc)
+
+        hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1 UNION SELECT * FROM users"}]
+        self.strategy.extract_from_hits(hits)
+
+        self.assertEqual(types_at_call_time, ["sqli"])
+
+    @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
+    def test_benign_request_no_attack_types(self, mock_iocs_from_hits):
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
+
         hits = [{"src_ip": "1.2.3.4", "url": "/index.html?page=about"}]
         self.strategy.extract_from_hits(hits)
-        self.mock_ioc_repo.bulk_add_http_attack_types.assert_called_once_with({})
 
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    def test_missing_src_ip_skipped(self, mock_iocs_from_hits):
-        mock_iocs_from_hits.return_value = []
+        self.assertEqual(mock_ioc.http_attack_types, [])
+
+    def test_missing_src_ip_skipped(self):
         hits = [{"url": "/page?id=1 UNION SELECT *"}]
-        self.strategy.extract_from_hits(hits)
-        self.mock_ioc_repo.bulk_add_http_attack_types.assert_called_once_with({})
+        self.assertEqual(self.strategy._classify_hits(hits), [])
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    def test_unknown_scanner_ip_skipped(self, mock_iocs_from_hits):
+    def test_filtered_scanner_ip_skipped(self, mock_iocs_from_hits):
+        """An IP that iocs_from_hits filters out is never saved, so it gets no types."""
         mock_iocs_from_hits.return_value = []
-        self.mock_ioc_repo.get_ioc_by_name.return_value = None
+        self.strategy.ioc_processor.add_ioc = Mock()
+
         hits = [{"src_ip": "9.9.9.9", "url": "/page?id=1 UNION SELECT *"}]
         self.strategy.extract_from_hits(hits)
-        self.mock_ioc_repo.bulk_add_http_attack_types.assert_called_once_with({})
+
+        self.strategy.ioc_processor.add_ioc.assert_not_called()
+        self.assertEqual(self.strategy.iocs_with_attack_types, 0)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    def test_new_iocs_increments_counter(self, mock_iocs_from_hits):
-        mock_iocs_from_hits.return_value = []
-        mock_ioc_record = self._create_mock_ioc("1.2.3.4")
-        self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        self.mock_ioc_repo.bulk_add_http_attack_types.return_value = 1
+    def test_scanner_with_attack_types_counted(self, mock_iocs_from_hits):
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1; SLEEP(5)--"}]
         self.strategy.extract_from_hits(hits)
 
-        self.assertGreater(self.strategy.iocs_with_attack_types, 0)
+        self.assertEqual(self.strategy.iocs_with_attack_types, 1)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    def test_existing_iocs_not_counted(self, mock_iocs_from_hits):
-        mock_iocs_from_hits.return_value = []
-        mock_ioc_record = self._create_mock_ioc("1.2.3.4")
-        self.mock_ioc_repo.get_ioc_by_name.return_value = mock_ioc_record
-        self.mock_ioc_repo.bulk_add_http_attack_types.return_value = 0
+    def test_scanner_without_attack_types_not_counted(self, mock_iocs_from_hits):
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=mock_ioc)
+
+        hits = [{"src_ip": "1.2.3.4", "url": "/index.html?page=about"}]
+        self.strategy.extract_from_hits(hits)
+
+        self.assertEqual(self.strategy.iocs_with_attack_types, 0)
+
+    @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
+    def test_rejected_scanner_not_counted(self, mock_iocs_from_hits):
+        """If add_ioc rejects the IP (e.g. a sensor IP), it is not counted."""
+        mock_ioc = self._create_mock_ioc("1.2.3.4")
+        mock_iocs_from_hits.return_value = [mock_ioc]
+        self.strategy.ioc_processor.add_ioc = Mock(return_value=None)
 
         hits = [{"src_ip": "1.2.3.4", "url": "/page?id=1 UNION SELECT *"}]
         self.strategy.extract_from_hits(hits)

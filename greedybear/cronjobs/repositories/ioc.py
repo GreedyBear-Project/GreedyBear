@@ -302,34 +302,3 @@ class IocRepository:
         if not ip_addresses:
             return 0
         return IOC.objects.filter(name__in=ip_addresses).update(ip_reputation=reputation)
-
-    def bulk_add_http_attack_types(self, attack_types_by_ioc: dict[int, set[str]], batch_size: int = 1000) -> int:
-        """
-        Merge detected HTTP attack types into IOC.http_attack_types.
-
-        Existing values are preserved and combined with the new ones, so attack
-        types detected in earlier runs are not lost when the current extraction
-        chunk does not contain them.
-
-        Args:
-            attack_types_by_ioc: Mapping of IOC id to the attack types detected for it.
-            batch_size: Number of objects to update per database query.
-
-        Returns:
-            Number of IOC records updated.
-        """
-        if not attack_types_by_ioc:
-            return 0
-
-        iocs_to_update = []
-        for ioc in IOC.objects.filter(id__in=attack_types_by_ioc.keys()):
-            merged = sorted(set(ioc.http_attack_types) | attack_types_by_ioc[ioc.id])
-            if merged != ioc.http_attack_types:
-                ioc.http_attack_types = merged
-                iocs_to_update.append(ioc)
-
-        if not iocs_to_update:
-            return 0
-
-        IOC.objects.bulk_update(iocs_to_update, ["http_attack_types"], batch_size=batch_size)
-        return len(iocs_to_update)
