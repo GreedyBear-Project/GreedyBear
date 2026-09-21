@@ -11,7 +11,7 @@ def migrate_tanner_attack_types(apps, schema_editor):
         UPDATE greedybear_ioc
         SET http_attack_types = sub.types
         FROM (
-            SELECT ioc_id, array_agg(DISTINCT value ORDER BY value) AS types
+            SELECT ioc_id, array_agg(DISTINCT LEFT(value, 64) ORDER BY LEFT(value, 64)) AS types
             FROM greedybear_tag
             WHERE source = 'tanner' AND key = 'attack_type'
             GROUP BY ioc_id
@@ -26,7 +26,6 @@ def migrate_tanner_attack_types(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("greedybear", "0063_ioc_http_attack_types"),
     ]

@@ -366,3 +366,16 @@ class TestTannerHttpAttackTypesMigration(MigrationTestCase):
         self.assertEqual(Tag.objects.filter(source="rdns").count(), 1)
         self.assertEqual(Tag.objects.filter(source="tanner", key="attack_type").count(), 0)
         self.assertEqual(IOC.objects.get(name="1.2.3.7").http_attack_types, ["sqli"])
+
+    def test_long_value_truncated(self):
+        """A stray value longer than the field's max_length must not abort the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.8", type="ip")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="x" * 200, source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertEqual(IOC.objects.get(name="1.2.3.8").http_attack_types, ["x" * 64])
