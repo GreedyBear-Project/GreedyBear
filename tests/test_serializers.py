@@ -286,6 +286,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
                 "value": "140.246.171.141",
                 SCANNER: element[0],
                 PAYLOAD_REQUEST: element[1],
+                "http_attack_types": ["sqli"],
                 "first_seen": "2023-03-20",
                 "last_seen": "2023-03-21",
                 "attack_count": "5",
