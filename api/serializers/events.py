@@ -158,6 +158,7 @@ class BatchStatusSerializer(serializers.ModelSerializer):
             "status",
             "ioc_count",
             "last_error",
+            "started_at",
             "processed_at",
             "created_at",
         ]
