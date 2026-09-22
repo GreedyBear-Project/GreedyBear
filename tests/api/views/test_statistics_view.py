@@ -93,22 +93,22 @@ class StatisticsViewTestCase(CustomTestCase):
     def test_mixed_active_inactive_honeypot_is_counted(self):
         # Regression test: an IOC linked to both an active and an inactive
         # honeypot must still be counted under the active honeypot's key.
-        # The unique honeypot name keeps this isolated from fixtures and
-        # makes the assertion self-validating against cached responses.
-        # Distinct ?range= from the other tests so cache keys don't collide.
+        # The unique honeypot name keeps this isolated from fixtures.
+        # (Cache writes roll back between test cases, so no stale-cache
+        # handling is needed here.)
         active_hp = Honeypot.objects.create(name="MixActiveHp", active=True)
         ioc = IOC.objects.create(name="198.51.100.23", type=IocType.IP.value)
         ioc.honeypots.add(active_hp, self.ddospot)
 
-        response = self.client.get("/api/statistics/feeds_types?range=7d")
+        response = self.client.get("/api/statistics/feeds_types")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["MixActiveHp"], 1)
 
     def test_only_inactive_honeypot_is_excluded(self):
         # Locks the intended exclusion: an IOC seen exclusively through
         # inactive honeypots must not be counted anywhere. MixControlHp
-        # proves the response was computed fresh with our rows present,
-        # so the absence below is meaningful rather than a stale cache.
+        # proves the response includes our rows, so the absence below
+        # is meaningful. (Cache writes roll back between test cases.)
         inactive_hp = Honeypot.objects.create(name="MixInactiveHp", active=False)
         control_hp = Honeypot.objects.create(name="MixControlHp", active=True)
         hidden = IOC.objects.create(name="198.51.100.24", type=IocType.IP.value)
@@ -116,7 +116,7 @@ class StatisticsViewTestCase(CustomTestCase):
         shown = IOC.objects.create(name="198.51.100.25", type=IocType.IP.value)
         shown.honeypots.add(control_hp)
 
-        response = self.client.get("/api/statistics/feeds_types?range=30d")
+        response = self.client.get("/api/statistics/feeds_types")
         self.assertEqual(response.status_code, 200)
         data = response.json()[0]
         self.assertEqual(data["MixControlHp"], 1)
