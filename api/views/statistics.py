@@ -8,6 +8,7 @@ from django.db.models.functions import Trunc
 from django.http import HttpResponseBadRequest
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from api.mixins import CachedResponseMixin
@@ -189,6 +190,9 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
 
         Returns:
             tuple: A tuple containing the delta time and basis for the query range.
+
+        Raises:
+            ValidationError: If the range parameter cannot be parsed as a valid time range.
         """
         try:
             range_str = request.GET["range"]
@@ -196,4 +200,8 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
             # default
             range_str = "7d"
 
-        return parse_humanized_range(range_str)
+        try:
+            return parse_humanized_range(range_str)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            logger.warning(f"Invalid range parameter '{range_str}': {exc}")
+            raise ValidationError(f"Invalid 'range' parameter: '{range_str}'. Expected format like '7d', '24h', or '30d'.") from exc
