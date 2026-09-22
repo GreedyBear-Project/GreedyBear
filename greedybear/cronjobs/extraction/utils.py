@@ -1,3 +1,4 @@
+import logging
 import re
 from collections import defaultdict
 from ipaddress import ip_address, ip_network
@@ -13,6 +14,8 @@ from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, FireHolList, MassScanner
 from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
+
+log = logging.getLogger(__name__)
 
 
 def normalize_credential_field(value: object, max_length: int = 256) -> str:
@@ -108,7 +111,21 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
     for hit in hits:
         hits_by_ip[hit["src_ip"]].append(hit)
 
-    all_ips = list(hits_by_ip.keys())
+    # Drop malformed source IPs up front: a single bad address must not
+    # poison the bulk prefetch queries below (GenericIPAddressField-backed
+    # tables reject non-IP strings) nor the per-IP processing loop.
+    # Every ingestion path (all T-Pot strategies + external events) shares
+    # this function, so isolating bad input here protects them all at once.
+    valid_hits_by_ip = {}
+    for ip, ip_hits in hits_by_ip.items():
+        try:
+            ip_address(ip)
+        except ValueError:
+            log.warning(f"skipping {len(ip_hits)} hit(s) with malformed src_ip: {ip!r}")
+            continue
+        valid_hits_by_ip[ip] = ip_hits
+
+    all_ips = list(valid_hits_by_ip.keys())
 
     # --- Bulk prefetch: FireHol exact matches ---
     firehol_exact_map = defaultdict(list)
@@ -135,8 +152,8 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
 
     iocs = []
     as_repository = ASRepository()  # single instance for this batch
-    for ip, hits in hits_by_ip.items():
-        extracted_ip = ip_address(ip)
+    for ip, hits in valid_hits_by_ip.items():
+        extracted_ip = ip_address(ip)  # infallible: validated above
         if is_non_global_ip(extracted_ip):
             continue
 

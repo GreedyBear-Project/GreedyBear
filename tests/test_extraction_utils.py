@@ -102,6 +102,18 @@ class IocsFromHitsTestCase(CustomTestCase):
         names = {ioc.name for ioc in iocs}
         self.assertEqual(names, {"8.8.8.8", "1.1.1.1"})
 
+    def test_malformed_src_ip_skipped_without_dropping_chunk(self):
+        # A single malformed address must not poison the bulk prefetch
+        # queries (GenericIPAddressField rejects non-IP strings) nor abort
+        # the whole chunk: valid IPs around it still produce IOCs.
+        hits = [
+            self._create_hit(src_ip="1.2.3.4"),
+            self._create_hit(src_ip="unknown"),
+            self._create_hit(src_ip="5.6.7.8"),
+        ]
+        iocs = iocs_from_hits(hits)
+        self.assertEqual({ioc.name for ioc in iocs}, {"1.2.3.4", "5.6.7.8"})
+
     def test_aggregates_destination_ports(self):
         hits = [
             self._create_hit(src_ip="8.8.8.8", dest_port=22),
