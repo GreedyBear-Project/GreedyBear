@@ -84,6 +84,19 @@ class CommandSequenceViewTestCase(CustomTestCase):
         self.assertIn("commands", response.data)
         self.assertIn("iocs", response.data)
 
+    def test_uppercase_hash_query(self):
+        """Uppercase hash in the query should resolve to the same sequence."""
+        response = self.client.get(f"/api/command_sequence?query={self.hash.upper()}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["commands"], ["\n".join(self.cmd_seq)])
+
+    def test_mixed_case_hash_query(self):
+        """Mixed case should work too, not just all uppercase."""
+        mixed = "".join(c.upper() if i % 2 else c for i, c in enumerate(self.hash))
+        response = self.client.get(f"/api/command_sequence?query={mixed}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["commands"], ["\n".join(self.cmd_seq)])
+
     def test_hash_query_with_similar(self):
         """Test view with a valid hash query including similar sequences."""
         response = self.client.get(f"/api/command_sequence?query={self.hash}&include_similar")
