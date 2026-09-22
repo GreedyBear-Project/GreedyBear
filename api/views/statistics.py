@@ -172,7 +172,7 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
 
         qs = (
             IOC.objects.filter(last_seen__gte=delta)
-            .exclude(honeypots__active=False)
+            .filter(honeypots__active=True)
             .annotate(date=Trunc("last_seen", basis))
             .values("date")
             .annotate(**annotations)
