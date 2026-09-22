@@ -20,6 +20,16 @@ TEST_CACHES = {
     },
 }
 
+# Same backend as production. TIMEOUT=0 makes anything saved with the default timeout expire immediately.
+DB_CACHES = {
+    **TEST_CACHES,
+    "api": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "greedybear_api_cache",
+        "TIMEOUT": 0,
+    },
+}
+
 
 class TestBuildVersionedKey(CustomTestCase):
     def test_key_has_expected_structure(self):
@@ -91,6 +101,19 @@ class TestCache(CustomTestCase):
         self.cache.bump_data_version("ver")  # -> 3
         self.cache.bump_data_version("ver")  # -> 4
         self.assertEqual(self.cache.get_data_version("ver"), 4)
+
+
+@override_settings(CACHES=DB_CACHES)
+class TestCacheDataVersionOnDatabaseCache(CustomTestCase):
+    def setUp(self):
+        super().setUp()
+        self.cache = Cache(API_CACHE_ALIAS)
+        self.cache.clear()
+
+    def test_repeated_bumps_do_not_expire(self):
+        self.cache.bump_data_version("ver")  # -> 2
+        self.cache.bump_data_version("ver")  # -> 3
+        self.assertEqual(self.cache.get_data_version("ver"), 3)
 
 
 @override_settings(CACHES=TEST_CACHES)
