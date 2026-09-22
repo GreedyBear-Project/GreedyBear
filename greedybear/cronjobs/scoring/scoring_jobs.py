@@ -130,6 +130,7 @@ class TrainModels(Cronjob):
         training_df = get_features(training_data, training_date)
         if training_df.empty:
             self.log.error("no features extracted from training data, skipping training run")
+            self.save_training_data()
             return
         training_df["interactions_on_eval_day"] = training_df["value"].map(current_ips)
 

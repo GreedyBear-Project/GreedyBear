@@ -13,11 +13,15 @@ PATCH_GET_FEATURES = "greedybear.cronjobs.scoring.scoring_jobs.get_features"
 class TrainModelsEmptyDataTestCase(CustomTestCase):
     @patch(PATCH_GET_CURRENT_DATA, return_value=[])
     def test_skips_cleanly_on_empty_current_data(self, _mock_data):
+        # Empty input means there is nothing worth snapshotting: the last
+        # good training data must be preserved, so save must NOT run here.
         trainer = TrainModels()
-        try:
-            trainer.run()
-        except ValueError as exc:
-            self.fail(f"TrainModels.run() raised on empty data: {exc}")
+        with patch.object(TrainModels, "save_training_data") as mock_save:
+            try:
+                trainer.run()
+            except ValueError as exc:
+                self.fail(f"TrainModels.run() raised on empty data: {exc}")
+        mock_save.assert_not_called()
 
     @patch(PATCH_GET_CURRENT_DATA)
     @patch(PATCH_GET_FEATURES, return_value=pd.DataFrame())
@@ -33,7 +37,9 @@ class TrainModelsEmptyDataTestCase(CustomTestCase):
             patch.object(TrainModels, "save_training_data") as mock_save,
         ):
             trainer.run()
-        mock_save.assert_not_called()
+        # Snapshot must advance even on skipped nights, otherwise the next
+        # trainable run would compute deltas against a frozen baseline.
+        mock_save.assert_called_once()
 
 
 class UpdateScoresEmptyDataTestCase(CustomTestCase):
