@@ -337,6 +337,9 @@ class Tag(models.Model):
         indexes = [
             models.Index(fields=["source", "ioc"]),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["ioc", "source", "key", "value"], name="unique_tag_identity"),
+        ]
 
     def __str__(self):
         return f"{self.ioc.name} - {self.key}: {self.value} ({self.source})"
