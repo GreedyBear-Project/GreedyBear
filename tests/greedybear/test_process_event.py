@@ -7,14 +7,19 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, HoneypotPayload, RawEvent
+from greedybear.cronjobs.repositories import IocRepository
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
+    DEFAULT_EXTERNAL_HONEYPOT,
+    HONEYPOT_NAME_MAX_LENGTH,
+    _link_sensor_honeypots,
     _normalize_raw_event_to_hit,
     _process_array_field,
     _process_commands,
     _process_credentials,
     _process_payload_hashes,
     _process_related_urls,
+    _sensor_honeypot_names,
     process_incoming_event,
 )
 from tests import CustomTestCase, make_api_source, make_sensor, make_user
@@ -740,3 +745,189 @@ class TestProcessPayloadHashes(CustomTestCase):
         # same hash, uppercase, should find existing row, not create a second
         _process_payload_hashes(self.ioc, [self._hit("A" * 64)])
         self.assertEqual(HoneypotPayload.objects.count(), 1)
+
+
+class TestSensorHoneypotNames(CustomTestCase):
+    def _hit(self, honeypot_software):
+        sensor = MagicMock()
+        sensor.honeypot_software = honeypot_software
+        return {"src_ip": "1.2.3.4", "_sensor": sensor}
+
+    def test_software_returned_verbatim(self):
+        self.assertEqual(_sensor_honeypot_names([self._hit("SomeHoneypot")]), ["SomeHoneypot"])
+
+    def test_surrounding_whitespace_stripped(self):
+        self.assertEqual(_sensor_honeypot_names([self._hit("  Cowrie  ")]), ["Cowrie"])
+
+    def test_distinct_software_across_sensors_is_collected(self):
+        hits = [self._hit("Cowrie"), self._hit("Dionaea"), self._hit("Cowrie")]
+        self.assertEqual(_sensor_honeypot_names(hits), ["Cowrie", "Dionaea"])
+
+    def test_blank_software_falls_back_to_external(self):
+        names = _sensor_honeypot_names([self._hit(""), self._hit("   ")])
+        self.assertEqual(names, [DEFAULT_EXTERNAL_HONEYPOT])
+
+    def test_missing_sensor_falls_back_to_external(self):
+        self.assertEqual(_sensor_honeypot_names([{"src_ip": "1.2.3.4"}]), [DEFAULT_EXTERNAL_HONEYPOT])
+
+    def test_long_software_truncated_to_column_width(self):
+        """
+        The serializer caps honeypot_software, but sensors registered before that
+        cap can still hold a longer value, which must not break the batch.
+        """
+        name = _sensor_honeypot_names([self._hit("a" * 40)])[0]
+        self.assertEqual(name, "a" * HONEYPOT_NAME_MAX_LENGTH)
+
+
+class TestLinkSensorHoneypots(CustomTestCase):
+    def setUp(self):
+        self.ioc = IOC.objects.create(name="10.0.0.9", type="ip")
+        self.repo = IocRepository()
+
+    def _hit(self, honeypot_software):
+        sensor = MagicMock()
+        sensor.honeypot_software = honeypot_software
+        return {"src_ip": self.ioc.name, "_sensor": sensor}
+
+    def test_creates_missing_honeypot_and_links_it(self):
+        _link_sensor_honeypots(self.repo, self.ioc, [self._hit("SomeHoneypot")])
+        self.assertEqual([hp.name for hp in self.ioc.honeypots.all()], ["SomeHoneypot"])
+        self.assertTrue(Honeypot.objects.get(name="SomeHoneypot").active)
+
+    def test_reuses_existing_honeypot(self):
+        existing = Honeypot.objects.create(name="Cowrie2", active=True)
+        repo = IocRepository()
+        _link_sensor_honeypots(repo, self.ioc, [self._hit("Cowrie2")])
+        self.assertEqual([hp.pk for hp in self.ioc.honeypots.all()], [existing.pk])
+        self.assertEqual(Honeypot.objects.filter(name="Cowrie2").count(), 1)
+
+    def test_links_every_reporting_honeypot(self):
+        _link_sensor_honeypots(self.repo, self.ioc, [self._hit("Sshpot"), self._hit("Telnetpot")])
+        self.assertEqual(sorted(hp.name for hp in self.ioc.honeypots.all()), ["Sshpot", "Telnetpot"])
+
+    def test_repeated_calls_do_not_duplicate_links(self):
+        _link_sensor_honeypots(self.repo, self.ioc, [self._hit("SomeHoneypot")])
+        _link_sensor_honeypots(IocRepository(), self.ioc, [self._hit("SomeHoneypot")])
+        self.assertEqual(self.ioc.honeypots.count(), 1)
+
+    def test_blank_software_links_external_honeypot(self):
+        _link_sensor_honeypots(self.repo, self.ioc, [self._hit("")])
+        self.assertEqual([hp.name for hp in self.ioc.honeypots.all()], [DEFAULT_EXTERNAL_HONEYPOT])
+        self.assertTrue(Honeypot.objects.get(name=DEFAULT_EXTERNAL_HONEYPOT).active)
+
+    def test_no_hits_still_links_external_honeypot(self):
+        _link_sensor_honeypots(self.repo, self.ioc, [])
+        self.assertEqual([hp.name for hp in self.ioc.honeypots.all()], [DEFAULT_EXTERNAL_HONEYPOT])
+
+
+class TestExternalIocsReachFeeds(CustomTestCase):
+    ATTACKER_IP = "193.32.162.44"
+
+    def setUp(self):
+        super().setUp()
+        self.user = make_user(username="feed_link_user")
+        self.api_source = make_api_source(self.user, name="FeedLinkSource")
+        self.sensor = make_sensor(
+            api_source=self.api_source,
+            address="203.0.113.10",
+            label="external-sensor",
+            honeypot_software="SomeHoneypot",
+        )
+        self.batch = make_batch(self.api_source, task_id="task-feed-link")
+        make_raw_event(self.batch, self.sensor, src_ip=self.ATTACKER_IP, event_type="login_attempt")
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_ingested_ioc_linked_to_sensor_honeypot(self, mock_scores_cls):
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.ioc_count, 1)
+
+        ioc = IOC.objects.get(name=self.ATTACKER_IP)
+        self.assertEqual([hp.name for hp in ioc.honeypots.all()], ["SomeHoneypot"])
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_ingested_ioc_appears_in_feed(self, mock_scores_cls):
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        response = self.client.get("/api/feeds/all/all/recent.json")
+        self.assertEqual(response.status_code, 200)
+        values = [ioc["value"] for ioc in response.json()["iocs"]]
+        self.assertIn(self.ATTACKER_IP, values)
+
+    def _feed_values(self, url="/api/feeds/all/all/recent.json"):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        return [ioc["value"] for ioc in response.json()["iocs"]]
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_ingested_ioc_is_filterable_by_its_honeypot(self, mock_scores_cls):
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.assertIn(self.ATTACKER_IP, self._feed_values("/api/feeds/somehoneypot/all/recent.json"))
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_ioc_seen_by_two_sensors_is_linked_to_both_honeypots(self, mock_scores_cls):
+        other_sensor = make_sensor(
+            api_source=self.api_source,
+            address="203.0.113.11",
+            label="other-sensor",
+            honeypot_software="OtherPot",
+        )
+        make_raw_event(self.batch, other_sensor, src_ip=self.ATTACKER_IP, event_type="login_attempt")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        ioc = IOC.objects.get(name=self.ATTACKER_IP)
+        self.assertEqual(sorted(hp.name for hp in ioc.honeypots.all()), ["OtherPot", "SomeHoneypot"])
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_sensor_without_software_falls_back_to_external(self, mock_scores_cls):
+        self.sensor.honeypot_software = ""
+        self.sensor.save(update_fields=["honeypot_software"])
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        ioc = IOC.objects.get(name=self.ATTACKER_IP)
+        self.assertEqual([hp.name for hp in ioc.honeypots.all()], [DEFAULT_EXTERNAL_HONEYPOT])
+        self.assertIn(self.ATTACKER_IP, self._feed_values())
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_deactivated_honeypot_hides_ioc_but_keeps_the_link(self, mock_scores_cls):
+        Honeypot.objects.create(name="QuietPot", active=False)
+        self.sensor.honeypot_software = "QuietPot"
+        self.sensor.save(update_fields=["honeypot_software"])
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        ioc = IOC.objects.get(name=self.ATTACKER_IP)
+        self.assertEqual([hp.name for hp in ioc.honeypots.all()], ["QuietPot"])
+        self.assertNotIn(self.ATTACKER_IP, self._feed_values())
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_legacy_overlong_software_does_not_fail_the_batch(self, mock_scores_cls):
+        """
+        A sensor registered before the serializer cap can hold more than
+        Honeypot.name accepts; that must not abort the whole batch.
+        """
+        Sensor.objects.filter(pk=self.sensor.pk).update(honeypot_software="a" * 40)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertIn(self.ATTACKER_IP, self._feed_values())
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_second_batch_reuses_the_same_honeypot_row(self, mock_scores_cls):
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        second_batch = make_batch(self.api_source, task_id="task-feed-link-2")
+        make_raw_event(second_batch, self.sensor, src_ip="185.220.101.7", event_type="login_attempt")
+        process_incoming_event(self.api_source.id, second_batch.task_id)
+
+        self.assertEqual(Honeypot.objects.filter(name="SomeHoneypot").count(), 1)
+        values = self._feed_values()
+        self.assertIn(self.ATTACKER_IP, values)
+        self.assertIn("185.220.101.7", values)
