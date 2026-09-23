@@ -153,3 +153,16 @@ known-first-party = [
     "configuration",
     "greedybear",
 ]
+
+[tool.ty.src]
+exclude = ["**/migrations/**"]
+
+# Ignore some rules in tests/ directory because
+# - DRF's response.data` is invisible,
+# - assertIsNotNone()` does not narrow types
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+unresolved-attribute = "ignore"
+not-subscriptable = "ignore"
