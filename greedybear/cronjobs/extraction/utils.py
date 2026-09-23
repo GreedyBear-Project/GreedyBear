@@ -90,6 +90,36 @@ def get_firehol_categories(ip: str, extracted_ip, firehol_exact_map: dict, cidr_
     return firehol_categories
 
 
+def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
+    """
+    Group hits by source IP, dropping malformed addresses.
+
+    A single bad address must not poison the bulk prefetch queries
+    (GenericIPAddressField-backed tables reject non-IP strings) nor the
+    per-IP processing loop, so validation happens here, once, up front.
+    Pure logic with no database access, shared by every ingestion path.
+
+    Args:
+        hits: List of raw hit dictionaries with a "src_ip" key.
+
+    Returns:
+        Mapping of valid source IP to its hits (plain dict).
+    """
+    hits_by_ip: dict[str, list[dict]] = defaultdict(list)
+    for hit in hits:
+        hits_by_ip[hit["src_ip"]].append(hit)
+
+    valid_hits_by_ip = {}
+    for ip, ip_hits in hits_by_ip.items():
+        try:
+            ip_address(ip)
+        except ValueError:
+            log.warning(f"skipping {len(ip_hits)} hit(s) with malformed src_ip: {ip!r}")
+            continue
+        valid_hits_by_ip[ip] = ip_hits
+    return valid_hits_by_ip
+
+
 def iocs_from_hits(hits: list[dict]) -> list[IOC]:
     """
     Convert Elasticsearch hits into IOC objects with associated sensors.
@@ -107,23 +137,7 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
     Returns:
         List of IOC instances, one per unique source IP.
     """
-    hits_by_ip = defaultdict(list)
-    for hit in hits:
-        hits_by_ip[hit["src_ip"]].append(hit)
-
-    # Drop malformed source IPs up front: a single bad address must not
-    # poison the bulk prefetch queries below (GenericIPAddressField-backed
-    # tables reject non-IP strings) nor the per-IP processing loop.
-    # Every ingestion path (all T-Pot strategies + external events) shares
-    # this function, so isolating bad input here protects them all at once.
-    valid_hits_by_ip = {}
-    for ip, ip_hits in hits_by_ip.items():
-        try:
-            ip_address(ip)
-        except ValueError:
-            log.warning(f"skipping {len(ip_hits)} hit(s) with malformed src_ip: {ip!r}")
-            continue
-        valid_hits_by_ip[ip] = ip_hits
+    valid_hits_by_ip = group_valid_hits_by_ip(hits)
 
     all_ips = list(valid_hits_by_ip.keys())
 
