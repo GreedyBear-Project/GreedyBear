@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from greedybear.consts import IP
 from greedybear.cronjobs.extraction.utils import (
     correct_ip_reputation,
+    group_valid_hits_by_ip,
     iocs_from_hits,
     is_whatsmyip_domain,
     threatfox_submission,
@@ -40,6 +41,24 @@ class TestCorrectIpReputationTestCase(CustomTestCase):
     def test_preserves_other_reputations(self):
         result = correct_ip_reputation("1.2.3.4", "bot", {"1.2.3.4"})
         self.assertEqual(result, "bot")
+
+
+class TestGroupValidHitsByIp(CustomTestCase):
+    def _hit(self, src_ip):
+        return {"src_ip": src_ip}
+
+    def test_keeps_valid_grouped_by_ip(self):
+        grouped = group_valid_hits_by_ip([self._hit("1.2.3.4"), self._hit("1.2.3.4"), self._hit("5.6.7.8")])
+        self.assertEqual(set(grouped), {"1.2.3.4", "5.6.7.8"})
+        self.assertEqual(len(grouped["1.2.3.4"]), 2)
+        self.assertEqual(type(grouped), dict)
+
+    def test_drops_malformed_ips(self):
+        grouped = group_valid_hits_by_ip([self._hit("1.2.3.4"), self._hit("unknown"), self._hit("-")])
+        self.assertEqual(set(grouped), {"1.2.3.4"})
+
+    def test_empty_input_returns_empty_dict(self):
+        self.assertEqual(group_valid_hits_by_ip([]), {})
 
 
 class IocsFromHitsTestCase(CustomTestCase):
@@ -101,6 +120,18 @@ class IocsFromHitsTestCase(CustomTestCase):
         self.assertEqual(len(iocs), 2)
         names = {ioc.name for ioc in iocs}
         self.assertEqual(names, {"8.8.8.8", "1.1.1.1"})
+
+    def test_malformed_src_ip_skipped_without_dropping_chunk(self):
+        # A single malformed address must not poison the bulk prefetch
+        # queries (GenericIPAddressField rejects non-IP strings) nor abort
+        # the whole chunk: valid IPs around it still produce IOCs.
+        hits = [
+            self._create_hit(src_ip="1.2.3.4"),
+            self._create_hit(src_ip="unknown"),
+            self._create_hit(src_ip="5.6.7.8"),
+        ]
+        iocs = iocs_from_hits(hits)
+        self.assertEqual({ioc.name for ioc in iocs}, {"1.2.3.4", "5.6.7.8"})
 
     def test_aggregates_destination_ports(self):
         hits = [
