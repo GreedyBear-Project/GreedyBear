@@ -80,6 +80,7 @@ JSON_BASE_FIELDS = (
     "interaction_count",
     "scanner",
     "payload_request",
+    "http_attack_types",
     "ip_reputation",
     "login_attempts",
     "recurrence_probability",

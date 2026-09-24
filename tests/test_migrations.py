@@ -342,6 +342,46 @@ class TestIocIdentityDeduplication(MigrationTestCase):
 
 
 @tag("migration")
+class TestTannerHttpAttackTypesMigration(MigrationTestCase):
+    """Tests that the Tanner data migration only touches Tanner attack_type tags."""
+
+    migrate_from = "0065_ioc_http_attack_types"
+    migrate_to = "0066_migrate_tanner_attack_types"
+
+    def test_other_sources_untouched(self):
+        """Tags from other enrichment sources must survive the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.7", type="ip")
+        Tag.objects.create(ioc=ioc, key="malware", value="Mirai", source="threatfox")
+        Tag.objects.create(ioc=ioc, key="ptr_record", value="scanner.example.com", source="rdns")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="sqli", source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="rdns").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="tanner", key="attack_type").count(), 0)
+        self.assertEqual(IOC.objects.get(name="1.2.3.7").http_attack_types, ["sqli"])
+
+    def test_long_value_truncated(self):
+        """A stray value longer than the field's max_length must not abort the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.8", type="ip")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="x" * 200, source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertEqual(IOC.objects.get(name="1.2.3.8").http_attack_types, ["x" * 64])
+
+
+@tag("migration")
 class TestTagIdentityDeduplication(MigrationTestCase):
     """Tests Tag deduplication before enforcing the identity uniqueness constraint."""
 

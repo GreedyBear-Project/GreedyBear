@@ -164,6 +164,40 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         for ioc in iocs:
             self.assertNotIn("sensors", ioc)
 
+    def test_feeds_advanced_includes_http_attack_types(self):
+        """http_attack_types appears in the feeds_advanced response."""
+        self.ioc.http_attack_types = ["lfi", "sqli"]
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertEqual(target_ioc["http_attack_types"], ["lfi", "sqli"])
+
+    def test_public_feeds_includes_http_attack_types(self):
+        """http_attack_types is a base field, so it must appear in the public feed too."""
+        self.ioc.http_attack_types = ["lfi", "sqli"]
+        self.ioc.save()
+        self.client.logout()
+
+        response = self.client.get("/api/feeds/cowrie/all/recent.json")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertEqual(target_ioc["http_attack_types"], ["lfi", "sqli"])
+
+    def test_feeds_ioc_without_http_attack_types(self):
+        """An IOC with no attack types is returned with an empty list, not a missing key."""
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc_domain.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertEqual(target_ioc["http_attack_types"], [])
+
     def test_min_credential_count_filter(self):
         """IOCs with fewer credentials than min_credential_count are excluded."""
         cred1 = Credential.objects.create(username="admin", password="admin")

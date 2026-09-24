@@ -199,6 +199,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "related_urls_display",
         "scanner",
         "payload_request",
+        "http_attack_types_display",
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
@@ -233,6 +234,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     destination_ports_display = collapsed_list_display("destination_ports")
     protocols_display = collapsed_list_display("protocols")
     cves_display = collapsed_list_display("cves", description="CVEs")
+    http_attack_types_display = collapsed_list_display("http_attack_types", description="HTTP Attack Types")
 
     def autonomous_system_display(self, ioc):
         """

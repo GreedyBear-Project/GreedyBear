@@ -391,6 +391,7 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     value = serializers.CharField(max_length=256)
     scanner = serializers.BooleanField()
     payload_request = serializers.BooleanField()
+    http_attack_types = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True)
     first_seen = serializers.DateField(format="%Y-%m-%d")
     last_seen = serializers.DateField(format="%Y-%m-%d")
     attack_count = serializers.IntegerField(min_value=1)

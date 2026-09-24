@@ -169,6 +169,7 @@ class IOC(models.Model):
     payload_request = models.BooleanField(default=False)
     related_ioc = models.ManyToManyField("self", blank=True, symmetrical=True)
     related_urls = pg_fields.ArrayField(models.CharField(max_length=900, blank=True), blank=True, default=list)
+    http_attack_types = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     ip_reputation = models.CharField(max_length=32, blank=True)
     firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
