@@ -12,10 +12,18 @@ from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, HoneypotPayload, RawEvent
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, HoneypotPayload, RawEvent
 from greedybear.utils import get_attack_type, is_valid_url
 
 logger = logging.getLogger(__name__)
+
+# Honeypot every external IOC falls back to when its sensor reports no software.
+DEFAULT_EXTERNAL_HONEYPOT = "External"
+
+# SensorCreateSerializer caps honeypot_software at this length, but sensors
+# registered before that cap could hold more than Honeypot.name accepts, so
+# values are truncated rather than failing the batch with a DataError.
+HONEYPOT_NAME_MAX_LENGTH = Honeypot._meta.get_field("name").max_length
 
 
 def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
@@ -195,6 +203,36 @@ def _process_payload_hashes(saved_ioc: IOC, ip_hits: list[dict]) -> None:
         logger.debug(f"linked payload {sha256_hash[:12]}… → IOC {saved_ioc.name}")
 
 
+def _sensor_honeypot_names(ip_hits: list[dict]) -> list[str]:
+    """
+    Collect the honeypot names advertised by the sensors that reported these hits.
+
+    A single IOC can be seen by several sensors running different honeypots, so all
+    distinct names are returned. A sensor that reports no honeypot_software falls
+    back to the generic external honeypot, so every IOC ends up attributable.
+    """
+    names = set()
+    for hit in ip_hits:
+        software = getattr(hit.get("_sensor"), "honeypot_software", "") or ""
+        names.add(software.strip()[:HONEYPOT_NAME_MAX_LENGTH] or DEFAULT_EXTERNAL_HONEYPOT)
+    return sorted(names)
+
+
+def _link_sensor_honeypots(ioc_repo: IocRepository, saved_ioc: IOC, ip_hits: list[dict]) -> None:
+    """
+    Associate an externally reported IOC with the honeypots its sensors run.
+
+    Every feed filters on `honeypots__active=True`, so an IOC with no honeypot is
+    invisible downstream no matter how it was ingested. External sensors have no
+    Honeypot row of their own, so one is created on first sight of a honeypot_software,
+    mirroring how the T-Pot extraction path registers honeypots it has not seen.
+    """
+    for name in _sensor_honeypot_names(ip_hits) or [DEFAULT_EXTERNAL_HONEYPOT]:
+        ioc_repo.ensure_honeypot(name)
+        ioc_repo.add_honeypot_to_ioc(name, saved_ioc)
+        logger.debug(f"linked honeypot '{name}' → IOC {saved_ioc.name}")
+
+
 def _claim_batch(task_id: str) -> bool:
     """
     Atomically move a batch to PROCESSING, returning False if it can't be claimed.
@@ -304,7 +342,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
                 saved_ioc = processor.add_ioc(
                     ioc,
                     attack_type,
-                    # external sensors don't use Honeypot model
+                    # honeypots are derived from the reporting sensors below
                     honeypot_name=None,
                 )
 
@@ -313,6 +351,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
                     filtered += 1
                     continue
 
+                _link_sensor_honeypots(ioc_repo, saved_ioc, ip_hits)
                 _process_credentials(saved_ioc, ip_hits)
                 _process_related_urls(saved_ioc, ip_hits)
                 _process_commands(ip_hits)
