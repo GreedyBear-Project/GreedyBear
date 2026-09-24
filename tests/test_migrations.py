@@ -342,7 +342,6 @@ class TestIocIdentityDeduplication(MigrationTestCase):
 
 
 @tag("migration")
-
 class TestTannerHttpAttackTypesMigration(MigrationTestCase):
     """Tests that the Tanner data migration only touches Tanner attack_type tags."""
 
@@ -381,6 +380,8 @@ class TestTannerHttpAttackTypesMigration(MigrationTestCase):
 
         self.assertEqual(IOC.objects.get(name="1.2.3.8").http_attack_types, ["x" * 64])
 
+
+@tag("migration")
 class TestTagIdentityDeduplication(MigrationTestCase):
     """Tests Tag deduplication before enforcing the identity uniqueness constraint."""
 
@@ -454,4 +455,3 @@ class TestTagIdentityDeduplication(MigrationTestCase):
 
         with self.assertRaises(IntegrityError):
             tag_new.objects.create(ioc=ioc_new_ref, source="tanner", key="attack_type", value="rfi")
-

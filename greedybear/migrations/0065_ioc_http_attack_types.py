@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('greedybear', '0062_dashboardconfig'),
+        ('greedybear', '0064_deduplicate_tag_identity_and_add_constraint'),
     ]
 
     operations = [

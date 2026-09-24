@@ -27,7 +27,7 @@ def migrate_tanner_attack_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("greedybear", "0063_ioc_http_attack_types"),
+        ("greedybear", "0065_ioc_http_attack_types"),
     ]
 
     operations = [
