@@ -18,17 +18,17 @@
     "date-fns": "^2.30.0",
     "formik": "^2.4.9",
     "i18n-iso-countries": "^7.14.0",
-    "nanoid": "^3.3.11",
+    "nanoid": "^3.3.19",
     "prop-types": "^15.8.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "react-grid-layout": "^2.2.4",
     "react-icons": "^5.7.0",
-    "react-router-dom": "^7.18.3",
+    "react-router-dom": "^7.18.4",
     "react-use": "^17.6.1",
     "reactstrap": "^9.2.3",
     "recharts": "^3.10.1",
-    "sass": "^1.104.0",
+    "sass": "^1.105.0",
     "zustand": "^5.0.15"
   },
   "scripts": {
@@ -53,17 +53,17 @@
     "d3-color": "^3.1.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.39.5",
-    "jsdom": "^30.0.1",
-    "prettier": "^3.9.6",
-    "stylelint": "^17.14.1",
-    "vite": "^8.2.2",
+    "jsdom": "^30.1.1",
+    "prettier": "^3.9.9",
+    "stylelint": "^17.15.0",
+    "vite": "^8.3.0",
     "vitest": "^4.1.11"
   }
 }
