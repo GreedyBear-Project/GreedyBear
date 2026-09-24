@@ -29,66 +29,69 @@ vi.mock("../../../src/components/feeds/MultiSelectDropdown", () => {
   return { MultiSelectDropdown };
 });
 
-vi.mock("@greedybear/gb-ui", async (importOriginal) => {
-  const originalModule = await importOriginal();
+vi.mock(
+  "../../../src/components/common/gb-ui/index",
+  async (importOriginal) => {
+    const originalModule = await importOriginal();
 
-  const feeds = {
-    count: 1,
-    total_pages: 1,
-    results: {
-      license: "licenseTest",
-      iocs: [
-        {
-          value: "test",
-          SCANNER: true,
-          PAYLOAD_REQUEST: true,
-          first_seen: "2023-03-15",
-          last_seen: "2023-03-15",
-          attack_count: 1,
-          feed_type: "cowrie",
-        },
-      ],
-    },
-  };
+    const feeds = {
+      count: 1,
+      total_pages: 1,
+      results: {
+        license: "licenseTest",
+        iocs: [
+          {
+            value: "test",
+            SCANNER: true,
+            PAYLOAD_REQUEST: true,
+            first_seen: "2023-03-15",
+            last_seen: "2023-03-15",
+            attack_count: 1,
+            feed_type: "cowrie",
+          },
+        ],
+      },
+    };
 
-  const MockTableComponent = () => <div>table</div>;
-  const loader = (props) => {
-    return <originalModule.Loader loading={false} {...props} />;
-  };
+    const MockTableComponent = () => <div>table</div>;
+    const loader = (props) => {
+      return <originalModule.Loader loading={false} {...props} />;
+    };
 
-  // Mock the Select component to render a real select for testing
-  const Select = ({ id, choices, value, onChange, name }) => (
-    <select
-      id={id}
-      data-testid={id}
-      value={value}
-      onChange={onChange}
-      name={name}
-    >
-      {choices.map((c) => (
-        <option key={c.value} value={c.value}>
-          {c.label}
-        </option>
-      ))}
-    </select>
-  );
+    // Mock the Select component to render a real select for testing
+    const Select = ({ id, choices, value, onChange, name }) => (
+      <select
+        id={id}
+        data-testid={id}
+        value={value}
+        onChange={onChange}
+        name={name}
+      >
+        {choices.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    );
 
-  return {
-    ...originalModule,
-    Select,
-    useAxiosComponentLoader: vi.fn(() => [
-      ["Honeytrap", "Glutton", "CitrixHoneypot", "Cowrie"],
-      loader,
-    ]),
+    return {
+      ...originalModule,
+      Select,
+      useAxiosComponentLoader: vi.fn(() => [
+        ["Honeytrap", "Glutton", "CitrixHoneypot", "Cowrie"],
+        loader,
+      ]),
 
-    useDataTable: vi.fn(() => [
-      feeds,
-      <MockTableComponent key="mock-table" />,
-      vi.fn(),
-      vi.fn(),
-    ]),
-  };
-});
+      useDataTable: vi.fn(() => [
+        feeds,
+        <MockTableComponent key="mock-table" />,
+        vi.fn(),
+        vi.fn(),
+      ]),
+    };
+  },
+);
 
 describe("Feeds component", () => {
   beforeEach(() => {
@@ -241,7 +244,8 @@ describe("Feeds component", () => {
     });
 
     test("selecting multiple types passes comma-separated feed_type to the table", async () => {
-      const { useDataTable } = await import("@greedybear/gb-ui");
+      const { useDataTable } =
+        await import("../../../src/components/common/gb-ui/index");
       const { user, feedTypeSelect } = await renderFeeds();
 
       await user.selectOptions(feedTypeSelect, ["cowrie", "honeytrap"]);

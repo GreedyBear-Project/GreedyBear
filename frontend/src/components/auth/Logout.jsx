@@ -1,7 +1,7 @@
 import React from "react";
 import { useShallow } from "zustand/shallow";
 
-import { FallBackLoading } from "@greedybear/gb-ui";
+import { FallBackLoading } from "../common/gb-ui/index";
 
 import { useAuthStore } from "../../stores";
 import { AUTHENTICATION_STATUSES } from "../../constants";

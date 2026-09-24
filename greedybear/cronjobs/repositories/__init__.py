@@ -6,6 +6,7 @@ from greedybear.cronjobs.repositories.event import *
 from greedybear.cronjobs.repositories.firehol import *
 from greedybear.cronjobs.repositories.ioc import *
 from greedybear.cronjobs.repositories.mass_scanner import *
+from greedybear.cronjobs.repositories.payload import *
 from greedybear.cronjobs.repositories.sensor import *
 from greedybear.cronjobs.repositories.statistics import *
 from greedybear.cronjobs.repositories.tag import *

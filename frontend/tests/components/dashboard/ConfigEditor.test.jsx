@@ -42,21 +42,24 @@ vi.mock("../../../src/components/dashboard/EnrichmentLookup", () => ({
 
 vi.mock("axios");
 
-// Mock @greedybear/gb-ui
-vi.mock("@greedybear/gb-ui", async (importOriginal) => {
-  const original = await importOriginal();
-  return {
-    ...original,
-    SmallInfoCard: ({ header, body, style, id }) => (
-      <div data-testid={`card-${id}`} style={style}>
-        <div>{header}</div>
-        <div>{body}</div>
-      </div>
-    ),
-    ElasticTimePicker: () => <div />,
-    addToast: vi.fn(),
-  };
-});
+// Mock local gb-ui
+vi.mock(
+  "../../../src/components/common/gb-ui/index",
+  async (importOriginal) => {
+    const original = await importOriginal();
+    return {
+      ...original,
+      SmallInfoCard: ({ header, body, style, id }) => (
+        <div data-testid={`card-${id}`} style={style}>
+          <div>{header}</div>
+          <div>{body}</div>
+        </div>
+      ),
+      ElasticTimePicker: () => <div />,
+      addToast: vi.fn(),
+    };
+  },
+);
 
 // Mock useAuthStore
 const mockUseAuthStore = vi.fn();

@@ -31,6 +31,13 @@ from greedybear.models import (
 logger = logging.getLogger(__name__)
 
 MAX_LISTED_ITEMS = 6
+TITLE_MAX_CHARS = 2000
+
+
+class GreedyBearModelAdmin(admin.ModelAdmin):
+    """Base admin class for all GreedyBear models."""
+
+    show_facets = admin.ShowFacets.NEVER  # disable facet counts ("Show counts" button)
 
 
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
@@ -41,27 +48,29 @@ def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITE
         values = getattr(obj, attribute)
         if hasattr(values, "all"):
             values = values.all()
+        # str() normalizes dates/ints/model instances (and strips any SafeString flag) so format_html escapes uniformly.
         values = [str(value) for value in values or []]
-        values_str = ", ".join(values)
         if len(values) <= max_items:
-            return values_str
+            return format_html("{}", ", ".join(values))
         preview_values_str = ", ".join(values[: max_items - 2])
         hidden_count = len(values) - max_items + 2
-        html = f'<span title="{values_str}">{preview_values_str}, … (+{hidden_count} more)</span>'
-        return format_html(html)
+        full_values_str = ", ".join(values)
+        if len(full_values_str) > TITLE_MAX_CHARS:
+            full_values_str = full_values_str[:TITLE_MAX_CHARS] + "…"
+        return format_html('<span title="{}">{}, … (+{} more)</span>', full_values_str, preview_values_str, hidden_count)
 
     return display
 
 
 @admin.register(TorExitNode)
-class TorExitNodeModelAdmin(admin.ModelAdmin):
+class TorExitNodeModelAdmin(GreedyBearModelAdmin):
     list_display = ["ip_address", "added", "reason"]
     search_fields = ["ip_address"]
     search_help_text = "search for the IP address"
 
 
 @admin.register(Sensor)
-class SensorsModelAdmin(admin.ModelAdmin):
+class SensorsModelAdmin(GreedyBearModelAdmin):
     list_display = [
         "id",
         "address",
@@ -82,7 +91,7 @@ class SensorsModelAdmin(admin.ModelAdmin):
 
 
 @admin.register(Statistics)
-class StatisticsModelAdmin(admin.ModelAdmin):
+class StatisticsModelAdmin(GreedyBearModelAdmin):
     list_display = ["source", "view", "request_date"]
     list_filter = ["source"]
     search_fields = ["source"]
@@ -90,14 +99,14 @@ class StatisticsModelAdmin(admin.ModelAdmin):
 
 
 @admin.register(WhatsMyIPDomain)
-class WhatsMyIPModelAdmin(admin.ModelAdmin):
+class WhatsMyIPModelAdmin(GreedyBearModelAdmin):
     list_display = ["domain", "added"]
     search_fields = ["domain"]
     search_help_text = "search for the domain"
 
 
 @admin.register(MassScanner)
-class MassScannersModelAdmin(admin.ModelAdmin):
+class MassScannersModelAdmin(GreedyBearModelAdmin):
     list_display = ["ip_address", "added", "reason"]
     list_filter = ["reason"]
     search_fields = ["ip_address"]
@@ -105,7 +114,7 @@ class MassScannersModelAdmin(admin.ModelAdmin):
 
 
 @admin.register(FireHolList)
-class FireHolListModelAdmin(admin.ModelAdmin):
+class FireHolListModelAdmin(GreedyBearModelAdmin):
     list_display = ["ip_address", "added", "source"]
     list_filter = ["source"]
     search_fields = ["ip_address"]
@@ -140,7 +149,7 @@ class SessionInline(admin.TabularInline):
 
 
 @admin.register(CowrieSession)
-class CowrieSessionModelAdmin(admin.ModelAdmin):
+class CowrieSessionModelAdmin(GreedyBearModelAdmin):
     list_display = [
         "session_id",
         "start_time",
@@ -153,7 +162,7 @@ class CowrieSessionModelAdmin(admin.ModelAdmin):
     ]
     search_fields = ["source__name"]
     search_help_text = "search for the IP address source"
-    raw_id_fields = ["source", "commands"]
+    raw_id_fields = ["source", "commands", "credentials"]
     list_filter = ["login_attempt", "command_execution"]
 
     def credential_list(self, session):
@@ -161,14 +170,15 @@ class CowrieSessionModelAdmin(admin.ModelAdmin):
 
 
 @admin.register(Credential)
-class CredentialModelAdmin(admin.ModelAdmin):
+class CredentialModelAdmin(GreedyBearModelAdmin):
     list_display = ["username", "password"]
     search_fields = ["username", "password"]
     search_help_text = "search for username or password"
+    raw_id_fields = ["sources"]
 
 
 @admin.register(CommandSequence)
-class CommandSequenceModelAdmin(admin.ModelAdmin):
+class CommandSequenceModelAdmin(GreedyBearModelAdmin):
     list_display = ["first_seen", "last_seen", "cluster", "commands", "commands_hash"]
     inlines = [SessionInline]
     search_fields = ["source__name", "commands_hash"]
@@ -176,7 +186,7 @@ class CommandSequenceModelAdmin(admin.ModelAdmin):
 
 
 @admin.register(IOC)
-class IOCModelAdmin(admin.ModelAdmin):
+class IOCModelAdmin(GreedyBearModelAdmin):
     list_display = [
         "name",
         "type",
@@ -253,7 +263,7 @@ class AttackerActivityBucketAdmin(admin.ModelAdmin):
 
 
 @admin.register(Honeypot)
-class HoneypotAdmin(admin.ModelAdmin):
+class HoneypotAdmin(GreedyBearModelAdmin):
     list_display = [
         "name",
         "active",
@@ -294,7 +304,7 @@ class HoneypotAdmin(admin.ModelAdmin):
 
 
 @admin.register(APISource)
-class APISourceModelAdmin(admin.ModelAdmin):
+class APISourceModelAdmin(GreedyBearModelAdmin):
     list_display = ["name", "user", "is_active", "invalid_event_count", "created_at", "last_activity"]
     list_filter = ["is_active"]
     search_fields = ["name", "user__username"]
@@ -303,7 +313,7 @@ class APISourceModelAdmin(admin.ModelAdmin):
 
 
 @admin.register(EventStatus)
-class EventStatusAdmin(admin.ModelAdmin):
+class EventStatusAdmin(GreedyBearModelAdmin):
     list_display = [
         "id",
         "api_source",
@@ -311,6 +321,7 @@ class EventStatusAdmin(admin.ModelAdmin):
         "ioc_count",
         "last_error",
         "created_at",
+        "started_at",
         "processed_at",
     ]
     list_filter = ["status"]
@@ -323,6 +334,7 @@ class EventStatusAdmin(admin.ModelAdmin):
         "ioc_count",
         "last_error",
         "created_at",
+        "started_at",
         "processed_at",
     ]
 
@@ -334,7 +346,7 @@ class EventStatusAdmin(admin.ModelAdmin):
 
 
 @admin.register(RawEvent)
-class RawEventAdmin(admin.ModelAdmin):
+class RawEventAdmin(GreedyBearModelAdmin):
     list_display = [
         "id",
         "src_ip",
@@ -397,7 +409,7 @@ class RawEventAdmin(admin.ModelAdmin):
 
 
 @admin.register(HoneypotPayload)
-class HoneypotPayloadAdmin(admin.ModelAdmin):
+class HoneypotPayloadAdmin(GreedyBearModelAdmin):
     list_display = [
         "sha256",
         "mime_type",
@@ -407,6 +419,7 @@ class HoneypotPayloadAdmin(admin.ModelAdmin):
     search_fields = ["sha256", "md5", "sha1", "mime_type"]
     list_filter = ["source_honeypots", "mime_type"]
     readonly_fields = ["payload_file"]
+    raw_id_fields = ["iocs", "cowrie_sessions"]
 
     @admin.display(description="Source Honeypots")
     def get_source_honeypots(self, obj):
@@ -414,7 +427,7 @@ class HoneypotPayloadAdmin(admin.ModelAdmin):
 
 
 @admin.register(DashboardConfig)
-class DashboardConfigAdmin(admin.ModelAdmin):
+class DashboardConfigAdmin(GreedyBearModelAdmin):
     list_display = ["id", "updated_at", "updated_by"]
     readonly_fields = ["updated_at", "updated_by"]
 

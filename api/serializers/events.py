@@ -46,7 +46,9 @@ class SensorCreateSerializer(serializers.ModelSerializer):
                 "help_text": "IPv4 or IPv6 address of the sensor.",
             },
             "honeypot_type": {"help_text": "Type of honeypot."},
-            "honeypot_software": {"help_text": "Honeypot software name."},
+            # capped to Honeypot.name's width: the value becomes a Honeypot record
+            # when the sensor's events are turned into IOCs
+            "honeypot_software": {"help_text": "Honeypot software name.", "max_length": 15},
             "honeypot_description": {"help_text": "Description of the sensor."},
             "group_label": {"help_text": "Group classification label."},
             "country_code": {"help_text": "2-letter ISO country code."},
@@ -158,6 +160,7 @@ class BatchStatusSerializer(serializers.ModelSerializer):
             "status",
             "ioc_count",
             "last_error",
+            "started_at",
             "processed_at",
             "created_at",
         ]

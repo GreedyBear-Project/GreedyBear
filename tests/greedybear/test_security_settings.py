@@ -78,3 +78,37 @@ class HttpsEnabledGatingTests(SimpleTestCase):
         self.assertFalse(mod.HTTPS_ENABLED)
         self.assertFalse(getattr(mod, "SESSION_COOKIE_SECURE", False))
         self.assertFalse(getattr(mod, "CSRF_COOKIE_SECURE", False))
+
+
+class SettingsWithoutElasticsearchTestCase(SimpleTestCase):
+    """Settings must load without Elasticsearch, even in production mode."""
+
+    def test_settings_load_without_elastic_endpoint(self):
+        """Missing ELASTIC_ENDPOINT must only warn, never exit the application."""
+        import io
+        from contextlib import redirect_stdout
+
+        import greedybear.settings as greedybear_settings
+
+        # restore the original module state after the test
+        self.addCleanup(importlib.reload, greedybear_settings)
+
+        with mock.patch.dict("os.environ", {"ELASTIC_ENDPOINT": "", "DEBUG": "False"}):
+            captured = io.StringIO()
+            with redirect_stdout(captured):
+                # raises SystemExit if the settings module still calls exit()
+                reloaded = importlib.reload(greedybear_settings)
+
+        self.assertIsNone(reloaded.ELASTIC_CLIENT)
+        self.assertIn("WARNING", captured.getvalue())
+
+    def test_settings_load_with_elastic_endpoint_keeps_client(self):
+        """A configured ELASTIC_ENDPOINT must still create the Elasticsearch client."""
+        import greedybear.settings as greedybear_settings
+
+        self.addCleanup(importlib.reload, greedybear_settings)
+
+        with mock.patch.dict("os.environ", {"ELASTIC_ENDPOINT": "http://localhost:9200", "ENVIRONMENT": "local"}):
+            reloaded = importlib.reload(greedybear_settings)
+
+        self.assertIsNotNone(reloaded.ELASTIC_CLIENT)

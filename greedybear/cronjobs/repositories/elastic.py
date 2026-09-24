@@ -7,6 +7,7 @@ from elasticsearch.dsl import Q, Search
 
 from greedybear.consts import FIELDS_TO_EXTRACT
 from greedybear.settings import EXTRACTION_INTERVAL
+from greedybear.utils import get_time_window
 
 
 class ElasticRepository:
@@ -24,10 +25,19 @@ class ElasticRepository:
         """Initialize the repository with an Elasticsearch client."""
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.elastic_client = settings.ELASTIC_CLIENT
+        if self.elastic_client is None:
+            self.log.warning("Elasticsearch is not configured")
+
+    @property
+    def is_available(self) -> bool:
+        """Return True when an Elasticsearch client is configured."""
+        return self.elastic_client is not None
 
     def has_honeypot_been_hit(self, minutes_back_to_lookup: int, honeypot_name: str) -> bool:
         """
         Check if a specific honeypot has been hit within a given time window.
+
+        Returns False immediately when Elasticsearch is not configured.
 
         Args:
             minutes_back_to_lookup: Number of minutes to look back from the current
@@ -38,6 +48,8 @@ class ElasticRepository:
             True if at least one hit was recorded for the specified honeypot within
             the time window, False otherwise.
         """
+        if not self.is_available:
+            return False
         search = Search(using=self.elastic_client, index="logstash-*")
         window_start, window_end = get_time_window(datetime.now(), minutes_back_to_lookup)
         q = Q("range", **{"@timestamp": {"gte": window_start, "lt": window_end}})
@@ -50,6 +62,8 @@ class ElasticRepository:
         Search for log entries within a specified time window, yielding results
         in chunks of at most EXTRACTION_INTERVAL minutes.
 
+        Yields nothing when Elasticsearch is not configured.
+
         Args:
             minutes_back_to_lookup: Number of minutes to look back from the current time.
 
@@ -59,6 +73,8 @@ class ElasticRepository:
         Raises:
             ElasticServerDownError: If Elasticsearch is unreachable.
         """
+        if not self.is_available:
+            return
         self._healthcheck()
         self.log.debug(f"minutes_back_to_lookup: {minutes_back_to_lookup}")
         window_start, window_end = get_time_window(datetime.now(), minutes_back_to_lookup)
@@ -88,35 +104,3 @@ class ElasticRepository:
         if not self.elastic_client.ping():
             raise self.ElasticServerDownError("elastic server is not reachable, could be down")
         self.log.debug("elastic server is reachable")
-
-
-def get_time_window(
-    reference_time: datetime,
-    lookback_minutes: int,
-    extraction_interval: int = EXTRACTION_INTERVAL,
-) -> tuple[datetime, datetime]:
-    """
-    Calculates a time window that ends at the last completed extraction interval and looks back a specified number of minutes.
-
-    Args:
-        reference_time (datetime): Reference point in time
-        lookback_minutes (int): Minutes to look back
-        extraction_interval (int): Minutes between two subsequent extraction runs
-
-    Returns:
-        tuple: A tuple containing the start and end time of the time window as datetime objects
-
-    Raises:
-        ValueError: If lookback_minutes is less than extraction_interval
-        ValueError: If extraction_interval is not a positive divisor of 60
-    """
-    if extraction_interval <= 0 or 60 % extraction_interval > 0:
-        raise ValueError("Argument extraction_interval must be a positive divisor of 60.")
-
-    if lookback_minutes < extraction_interval:
-        raise ValueError(f"Argument lookback_minutes size must be at least {extraction_interval} minutes.")
-
-    rounded_minute = (reference_time.minute // extraction_interval) * extraction_interval
-    window_end = reference_time.replace(minute=rounded_minute, second=0, microsecond=0)
-    window_start = window_end - timedelta(minutes=lookback_minutes)
-    return (window_start, window_end)

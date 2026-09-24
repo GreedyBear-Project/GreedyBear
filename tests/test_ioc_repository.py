@@ -49,6 +49,24 @@ class TestIocRepository(CustomTestCase):
         hp = Honeypot.objects.get(name="NewHoneypot")
         self.assertTrue(hp.active)
 
+    def test_ensure_honeypot_creates_when_unknown(self):
+        hp = self.repo.ensure_honeypot("BrandNewPot")
+        self.assertTrue(hp.active)
+        self.assertEqual(Honeypot.objects.filter(name="BrandNewPot").count(), 1)
+
+    def test_ensure_honeypot_returns_existing_without_creating(self):
+        first = self.repo.ensure_honeypot("ReusedPot")
+        second = self.repo.ensure_honeypot("reusedpot")
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(Honeypot.objects.filter(name__iexact="ReusedPot").count(), 1)
+
+    def test_ensure_honeypot_keeps_inactive_flag(self):
+        Honeypot.objects.create(name="DisabledPot", active=False)
+        repo = IocRepository()
+        hp = repo.ensure_honeypot("DisabledPot")
+        self.assertFalse(hp.active)
+        self.assertEqual(Honeypot.objects.filter(name="DisabledPot").count(), 1)
+
     def test_get_active_honeypots_returns_only_active(self):
         Honeypot.objects.create(name="TestActivePot1", active=True)
         Honeypot.objects.create(name="TestActivePot2", active=True)

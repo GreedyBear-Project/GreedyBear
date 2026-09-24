@@ -2,7 +2,7 @@ import axios from "axios";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { addToast } from "@greedybear/gb-ui";
+import { addToast } from "../components/common/gb-ui/index";
 
 import {
   WIDGET_CONFIGS,

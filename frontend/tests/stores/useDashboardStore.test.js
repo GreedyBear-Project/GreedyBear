@@ -19,7 +19,7 @@ vi.mock("axios", () => ({
   default: { get: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
-vi.mock("@greedybear/gb-ui", async (importOriginal) => ({
+vi.mock("../../src/components/common/gb-ui/index", async (importOriginal) => ({
   ...(await importOriginal()),
   addToast: vi.fn(),
 }));

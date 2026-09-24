@@ -94,19 +94,19 @@ def get_tor_exit_nodes():
 
 
 def check_reverse_dns():
-    from greedybear.cronjobs.reverse_dns import ReverseDNSCron
+    from greedybear.cronjobs.enrichment.reverse_dns import ReverseDNSCron
 
     ReverseDNSCron().execute()
 
 
 def enrich_threatfox():
-    from greedybear.cronjobs.threatfox_feed import ThreatFoxCron
+    from greedybear.cronjobs.enrichment.threatfox_feed import ThreatFoxCron
 
     ThreatFoxCron().execute()
 
 
 def enrich_abuseipdb():
-    from greedybear.cronjobs.abuseipdb_feed import AbuseIPDBCron
+    from greedybear.cronjobs.enrichment.abuseipdb_feed import AbuseIPDBCron
 
     AbuseIPDBCron().execute()
 
