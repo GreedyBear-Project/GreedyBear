@@ -509,7 +509,7 @@ wheels = [
 
 [[package]]
 name = "greedybear"
-version = "3.6.2"
+version = "3.6.3"
 source = { virtual = "." }
 dependencies = [
     { name = "certego-saas" },
