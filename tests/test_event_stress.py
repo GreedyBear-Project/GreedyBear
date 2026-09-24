@@ -1,5 +1,6 @@
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from django.test import TransactionTestCase
@@ -452,6 +453,7 @@ class TestProcessIncomingEventStress(CustomTestCase):
             make_raw_event(batch, self.sensor, src_ip=ip)
 
         batch.status = "processing"
+        batch.started_at = datetime.now()
         batch.save()
 
         process_incoming_event(self.api_source.id, batch.task_id)

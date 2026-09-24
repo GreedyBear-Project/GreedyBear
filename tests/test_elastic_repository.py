@@ -136,6 +136,28 @@ class TestElasticRepository(CustomTestCase):
     def test_fields_to_extract_include_type_for_trending_bucketing(self):
         self.assertIn("type", FIELDS_TO_EXTRACT)
 
+    def test_search_yields_nothing_when_elasticsearch_unavailable(self):
+        """search() must yield nothing when Elasticsearch is not configured."""
+        patcher = patch("greedybear.cronjobs.repositories.elastic.settings")
+        mock_settings = patcher.start()
+        mock_settings.ELASTIC_CLIENT = None
+        self.addCleanup(patcher.stop)
+
+        repo = ElasticRepository()
+        chunks = list(repo.search(minutes_back_to_lookup=10))
+        self.assertEqual(chunks, [])
+
+    def test_has_honeypot_been_hit_returns_false_when_elasticsearch_unavailable(self):
+        """has_honeypot_been_hit() must return False when Elasticsearch is not configured."""
+        patcher = patch("greedybear.cronjobs.repositories.elastic.settings")
+        mock_settings = patcher.start()
+        mock_settings.ELASTIC_CLIENT = None
+        self.addCleanup(patcher.stop)
+
+        repo = ElasticRepository()
+        result = repo.has_honeypot_been_hit(minutes_back_to_lookup=10, honeypot_name="test_honeypot")
+        self.assertFalse(result)
+
 
 class TestSearchChunking(CustomTestCase):
     """Tests for the chunked iteration behavior of search()."""

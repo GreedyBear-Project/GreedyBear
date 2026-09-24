@@ -42,10 +42,7 @@ ELASTIC_ENDPOINT = os.getenv("ELASTIC_ENDPOINT", "")
 if ELASTIC_ENDPOINT:
     ELASTIC_ENDPOINT = ELASTIC_ENDPOINT.split(",")
 else:
-    print("WARNING!!! You need an ElasticSearch TPOT instance to have the Greedybear to work correctly.")
-    if not DEBUG:
-        print("you are in production mode: closing the application")
-        exit(9)
+    print("WARNING: Elasticsearch endpoint not configured. Elasticsearch-dependent features (extraction, monitoring) will be unavailable.")
 
 if ELASTIC_ENDPOINT and not STAGE_CI:
     ELASTIC_CLIENT = Elasticsearch(

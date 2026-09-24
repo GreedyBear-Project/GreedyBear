@@ -338,6 +338,9 @@ class Tag(models.Model):
         indexes = [
             models.Index(fields=["source", "ioc"]),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["ioc", "source", "key", "value"], name="unique_tag_identity"),
+        ]
 
     def __str__(self):
         return f"{self.ioc.name} - {self.key}: {self.value} ({self.source})"
@@ -414,6 +417,7 @@ class EventStatus(models.Model):
     ioc_count = models.PositiveIntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
     processed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
