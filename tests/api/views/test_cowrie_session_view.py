@@ -244,6 +244,11 @@ class CowrieSessionViewTestCase(CustomTestCase):
         response = self.client.get(f"/api/cowrie_session?query={'f' * 64}")
         self.assertEqual(response.status_code, 404)
 
+    def test_nonexistent_session_when_hash_exists(self):
+        """ "Test that view returns 404 when hash exists but not used in any session."""
+        response = self.client.get(f"/api/cowrie_session?query={self.command_sequence_not_used.commands_hash}")
+        self.assertEqual(response.status_code, 404)
+
     def test_hash_wrong_length(self):
         """Test that strings with incorrect hash length are treated as password lookups."""
         response = self.client.get("/api/cowrie_session?query=" + "a" * 32)  # 32 chars instead of 64
@@ -361,3 +366,56 @@ class CowrieSessionViewTestCase(CustomTestCase):
         """Test that passwords exceeding max length return 400."""
         response = self.client.get(f"/api/cowrie_session?query={'a' * 257}")
         self.assertEqual(response.status_code, 400)
+
+    # # # # # Date Filter Tests # # # # #
+    def test_filter_by_start_date_only(self):
+        """Should return only sessions occurring on or after start_date."""
+        start_date = "2026-01-20"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date={start_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertGreaterEqual(session_date, start_date)
+
+    def test_filter_by_end_date_only(self):
+        """Should return only sessions occurring on or before end_date."""
+        end_date = "2026-01-20"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&end_date={end_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertLessEqual(session_date, end_date)
+
+    def test_filter_by_exact_date_range(self):
+        """Should return only sessions within the start_date and end_date window."""
+        start_date = "2026-01-15"
+        end_date = "2026-01-25"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date={start_date}&end_date={end_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertTrue(start_date <= session_date <= end_date, f"Session date {session_date} is outside range [{start_date}, {end_date}]")
+
+    def test_start_date_after_end_date_raises_validation_error(self):
+        """Should return 400 Bad Request when start_date is later than end_date."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&start_date=2026-01-20&end_date=2026-01-10")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_with_date_filter_missing_ip_returns_200_empty(self):
+        """Should return 200 OK with empty payloads when date filter is applied even if no sessions match."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date=2026-02-01&end_date=2026-02-10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["commands"], [])
+        self.assertEqual(response.data["sources"], [])
