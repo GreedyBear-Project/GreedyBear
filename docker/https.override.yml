@@ -6,6 +6,7 @@ services:
   nginx:
     volumes:
       - ../configuration/nginx/https.conf:/etc/nginx/conf.d/default.conf
+      - ../configuration/nginx/ssl.conf:/etc/nginx/ssl.conf
       - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates
       - /etc/ssl/private:/etc/ssl/private
     ports:
