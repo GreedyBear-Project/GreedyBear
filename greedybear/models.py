@@ -208,7 +208,9 @@ class CommandSequence(models.Model):
 class Credential(models.Model):
     username = models.CharField(max_length=256, blank=False)
     password = models.CharField(max_length=256, blank=False)
-    protocol = models.CharField(max_length=32, blank=True, default="")
+    # matches RawEvent.protocol and EventSerializer.protocol so an accepted
+    # event can never overflow this column during processing
+    protocol = models.CharField(max_length=50, blank=True, default="")
     sources = models.ManyToManyField(
         "IOC",
         blank=True,
