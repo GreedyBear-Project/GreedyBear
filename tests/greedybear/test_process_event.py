@@ -931,3 +931,73 @@ class TestExternalIocsReachFeeds(CustomTestCase):
         values = self._feed_values()
         self.assertIn(self.ATTACKER_IP, values)
         self.assertIn("185.220.101.7", values)
+
+
+class TestLongProtocolDoesNotFailBatch(CustomTestCase):
+    """
+    A protocol accepted by EventSerializer must fit Credential.protocol.
+
+    Both are 50 characters wide; when Credential.protocol was narrower, an event
+    carrying a longer value raised a DataError inside the atomic block and rolled
+    back every IOC in the batch.
+    """
+
+    ATTACKER_A = "193.32.162.44"
+    ATTACKER_B = "185.220.101.7"
+
+    def setUp(self):
+        self.user = make_user(username="long_proto_user")
+        self.api_source = make_api_source(self.user, name="LongProtoSource")
+        self.sensor = make_sensor(api_source=self.api_source, address="203.0.113.55", honeypot_software="Cowrie")
+        self.batch = make_batch(self.api_source, task_id="task-long-proto")
+
+    def _event(self, src_ip, protocol):
+        make_raw_event(
+            self.batch,
+            self.sensor,
+            src_ip=src_ip,
+            event_type="login_attempt",
+            username="admin",
+            password="hunter2",
+            protocol=protocol,
+        )
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_max_length_protocol_completes_the_batch(self, mock_scores):
+        self._event(self.ATTACKER_A, "p" * 50)
+        self._event(self.ATTACKER_B, "ssh")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.last_error, "")
+        self.assertEqual(self.batch.ioc_count, 2)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_long_protocol_does_not_discard_the_other_iocs(self, mock_scores):
+        self._event(self.ATTACKER_A, "p" * 50)
+        self._event(self.ATTACKER_B, "ssh")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.assertTrue(IOC.objects.filter(name=self.ATTACKER_A).exists())
+        self.assertTrue(IOC.objects.filter(name=self.ATTACKER_B).exists())
+        self.assertEqual(RawEvent.objects.filter(batch=self.batch, processed=False).count(), 0)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_long_protocol_is_stored_untruncated(self, mock_scores):
+        self._event(self.ATTACKER_A, "p" * 50)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        credential = Credential.objects.get(username="admin", password="hunter2")
+        self.assertEqual(credential.protocol, "p" * 50)
+
+    def test_credential_protocol_matches_the_event_field_widths(self):
+        """The three widths must agree, otherwise an accepted event cannot be persisted."""
+        from api.serializers.events import EventSerializer
+
+        credential_width = Credential._meta.get_field("protocol").max_length
+        self.assertEqual(credential_width, RawEvent._meta.get_field("protocol").max_length)
+        self.assertEqual(credential_width, EventSerializer().fields["protocol"].max_length)
