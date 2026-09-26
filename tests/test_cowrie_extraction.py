@@ -453,6 +453,46 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         self.assertIsInstance(session.commands.last_seen, datetime)
         self.assertIsNone(session.commands.last_seen.tzinfo)
 
+    def test_deduplicate_command_sequence_merge_older_session(self):
+        """Test that merging an older session expands first_seen but does NOT regress last_seen."""
+        session = Mock()
+        session.commands = Mock()
+        session.commands.commands = ["ls", "pwd", "whoami"]
+        session.commands.first_seen = datetime(2025, 8, 1, 10, 0, 0)
+        session.commands.last_seen = datetime(2025, 8, 21, 10, 0, 0)
+
+        existing_cmd_seq = Mock()
+        existing_cmd_seq.first_seen = datetime(2026, 9, 20, 10, 0, 0)
+        existing_cmd_seq.last_seen = datetime(2026, 9, 25, 12, 0, 0)
+        self.mock_session_repo.get_command_sequence_by_hash.return_value = existing_cmd_seq
+
+        result = self.strategy._deduplicate_command_sequence(session)
+
+        self.assertTrue(result)
+        self.assertEqual(session.commands, existing_cmd_seq)
+        self.assertEqual(existing_cmd_seq.first_seen, datetime(2025, 8, 1, 10, 0, 0))
+        self.assertEqual(existing_cmd_seq.last_seen, datetime(2026, 9, 25, 12, 0, 0))
+
+    def test_deduplicate_command_sequence_merge_newer_session(self):
+        """Test that merging a newer session advances last_seen and keeps earlier first_seen."""
+        session = Mock()
+        session.commands = Mock()
+        session.commands.commands = ["ls", "pwd", "whoami"]
+        session.commands.first_seen = datetime(2026, 9, 21, 10, 0, 0)
+        session.commands.last_seen = datetime(2026, 9, 26, 15, 0, 0)
+
+        existing_cmd_seq = Mock()
+        existing_cmd_seq.first_seen = datetime(2026, 9, 20, 10, 0, 0)
+        existing_cmd_seq.last_seen = datetime(2026, 9, 22, 10, 0, 0)
+        self.mock_session_repo.get_command_sequence_by_hash.return_value = existing_cmd_seq
+
+        result = self.strategy._deduplicate_command_sequence(session)
+
+        self.assertTrue(result)
+        self.assertEqual(session.commands, existing_cmd_seq)
+        self.assertEqual(existing_cmd_seq.first_seen, datetime(2026, 9, 20, 10, 0, 0))
+        self.assertEqual(existing_cmd_seq.last_seen, datetime(2026, 9, 26, 15, 0, 0))
+
     def test_start_time_is_naive_datetime_not_string(self):
         """Regression: parse_timestamp() must be called so that timezone-aware
         Elasticsearch strings are stripped to naive datetimes before .save().
