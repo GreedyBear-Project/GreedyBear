@@ -2,6 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 import re
 from collections import defaultdict
+from datetime import datetime
 from hashlib import sha256
 from urllib.parse import urlparse
 
@@ -302,7 +303,15 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             session.commands.commands_hash = commands_hash
             return False
 
-        last_seen = session.commands.last_seen
+        if isinstance(cmd_seq.last_seen, datetime) and isinstance(session.commands.last_seen, datetime):
+            cmd_seq.last_seen = max(cmd_seq.last_seen, session.commands.last_seen)
+        elif session.commands.last_seen:
+            cmd_seq.last_seen = session.commands.last_seen
+
+        if isinstance(cmd_seq.first_seen, datetime) and isinstance(session.commands.first_seen, datetime):
+            cmd_seq.first_seen = min(cmd_seq.first_seen, session.commands.first_seen)
+        elif session.commands.first_seen:
+            cmd_seq.first_seen = session.commands.first_seen
+
         session.commands = cmd_seq
-        session.commands.last_seen = last_seen
         return True

@@ -191,6 +191,23 @@ class TestCowrieSessionRepositoryCleanup(CustomTestCase):
         self.assertFalse(CommandSequence.objects.filter(commands_hash="old_hash").exists())
         self.assertTrue(CommandSequence.objects.filter(commands_hash="recent_hash").exists())
 
+    def test_delete_old_command_sequences_preserves_merged_sequence(self):
+        """A command sequence with a recent last_seen must survive cleanup even when older first_seen exists."""
+        recent_date = datetime.now() - timedelta(days=5)
+        old_date = datetime.now() - timedelta(days=400)
+
+        CommandSequence.objects.create(
+            commands=["id", "uname -a"],
+            commands_hash="merged_hash",
+            first_seen=old_date,
+            last_seen=recent_date,
+        )
+
+        cutoff = datetime.now() - timedelta(days=30)
+        deleted_count = self.repo.delete_old_command_sequences(cutoff)
+        self.assertEqual(deleted_count, 0)
+        self.assertTrue(CommandSequence.objects.filter(commands_hash="merged_hash").exists())
+
     def test_delete_incomplete_sessions(self):
         source = IOC.objects.create(name="1.2.3.4", type="ip")
 
