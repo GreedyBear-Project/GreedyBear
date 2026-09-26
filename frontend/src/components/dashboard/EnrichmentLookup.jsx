@@ -14,7 +14,11 @@ import { MdSearch } from "react-icons/md";
 import { Form, Formik } from "formik";
 import axios from "axios";
 
-import { addToast, BooleanIcon } from "../common/gb-ui/index";
+import {
+  addToast,
+  BooleanIcon,
+  CopyToClipboardButton,
+} from "../common/gb-ui/index";
 import { ENRICHMENT_URI } from "../../constants/api";
 import { useAuthStore } from "../../stores";
 import { AUTHENTICATION_STATUSES } from "../../constants";
@@ -22,6 +26,9 @@ import { AUTHENTICATION_STATUSES } from "../../constants";
 const initialValues = {
   query: "",
 };
+
+// number of payload hashes shown before the "Show all" toggle
+const PAYLOAD_HASHES_PREVIEW = 5;
 
 // Very simple, human-readable checks:
 // - only allow characters that make sense for IPs/domains
@@ -52,6 +59,7 @@ const isValidQuery = (value) => {
 
 export default function EnrichmentLookup() {
   const [result, setResult] = React.useState(null);
+  const [showAllHashes, setShowAllHashes] = React.useState(false);
 
   const [error, setError] = React.useState(null);
 
@@ -65,6 +73,7 @@ export default function EnrichmentLookup() {
     async (values, { setSubmitting }) => {
       setError(null);
       setResult(null);
+      setShowAllHashes(false);
 
       // Check authentication first
       if (isAuthenticated !== AUTHENTICATION_STATUSES.TRUE) {
@@ -302,6 +311,48 @@ export default function EnrichmentLookup() {
                       </div>
                     ))}
                   </div>
+                </Col>
+              </Row>
+            )}
+            {result.ioc.payload_hashes?.length > 0 && (
+              <Row className="mt-3">
+                <Col>
+                  <strong>Payload Hashes:</strong>
+                  <div className="mt-2 font-monospace small">
+                    {(showAllHashes
+                      ? result.ioc.payload_hashes
+                      : result.ioc.payload_hashes.slice(
+                          0,
+                          PAYLOAD_HASHES_PREVIEW,
+                        )
+                    ).map((sha256) => (
+                      <div
+                        key={sha256}
+                        className="mb-1 d-flex align-items-center"
+                      >
+                        <span className="text-break me-2">{sha256}</span>
+                        <CopyToClipboardButton
+                          id={`payload-hash-${sha256}`}
+                          text={sha256}
+                          aria-label={`Copy ${sha256}`}
+                          showOnHover
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {result.ioc.payload_hashes.length >
+                    PAYLOAD_HASHES_PREVIEW && (
+                    <Button
+                      color="link"
+                      size="sm"
+                      className="p-0"
+                      onClick={() => setShowAllHashes((prev) => !prev)}
+                    >
+                      {showAllHashes
+                        ? "Show less"
+                        : `Show all (${result.ioc.payload_hashes.length})`}
+                    </Button>
+                  )}
                 </Col>
               </Row>
             )}

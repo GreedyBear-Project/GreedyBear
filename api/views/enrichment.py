@@ -44,7 +44,7 @@ class EnrichmentView(RequestLoggingMixin, APIView):
         try:
             data = {
                 "found": True,
-                "ioc": IOC.objects.prefetch_related("tags", "sensors").get(name=query),
+                "ioc": IOC.objects.prefetch_related("tags", "sensors", "payloads").get(name=query),
                 "query": query,
             }
         except IOC.DoesNotExist:

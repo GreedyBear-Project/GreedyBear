@@ -1,6 +1,6 @@
 from rest_framework.test import APIClient
 
-from greedybear.models import Sensor, Statistics, ViewType
+from greedybear.models import HoneypotPayload, Sensor, Statistics, ViewType
 from tests import CustomTestCase
 
 
@@ -100,6 +100,23 @@ class EnrichmentViewTestCase(CustomTestCase):
         self.assertEqual(len(sensors), 1)
         self.assertEqual(sensors[0]["address"], "10.0.0.3")
         self.assertEqual(sensors[0]["label"], "enrichment-sensor")
+
+    def test_enrichment_payload_hashes_empty(self):
+        """An IOC without payloads returns an empty payload_hashes list."""
+        response = self.client.get(f"/api/enrichment?query={self.ioc.name}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["ioc"]["payload_hashes"], [])
+
+    def test_enrichment_payload_hashes_sorted_lowercase(self):
+        """All payload hashes of the IOC are returned, lowercased and sorted, without hashes of other IOCs."""
+        hash_upper = "B" * 64
+        hash_lower = "a" * 64
+        HoneypotPayload.objects.create(sha256=hash_upper).iocs.add(self.ioc)
+        HoneypotPayload.objects.create(sha256=hash_lower).iocs.add(self.ioc)
+        HoneypotPayload.objects.create(sha256="c" * 64).iocs.add(self.ioc_2)
+        response = self.client.get(f"/api/enrichment?query={self.ioc.name}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["ioc"]["payload_hashes"], [hash_lower, hash_upper.lower()])
 
     def test_statistics_source_prefers_forwarded_ipv6(self):
         """Statistics source should store the first valid forwarded IPv6 address."""
