@@ -7,13 +7,10 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db.models import Q
-from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories import PayloadRepository
-from greedybear.models import HoneypotPayload
+from greedybear.cronjobs.repositories import PayloadFields, PayloadRepository
 from greedybear.utils import get_time_window
 
 
@@ -156,13 +153,7 @@ class PayloadExtractionJob(Cronjob):
         # a mixed-case hash; a case-sensitive lookup would miss them and let the insert
         # through to fail on the constraint instead.
         incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
-        existing_hashes = set(
-            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
-            .filter(sha256_lower__in=incoming_hashes)
-            # Django stores an unset FileField as an empty string, but exclude NULL as well.
-            .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
-            .values_list("sha256_lower", flat=True)
-        )
+        existing_hashes = self.payload_repo.get_downloaded_hashes(incoming_hashes)
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
         # Keep only the first occurrence of each sha256 to avoid IntegrityError.
@@ -218,26 +209,15 @@ class PayloadExtractionJob(Cronjob):
                 self.log.warning(f"Payload {sha256[:12]}… has no locator, skipping.")
                 continue
 
-            payload_obj, created = HoneypotPayload.objects.get_or_create(
-                sha256=sha256,
-                defaults={
-                    # NULL rather than "", to match the hash-only stubs written by
-                    # _process_payload_hashes. The field still expresses "no file"
-                    # two ways across the codebase; unifying that is a follow-up.
-                    "payload_file": None,
-                    "md5": payload_meta.get("md5", ""),
-                    "sha1": payload_meta.get("sha1", ""),
-                    "mime_type": payload_meta.get("mime_type", ""),
-                    "size": payload_meta.get("size"),
-                    "locator": locator,
-                    "mtime": payload_meta.get("mtime"),
-                },
-            )
-            if not created and not payload_obj.locator:
-                # A hash-only stub written by _process_payload_hashes carries no
-                # locator. Fill it in so the payload stays recoverable.
-                payload_obj.locator = locator
-                payload_obj.save(update_fields=["locator"])
+            fields: PayloadFields = {
+                "md5": payload_meta.get("md5", ""),
+                "sha1": payload_meta.get("sha1", ""),
+                "mime_type": payload_meta.get("mime_type", ""),
+                "size": payload_meta.get("size"),
+                "locator": locator,
+                "mtime": payload_meta.get("mtime"),
+            }
+            payload_obj, _ = self.payload_repo.upsert_metadata_only_payload(sha256, fields)
 
             linked = self.payload_repo.link_sessions_to_payload(payload_obj)
             if linked:
@@ -284,7 +264,7 @@ class PayloadExtractionJob(Cronjob):
 
         # Create the database record, or upgrade an existing hash-only stub with
         # the real file and fresh metadata.
-        fields = {
+        fields: PayloadFields = {
             "md5": payload_meta.get("md5", ""),
             "sha1": payload_meta.get("sha1", ""),
             "mime_type": payload_meta.get("mime_type", ""),
@@ -292,12 +272,7 @@ class PayloadExtractionJob(Cronjob):
             "locator": locator,
             "mtime": payload_meta.get("mtime"),
         }
-        payload_obj, created = HoneypotPayload.objects.get_or_create(sha256=sha256, defaults=fields)
-        if not created:
-            for field, value in fields.items():
-                # Always overwrite size and locator, but only overwrite other fields if the new value is not empty
-                if field in ("size", "locator") or value:
-                    setattr(payload_obj, field, value)
+        payload_obj, created = self.payload_repo.upsert_downloaded_payload(sha256, fields)
 
         # Save the binary content via QuarantineStorage.
         filename = f"{sha256}.vir"

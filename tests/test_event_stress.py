@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import (
     IOC,
     CommandSequence,
@@ -733,6 +734,7 @@ class TestProcessPayloadHashesStress(CustomTestCase):
         self.user = make_user(username="stress_payload_user")
         self.api_source = make_api_source(self.user, name="StressPayloadSource")
         self.ioc = IOC.objects.create(name="10.0.4.1", type="ip")
+        self.payload_repo = PayloadRepository()
 
     def _sha(self, seed):
         return hashlib.sha256(seed.encode()).hexdigest()
@@ -743,7 +745,7 @@ class TestProcessPayloadHashesStress(CustomTestCase):
     def test_300_unique_hashes_all_linked(self):
         """300 distinct hashes must each create a stub row and link to the IOC."""
         hits = [self._hit(self._sha(f"payload{i}")) for i in range(300)]
-        _process_payload_hashes(self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
         self.assertEqual(HoneypotPayload.objects.count(), 300)
         self.assertEqual(self.ioc.payloads.count(), 300)
 
@@ -751,14 +753,14 @@ class TestProcessPayloadHashesStress(CustomTestCase):
         """300 hits with the same hash must produce exactly one HoneypotPayload."""
         sha = self._sha("duplicate")
         hits = [self._hit(sha) for _ in range(300)]
-        _process_payload_hashes(self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
         self.assertEqual(HoneypotPayload.objects.count(), 1)
 
     def test_idempotent_reprocessing_of_300_hashes(self):
         """Calling the function twice with the same 300 hashes must not create duplicates."""
         hits = [self._hit(self._sha(f"p{i}")) for i in range(300)]
-        _process_payload_hashes(self.ioc, hits)
-        _process_payload_hashes(self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
         self.assertEqual(HoneypotPayload.objects.count(), 300)
         self.assertEqual(self.ioc.payloads.count(), 300)
 
@@ -770,8 +772,8 @@ class TestProcessPayloadHashesStress(CustomTestCase):
         ioc2 = IOC.objects.create(name="10.0.4.2", type="ip")
         hits = [self._hit(self._sha(f"shared{i}")) for i in range(300)]
 
-        _process_payload_hashes(self.ioc, hits)
-        _process_payload_hashes(ioc2, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, ioc2, hits)
 
         self.assertEqual(HoneypotPayload.objects.count(), 300)
         self.assertEqual(self.ioc.payloads.count(), 300)
@@ -785,8 +787,8 @@ class TestProcessPayloadHashesStress(CustomTestCase):
         lower_hits = [self._hit(self._sha(f"case{i}")) for i in range(300)]
         upper_hits = [self._hit(self._sha(f"case{i}").upper()) for i in range(300)]
 
-        _process_payload_hashes(self.ioc, lower_hits)
-        _process_payload_hashes(self.ioc, upper_hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, lower_hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, upper_hits)
 
         self.assertEqual(HoneypotPayload.objects.count(), 300)
 
@@ -794,5 +796,5 @@ class TestProcessPayloadHashesStress(CustomTestCase):
         """300 hits with empty hash strings must write nothing to the DB."""
         hits = [self._hit("") for _ in range(300)]
         with self.assertNumQueries(0):
-            _process_payload_hashes(self.ioc, hits)
+            _process_payload_hashes(self.payload_repo, self.ioc, hits)
         self.assertEqual(HoneypotPayload.objects.count(), 0)
