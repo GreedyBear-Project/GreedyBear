@@ -39,7 +39,7 @@ class EnrichmentViewTestCase(CustomTestCase):
         self.assertEqual(response.json()["ioc"]["number_of_days_seen"], self.ioc.number_of_days_seen)
         self.assertEqual(response.json()["ioc"]["attack_count"], self.ioc.attack_count)
         # Honeypots are now via M2M relationship (serialized as list of strings)
-        honeypot_names = response.json()["ioc"]["general_honeypot"]
+        honeypot_names = response.json()["ioc"]["honeypots"]
         self.assertIn(self.heralding.name, honeypot_names)
         self.assertIn(self.ciscoasa.name, honeypot_names)
         self.assertIn(self.cowrie_hp.name, honeypot_names)

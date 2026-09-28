@@ -271,21 +271,20 @@ export default function EnrichmentLookup() {
               </Col>
             </Row>
 
-            {result.ioc.general_honeypot &&
-              result.ioc.general_honeypot.length > 0 && (
-                <Row className="mt-3">
-                  <Col>
-                    <strong>Honeypots:</strong>
-                    <div className="mt-2">
-                      {result.ioc.general_honeypot.map((hp, idx) => (
-                        <span key={idx} className="badge bg-primary me-2">
-                          {hp}
-                        </span>
-                      ))}
-                    </div>
-                  </Col>
-                </Row>
-              )}
+            {result.ioc.honeypots && result.ioc.honeypots.length > 0 && (
+              <Row className="mt-3">
+                <Col>
+                  <strong>Honeypots:</strong>
+                  <div className="mt-2">
+                    {result.ioc.honeypots.map((hp, idx) => (
+                      <span key={idx} className="badge bg-primary me-2">
+                        {hp}
+                      </span>
+                    ))}
+                  </div>
+                </Col>
+              </Row>
+            )}
             {result.ioc.sensors && result.ioc.sensors.length > 0 && (
               <Row className="mt-3">
                 <Col>

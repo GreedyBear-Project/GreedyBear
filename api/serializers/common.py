@@ -33,7 +33,7 @@ class SensorSerializer(serializers.ModelSerializer):
 
 
 class IOCSerializer(serializers.ModelSerializer):
-    general_honeypot = HoneypotRelatedField(many=True, read_only=True, source="honeypots")
+    honeypots = HoneypotRelatedField(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     sensors = SensorSerializer(many=True, read_only=True)
 
