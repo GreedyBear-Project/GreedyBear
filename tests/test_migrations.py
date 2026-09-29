@@ -455,3 +455,43 @@ class TestTagIdentityDeduplication(MigrationTestCase):
 
         with self.assertRaises(IntegrityError):
             tag_new.objects.create(ioc=ioc_new_ref, source="tanner", key="attack_type", value="rfi")
+
+
+@tag("migration")
+class TestMigrateCredentialReuseTags(MigrationTestCase):
+    """Tests that credential_reuse tags become the IOC.high_credential_reuse flag."""
+
+    migrate_from = "0068_ioc_high_credential_reuse"
+    migrate_to = "0069_migrate_credential_reuse_tags"
+
+    def test_credential_reuse_tag_becomes_flag(self):
+        """IOCs with the credential_reuse tag get flagged, and the tag is deleted."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        flagged = IOC.objects.create(name="1.1.1.1", type="ip")
+        IOC.objects.create(name="2.2.2.2", type="ip")
+        Tag.objects.create(ioc=flagged, source="credential_reuse", key="behavior", value="high_credential_reuse")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertIs(IOC.objects.get(name="1.1.1.1").high_credential_reuse, True)
+        self.assertIs(IOC.objects.get(name="2.2.2.2").high_credential_reuse, False)
+        self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())
+
+    def test_other_tags_are_kept(self):
+        """Tags from other sources are not touched by the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="3.3.3.3", type="ip")
+        Tag.objects.create(ioc=ioc, source="credential_reuse", key="behavior", value="high_credential_reuse")
+        Tag.objects.create(ioc=ioc, source="threatfox", key="malware", value="mirai")
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.filter(source="threatfox", ioc__name="3.3.3.3").count(), 1)
+        self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())

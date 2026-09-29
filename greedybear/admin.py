@@ -200,6 +200,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "scanner",
         "payload_request",
         "http_attack_types_display",
+        "high_credential_reuse",
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
@@ -216,6 +217,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "type",
         "scanner",
         "payload_request",
+        "high_credential_reuse",
         "ip_reputation",
         "autonomous_system",
     ]

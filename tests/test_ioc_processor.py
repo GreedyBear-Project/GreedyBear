@@ -385,6 +385,33 @@ class TestMergeIocs(ExtractionTestCase):
         self.assertEqual(result.protocols, [])
         self.assertEqual(result.cves, [])
 
+    def test_preserves_high_credential_reuse_when_new_is_false(self):
+        """A flagged IOC stays flagged when merged with an unflagged one."""
+        existing = self._create_mock_ioc(high_credential_reuse=True)
+        new = self._create_mock_ioc(high_credential_reuse=False)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, True)
+
+    def test_sets_high_credential_reuse_when_new_is_true(self):
+        """An unflagged IOC becomes flagged when merged with a flagged one."""
+        existing = self._create_mock_ioc(high_credential_reuse=False)
+        new = self._create_mock_ioc(high_credential_reuse=True)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, True)
+
+    def test_keeps_high_credential_reuse_false_when_both_false(self):
+        """Merging two unflagged IOCs does not flag the result."""
+        existing = self._create_mock_ioc(high_credential_reuse=False)
+        new = self._create_mock_ioc(high_credential_reuse=False)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, False)
+
 
 class TestUpdateDaysSeen(ExtractionTestCase):
     def setUp(self):

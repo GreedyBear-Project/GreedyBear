@@ -102,6 +102,7 @@ class IocProcessor:
         existing.protocols = sorted(set(existing.protocols + new.protocols))
         existing.cves = sorted(set(existing.cves + new.cves))
         existing.http_attack_types = sorted(set(existing.http_attack_types + new.http_attack_types))
+        existing.high_credential_reuse = existing.high_credential_reuse or new.high_credential_reuse
         existing.ip_reputation = existing.ip_reputation or new.ip_reputation
         existing.firehol_categories = list(new.firehol_categories)
         existing.login_attempts += new.login_attempts
