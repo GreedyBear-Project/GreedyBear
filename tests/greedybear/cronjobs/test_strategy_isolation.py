@@ -132,3 +132,67 @@ class RealMalformedRecordTestCase(CustomTestCase):
         strategy = self._tanner()
         strategy.extract_from_hits([self._tanner_hit("193.32.162.99", self.LONG_HOST)])
         self.assertEqual(strategy.skipped, 1)
+
+
+class MissingFieldTestCase(CustomTestCase):
+    """
+    The original concern on the issue: fields read directly from a hit.
+
+    A _source filter omits fields the document does not have, so a direct
+    hit["username"] was a KeyError rather than a None.
+    """
+
+    def setUp(self):
+        Honeypot.objects.get_or_create(name="Cowrie", defaults={"active": True})
+
+    def _cowrie(self):
+        from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
+        from greedybear.cronjobs.repositories import IocRepository, SensorRepository
+
+        return CowrieExtractionStrategy("Cowrie", IocRepository(), SensorRepository())
+
+    def _session(self, ioc):
+        from greedybear.models import CowrieSession
+
+        session = CowrieSession.objects.create(session_id=4242, source=ioc)
+        session.interaction_count = 0
+        return session
+
+    def test_login_hit_without_username_does_not_raise(self):
+        ioc = IOC.objects.create(name="45.83.64.50", type="ip")
+        strategy = self._cowrie()
+        hit = {"eventid": "cowrie.login.failed", "password": "toor"}  # username absent
+        strategy._process_session_hit(self._session(ioc), hit, ioc)
+
+    def test_command_hit_without_message_records_an_empty_command(self):
+        ioc = IOC.objects.create(name="45.83.64.51", type="ip")
+        strategy = self._cowrie()
+        session = self._session(ioc)
+        hit = {"eventid": "cowrie.command.input", "timestamp": "2026-09-29T10:00:00.000Z"}
+        strategy._process_session_hit(session, hit, ioc)
+        self.assertEqual(session.commands.commands, [""])
+
+    def test_command_hit_without_timestamp_is_skipped_cleanly(self):
+        """A command with no timestamp cannot be placed in time, so it raises SkipHitError."""
+        ioc = IOC.objects.create(name="45.83.64.52", type="ip")
+        strategy = self._cowrie()
+        hit = {"eventid": "cowrie.command.input", "message": "CMD: ls"}
+        with self.assertRaises(SkipHitError):
+            strategy._process_session_hit(self._session(ioc), hit, ioc)
+
+    def test_closed_hit_without_duration_does_not_raise(self):
+        ioc = IOC.objects.create(name="45.83.64.53", type="ip")
+        strategy = self._cowrie()
+        session = self._session(ioc)
+        strategy._process_session_hit(session, {"eventid": "cowrie.session.closed"}, ioc)
+        self.assertIsNone(session.duration)
+
+    def test_a_skipped_hit_costs_only_that_hit(self):
+        """The per session guard turns the SkipHitError into one lost session, not the chunk."""
+        from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
+
+        strategy = self._cowrie()
+        with strategy.skip_on_error("session 1"):
+            raise SkipHitError("hit is missing required field 'timestamp'")
+        self.assertEqual(strategy.skipped, 1)
+        self.assertIsInstance(strategy, CowrieExtractionStrategy)

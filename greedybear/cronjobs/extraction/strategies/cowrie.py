@@ -6,6 +6,7 @@ from hashlib import sha256
 from urllib.parse import urlparse
 
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
@@ -241,39 +242,41 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             hit: Hit document to process
             ioc: Associated IOC for logging
         """
-        eventid = hit.get("eventid")
+        hit = Hit.wrap(hit)
+        eventid = hit.get_str("eventid")
 
         match eventid:
             case "cowrie.session.connect":
-                session_record.start_time = parse_timestamp(hit["timestamp"])
+                session_record.start_time = hit.require_time("timestamp")
 
             case "cowrie.login.failed" | "cowrie.login.success":
                 session_record.login_attempt = True
-                username = normalize_credential_field(hit["username"])
-                password = normalize_credential_field(hit["password"])
+                username = normalize_credential_field(hit.get("username"))
+                password = normalize_credential_field(hit.get("password"))
                 self.session_repo.add_credential(session_record, username, password)
 
             case "cowrie.command.input":
                 self.log.info(f"found a command execution from {ioc.name}")
                 session_record.command_execution = True
+                command_time = hit.require_time("timestamp")
 
                 if session_record.commands is None:
                     session_record.commands = CommandSequence()
-                    session_record.commands.first_seen = parse_timestamp(hit["timestamp"])
+                    session_record.commands.first_seen = command_time
 
-                command = normalize_command(hit["message"])
-                session_record.commands.last_seen = parse_timestamp(hit["timestamp"])
+                command = normalize_command(hit.get_str("message"))
+                session_record.commands.last_seen = command_time
                 session_record.commands.commands.append(command)
 
             case "cowrie.session.closed":
-                session_record.duration = hit["duration"]
+                session_record.duration = hit.get_float("duration")
 
             case "cowrie.session.file_download" | "cowrie.session.file_upload":
-                shasum = hit.get("shasum")
+                shasum = hit.get_str("shasum")
                 if shasum:
-                    url = hit.get("url", "")
-                    outfile = hit.get("outfile", "")
-                    timestamp = parse_timestamp(hit["timestamp"])
+                    url = hit.get_str("url")
+                    outfile = hit.get_str("outfile")
+                    timestamp = hit.require_time("timestamp")
                     self.log.info(f"found file with shasum {shasum[:8]}... from {ioc.name}")
 
                     self.session_repo.get_or_create_file_transfer(

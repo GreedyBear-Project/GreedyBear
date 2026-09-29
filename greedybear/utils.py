@@ -1,6 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
@@ -196,7 +197,8 @@ def get_nested_value(d: dict, *keys: str) -> Any | None:
         return None
     current = d
     for key in keys:
-        if not isinstance(current, dict):
+        # Mapping rather than dict, so a wrapped hit traverses like a plain one
+        if not isinstance(current, Mapping):
             return None
         current = current.get(key)
     return current

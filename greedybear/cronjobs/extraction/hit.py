@@ -38,6 +38,24 @@ class Hit(MutableMapping):
         """
         self._data = data
 
+    @classmethod
+    def wrap(cls, hit) -> "Hit":
+        """
+        Return a hit as a Hit, leaving one that already is alone.
+
+        Hits reach the extraction helpers from two places: the pipeline, which
+        wraps them, and the event collector in process_event, which builds plain
+        dicts. Wrapping on the way in lets both use the typed accessors without
+        the callers having to agree on a type.
+
+        Args:
+            hit: A Hit or a plain hit dictionary.
+
+        Returns:
+            The hit as a Hit.
+        """
+        return hit if isinstance(hit, cls) else cls(hit)
+
     # --- mapping protocol -------------------------------------------------
 
     def __getitem__(self, key: str) -> Any:

@@ -9,6 +9,7 @@ import requests
 from django.conf import settings
 
 from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
+from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
@@ -107,7 +108,11 @@ def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
     """
     hits_by_ip: dict[str, list[dict]] = defaultdict(list)
     for hit in hits:
-        hits_by_ip[hit["src_ip"]].append(hit)
+        hit = Hit.wrap(hit)
+        try:
+            hits_by_ip[hit.require_str("src_ip")].append(hit)
+        except SkipHitError as exc:
+            log.debug(f"skipping hit: {exc}")
 
     valid_hits_by_ip = {}
     for ip, ip_hits in hits_by_ip.items():
@@ -181,19 +186,21 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         protocols: set[str] = set()
         cves: set[str] = set()
         for hit in hits:
-            if "dest_port" in hit:
-                dest_ports.add(hit["dest_port"])
+            dest_port = hit.get_int("dest_port")
+            if dest_port is not None:
+                dest_ports.add(dest_port)
             sensor = hit.get("_sensor")
             if sensor is not None and getattr(sensor, "id", None):
                 sensors_map[sensor.id] = sensor
-            if "@timestamp" in hit:
-                timestamps.append(hit["@timestamp"])
+            timestamp = hit.get("@timestamp")
+            if timestamp is not None:
+                timestamps.append(timestamp)
             if hit.get("username") or hit.get("password"):
                 login_attempts += 1
 
             # cve and protocol extraction, mapped explicitly by honeypot type
             # to avoid ambiguity (e.g. Suricata has both proto=TCP and app_proto=rfb)
-            honeypot_type = hit.get("type", "").lower()
+            honeypot_type = hit.get_str("type").lower()
             cve_field_path = CVE_FIELD_MAP.get(honeypot_type, ())
             cve_value = get_nested_value(hit, *cve_field_path)
             if cve_value:
