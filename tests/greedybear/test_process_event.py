@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
+from api.serializers.events import EventSerializer
 from greedybear.cronjobs.repositories import IocRepository
 from greedybear.models import IOC, CommandSequence, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
@@ -996,8 +997,6 @@ class TestLongProtocolDoesNotFailBatch(CustomTestCase):
 
     def test_credential_protocol_matches_the_event_field_widths(self):
         """The three widths must agree, otherwise an accepted event cannot be persisted."""
-        from api.serializers.events import EventSerializer
-
         credential_width = Credential._meta.get_field("protocol").max_length
         self.assertEqual(credential_width, RawEvent._meta.get_field("protocol").max_length)
         self.assertEqual(credential_width, EventSerializer().fields["protocol"].max_length)
