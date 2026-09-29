@@ -1,6 +1,9 @@
 import logging
 from abc import ABCMeta, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 
+from greedybear.cronjobs.extraction.hit import SkipHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 
@@ -19,6 +22,7 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         log: Logger instance for this class.
         ioc_processor: Processor for creating and updating IOC records.
         ioc_records: List of IOC records extracted during processing.
+        skipped: Number of records dropped because processing them failed.
     """
 
     def __init__(
@@ -34,6 +38,33 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.ioc_processor = IocProcessor(self.ioc_repo, self.sensor_repo)
         self.ioc_records = []
+        self.skipped = 0
+
+    @contextmanager
+    def skip_on_error(self, what: str) -> Iterator[None]:
+        """
+        Isolate one record so that failing to process it costs only that record.
+
+        Hits are attacker influenced, so a single malformed one can raise
+        anywhere in a strategy. Without this the exception leaves the strategy
+        and is caught per honeypot, which drops every remaining record in the
+        chunk as well.
+
+        A SkipHitError is expected and logged quietly. Anything else is a bug
+        worth seeing, so it is logged with its traceback, but it is still
+        contained so the rest of the chunk goes through.
+
+        Args:
+            what: Short description of the record, used in the log line.
+        """
+        try:
+            yield
+        except SkipHitError as exc:
+            self.skipped += 1
+            self.log.debug(f"skipping {what}: {exc}")
+        except Exception:
+            self.skipped += 1
+            self.log.exception(f"failed to process {what} from honeypot {self.honeypot}")
 
     @abstractmethod
     def extract_from_hits(self, hits: list[dict]) -> None:
