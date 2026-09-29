@@ -4,6 +4,7 @@ from collections import defaultdict
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.bucket_updater import BucketUpdater
+from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
 from greedybear.cronjobs.extraction.strategies.factory import ExtractionStrategyFactory
 from greedybear.cronjobs.repositories import (
     ElasticRepository,
@@ -70,21 +71,22 @@ class ExtractionPipeline:
 
             # 2. Group by honeypot
             self.log.info("Grouping hits by honeypot type")
-            for hit in chunk:
-                # convert hit to dict for easier handling
-                hit = hit.to_dict()
-                # skip hits with non-existing or empty sources
-                if "src_ip" not in hit or not hit["src_ip"].strip():
-                    continue
-                # skip hits with non-existing or empty types (=honeypots)
-                if "type" not in hit or not hit["type"].strip():
+            for raw_hit in chunk:
+                # wrap so the strategies get typed access to the same hit
+                hit = Hit(raw_hit.to_dict())
+                try:
+                    # a hit without a source or a honeypot cannot be attributed
+                    hit.require("src_ip")
+                    hit.require("type")
+                except SkipHitError as exc:
+                    self.log.debug(f"Skipping hit: {exc}")
                     continue
 
                 if "t-pot_ip_ext" in hit:
                     sensor = self.sensor_repo.get_or_create_sensor(hit["t-pot_ip_ext"])
                     hit["_sensor"] = sensor  # include sensor for strategies
 
-                    sensor_country = hit.get("geoip_ext", {}).get("country_name")
+                    sensor_country = hit.get_dict("geoip_ext").get("country_name")
                     if sensor_country is not None:
                         self.sensor_repo.update_country(sensor, sensor_country)
 
