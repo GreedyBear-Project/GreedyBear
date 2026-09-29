@@ -154,15 +154,24 @@ known-first-party = [
     "greedybear",
 ]
 
-[tool.ty.src]
-exclude = ["**/migrations/**"]
-
-# Ignore some rules in tests/ directory because
-# - DRF's response.data` is invisible,
-# - assertIsNotNone()` does not narrow types
+# Ignore some ty rules in tests/ directory because
+# - DRF's `response.data` is invisible (unresolved-attribute, not-subscriptable),
+# - `assertIsNotNone()` does not narrow types, so Optional values stay Optional after it
+#   (not-subscriptable, invalid-argument-type, invalid-return-type, invalid-assignment)
 [[tool.ty.overrides]]
 include = ["tests/**"]
 
 [tool.ty.overrides.rules]
 unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
+invalid-return-type = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+
+# DRF's @api_view returns an AsView protocol that ty doesn't treat as callable,
+# so path() never matches it
+[[tool.ty.overrides]]
+include = ["**/urls.py"]
+
+[tool.ty.overrides.rules]
+no-matching-overload = "ignore"
