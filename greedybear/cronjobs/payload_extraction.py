@@ -1,18 +1,20 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 
-import time
+from datetime import datetime
 from pathlib import Path
 
 import requests
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db.models import Q
 from django.db.models.functions import Lower
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
+from greedybear.utils import get_time_window
 
 
 class PayloadExtractionJob(Cronjob):
@@ -23,12 +25,14 @@ class PayloadExtractionJob(Cronjob):
     This job:
     1. Queries the payload server's ``/api/v1/payloads/recent`` endpoint for
        metadata of files modified within the last extraction interval.
-    2. Skips any payload whose SHA256 already exists in the database.
+    2. Skips any payload whose SHA256 already has a downloaded file in the database.
     3. Checks quarantine disk usage against MAX_QUARANTINE_SIZE_GB before downloading.
     4. Downloads new payload files via ``/api/v1/payloads/download/{locator}``
        and saves them via QuarantineStorage.
-    5. Links each downloaded payload to any Cowrie sessions that already
-       transferred a file with the same SHA256.
+    5. Records metadata-only rows for any payload left undownloaded once the
+       quota is reached, so it is not lost with the extraction window.
+    6. Links every payload it records, downloaded or not, to the Cowrie sessions
+       and attacker IOCs that already transferred a file with the same SHA256.
     """
 
     # Timeout for the metadata listing request (seconds).
@@ -66,10 +70,15 @@ class PayloadExtractionJob(Cronjob):
             # Step 3: Download and store each new payload.
             downloaded = 0
             skipped_count = 0
-            for payload_meta in new_payloads:
+            deferred_count = 0
+            for index, payload_meta in enumerate(new_payloads):
                 # Check disk usage before each download.
                 if self._quarantine_usage_bytes() >= max_size_bytes:
                     self.log.error(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
+                    # Record what we did not get to. Every payload shows up in exactly
+                    # one /recent window, so dropping the rest of the batch here would
+                    # lose these files permanently.
+                    deferred_count = self._store_metadata_only(new_payloads[index:])
                     break
 
                 if self._download_and_store(client, server_url, payload_meta):
@@ -77,7 +86,7 @@ class PayloadExtractionJob(Cronjob):
                 else:
                     skipped_count += 1
 
-        self.log.info(f"Payload extraction complete: {downloaded} downloaded, {skipped_count} skipped/failed.")
+        self.log.info(f"Payload extraction complete: {downloaded} downloaded, {skipped_count} skipped/failed, {deferred_count} stored as metadata only.")
 
     def _build_auth_headers(self) -> dict:
         """
@@ -101,11 +110,14 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             list[dict]: List of payload metadata dicts, or empty list on error.
         """
-        end_ts = time.time()
-        start_ts = end_ts - (settings.EXTRACTION_INTERVAL * 60)
+        window_start, window_end = get_time_window(
+            reference_time=datetime.now(),
+            lookback_minutes=settings.EXTRACTION_INTERVAL,
+            extraction_interval=settings.EXTRACTION_INTERVAL,
+        )
 
         url = f"{server_url.rstrip('/')}/api/v1/payloads/recent"
-        params = {"start_ts": start_ts, "end_ts": end_ts}
+        params = {"start_ts": window_start.timestamp(), "end_ts": window_end.timestamp()}
         headers = self._build_auth_headers()
 
         try:
@@ -125,8 +137,13 @@ class PayloadExtractionJob(Cronjob):
 
     def _deduplicate(self, payloads: list[dict]) -> list[dict]:
         """
-        Filter out payloads whose SHA256 already exists in the database
-        and remove duplicates within the response itself.
+        Filter out payloads whose SHA256 already has a downloaded file in the
+        database, and remove duplicates within the response itself.
+
+        A hash can already have a HoneypotPayload row without a file attached -
+        a metadata-only stub created from a raw event before the file was
+        available. Those hashes are treated as new so the file can still be
+        downloaded.
 
         Args:
             payloads: List of payload metadata dicts (must contain 'sha256' key).
@@ -140,7 +157,11 @@ class PayloadExtractionJob(Cronjob):
         # through to fail on the constraint instead.
         incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
         existing_hashes = set(
-            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower__in=incoming_hashes).values_list("sha256_lower", flat=True)
+            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
+            .filter(sha256_lower__in=incoming_hashes)
+            # Django stores an unset FileField as an empty string, but exclude NULL as well.
+            .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
+            .values_list("sha256_lower", flat=True)
         )
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
@@ -166,10 +187,72 @@ class PayloadExtractionJob(Cronjob):
             return 0
         return sum(f.stat().st_size for f in quarantine_path.iterdir() if f.is_file())
 
+    def _store_metadata_only(self, payloads: list[dict]) -> int:
+        """
+        Persist metadata-only rows for payloads that were not downloaded.
+
+        Called when the quarantine quota is exhausted mid-batch. The row keeps the
+        locator, which is the only handle the file can be fetched with later, and
+        leaves ``payload_file`` empty to mark the payload as not yet downloaded.
+
+        Each row is linked to the Cowrie sessions and attacker IOCs that already
+        transferred the same file, exactly as a downloaded payload would be. The
+        hash is what the join runs on, so a row without a file still carries the
+        attribution; the file only fills in later.
+
+        Args:
+            payloads: List of payload metadata dicts that were not downloaded.
+
+        Returns:
+            int: Number of payloads recorded.
+        """
+        stored = 0
+        for payload_meta in payloads:
+            # Lower-cased like in _deduplicate, so every writer agrees on the case.
+            sha256 = payload_meta["sha256"].lower()
+            locator = payload_meta.get("locator", "")
+
+            if not locator:
+                # Without a locator the file can never be fetched, so a row would
+                # only shadow the hash without offering a way to recover it.
+                self.log.warning(f"Payload {sha256[:12]}… has no locator, skipping.")
+                continue
+
+            payload_obj, created = HoneypotPayload.objects.get_or_create(
+                sha256=sha256,
+                defaults={
+                    # NULL rather than "", to match the hash-only stubs written by
+                    # _process_payload_hashes. The field still expresses "no file"
+                    # two ways across the codebase; unifying that is a follow-up.
+                    "payload_file": None,
+                    "md5": payload_meta.get("md5", ""),
+                    "sha1": payload_meta.get("sha1", ""),
+                    "mime_type": payload_meta.get("mime_type", ""),
+                    "size": payload_meta.get("size"),
+                    "locator": locator,
+                    "mtime": payload_meta.get("mtime"),
+                },
+            )
+            if not created and not payload_obj.locator:
+                # A hash-only stub written by _process_payload_hashes carries no
+                # locator. Fill it in so the payload stays recoverable.
+                payload_obj.locator = locator
+                payload_obj.save(update_fields=["locator"])
+
+            linked = self.payload_repo.link_sessions_to_payload(payload_obj)
+            if linked:
+                self.log.info(f"Linked payload {sha256[:12]}… to {linked} cowrie session(s).")
+            stored += 1
+
+        if stored:
+            self.log.info(f"Stored metadata for {stored} payload(s) that were not downloaded.")
+        return stored
+
     def _download_and_store(self, client: HttpClient, server_url: str, payload_meta: dict) -> bool:
         """
-        Download a single payload file, create its database record, and link
-        it to any Cowrie sessions that already transferred the same file.
+        Download a single payload file, create its database record (or upgrade
+        an existing hash-only stub with the real file), and link it to any
+        Cowrie sessions that already transferred the same file.
 
         Args:
             client: HttpClient instance.
@@ -199,23 +282,32 @@ class PayloadExtractionJob(Cronjob):
 
         file_content = response.content
 
-        # Create the database record with metadata.
-        payload_obj = HoneypotPayload(
-            sha256=sha256,
-            md5=payload_meta.get("md5", ""),
-            sha1=payload_meta.get("sha1", ""),
-            mime_type=payload_meta.get("mime_type", ""),
-            size=len(file_content),
-            locator=locator,
-            mtime=payload_meta.get("mtime"),
-        )
+        # Create the database record, or upgrade an existing hash-only stub with
+        # the real file and fresh metadata.
+        fields = {
+            "md5": payload_meta.get("md5", ""),
+            "sha1": payload_meta.get("sha1", ""),
+            "mime_type": payload_meta.get("mime_type", ""),
+            "size": len(file_content),
+            "locator": locator,
+            "mtime": payload_meta.get("mtime"),
+        }
+        payload_obj, created = HoneypotPayload.objects.get_or_create(sha256=sha256, defaults=fields)
+        if not created:
+            for field, value in fields.items():
+                # Always overwrite size and locator, but only overwrite other fields if the new value is not empty
+                if field in ("size", "locator") or value:
+                    setattr(payload_obj, field, value)
 
         # Save the binary content via QuarantineStorage.
         filename = f"{sha256}.vir"
         payload_obj.payload_file.save(filename, ContentFile(file_content), save=False)
         payload_obj.save()
 
-        self.log.info(f"Stored new payload {sha256[:12]}… ({len(file_content)} bytes).")
+        if created:
+            self.log.info(f"Stored new payload {sha256[:12]}… ({len(file_content)} bytes).")
+        else:
+            self.log.info(f"Upgraded hash-only stub {sha256[:12]}… with the downloaded file ({len(file_content)} bytes).")
 
         linked = self.payload_repo.link_sessions_to_payload(payload_obj)
         if linked:

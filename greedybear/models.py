@@ -169,6 +169,7 @@ class IOC(models.Model):
     payload_request = models.BooleanField(default=False)
     related_ioc = models.ManyToManyField("self", blank=True, symmetrical=True)
     related_urls = pg_fields.ArrayField(models.CharField(max_length=900, blank=True), blank=True, default=list)
+    http_attack_types = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     ip_reputation = models.CharField(max_length=32, blank=True)
     firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
@@ -337,6 +338,9 @@ class Tag(models.Model):
         indexes = [
             models.Index(fields=["source", "ioc"]),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["ioc", "source", "key", "value"], name="unique_tag_identity"),
+        ]
 
     def __str__(self):
         return f"{self.ioc.name} - {self.key}: {self.value} ({self.source})"
@@ -413,6 +417,7 @@ class EventStatus(models.Model):
     ioc_count = models.PositiveIntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
     processed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

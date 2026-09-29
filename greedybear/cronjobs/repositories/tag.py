@@ -46,7 +46,7 @@ class TagRepository:
                 for entry in tag_entries
             ]
 
-            Tag.objects.bulk_create(tags_to_create, batch_size=1000)
+            Tag.objects.bulk_create(tags_to_create, batch_size=1000, ignore_conflicts=True)
             self.log.info(f"Created {len(tags_to_create)} tags from source '{source}'")
             return len(tags_to_create)
 

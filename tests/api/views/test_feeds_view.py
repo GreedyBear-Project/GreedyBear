@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.test import override_settings
 
 from api.throttles import FeedsThrottle
+from greedybear.models import HoneypotPayload
 from tests import CustomTestCase
 
 
@@ -218,3 +219,37 @@ class FeedsViewTestCase(CustomTestCase):
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 429)
+
+
+class PublicFeedsPayloadHashesTestCase(CustomTestCase):
+    """Payload hashes are reserved for the authenticated feeds."""
+
+    def setUp(self):
+        super().setUp()
+        self.payload_hash = "e" * 64
+        HoneypotPayload.objects.create(sha256=self.payload_hash).iocs.add(self.ioc)
+
+    def test_no_payload_hashes_in_simple_feed(self):
+        response = self.client.get("/api/feeds/all/all/recent.json")
+        self.assertEqual(response.status_code, 200)
+
+        target_ioc = next((i for i in response.json()["iocs"] if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertNotIn("payload_hashes", target_ioc)
+
+    def test_no_payload_hashes_in_public_paginated_feed(self):
+        response = self.client.get("/api/feeds/?page_size=10&page=1")
+        self.assertEqual(response.status_code, 200)
+
+        target_ioc = next((i for i in response.json()["results"]["iocs"] if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertNotIn("payload_hashes", target_ioc)
+
+    def test_no_payload_hashes_in_simple_ndjson_feed(self):
+        response = self.client.get("/api/feeds/all/all/recent.ndjson")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        iocs = [json.loads(line) for line in body.split("\n") if line.strip()]
+
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertNotIn("payload_hashes", target_ioc)

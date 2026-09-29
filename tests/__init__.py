@@ -249,6 +249,7 @@ class ExtractionTestCase(CustomTestCase):
         attacker_country_code="",
         protocols=None,
         cves=None,
+        http_attack_types=None,
     ):
         mock = Mock(spec=IOC)
         mock.name = name
@@ -277,6 +278,7 @@ class ExtractionTestCase(CustomTestCase):
 
         mock.protocols = protocols if protocols is not None else []
         mock.cves = cves if cves is not None else []
+        mock.http_attack_types = http_attack_types if http_attack_types is not None else []
 
         return mock
 

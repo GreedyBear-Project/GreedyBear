@@ -2,7 +2,7 @@ import React from "react";
 import { Tooltip, UncontrolledTooltip } from "reactstrap";
 import { HiClipboardCopy } from "react-icons/hi";
 
-import useCopyToClipboard from "react-use/lib/useCopyToClipboard";
+import { useCopyToClipboard } from "react-use";
 
 function CopyToClipboardButton({
   id,

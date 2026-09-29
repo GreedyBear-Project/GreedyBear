@@ -311,6 +311,40 @@ class SensorASNTests(BaseSensorTestCase):
 
 
 class SensorValidationTests(BaseSensorTestCase):
+    def test_honeypot_software_over_15_chars_returns_400(self):
+        """
+        honeypot_software becomes a Honeypot record during event processing, and
+        Honeypot.name only holds 15 characters, so longer values are rejected here.
+        """
+        payload = {
+            **VALID_PAYLOAD,
+            "honeypot_software": "a" * 16,
+        }
+
+        response = self.client.post(
+            SENSOR_CREATE_URL,
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("honeypot_software", response.json()["errors"])
+
+    def test_honeypot_software_at_15_chars_accepted(self):
+        payload = {
+            **VALID_PAYLOAD,
+            "address": "8.8.4.4",
+            "honeypot_software": "a" * 15,
+        }
+
+        response = self.client.post(
+            SENSOR_CREATE_URL,
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_missing_address_returns_400(self):
         payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "address"}
 

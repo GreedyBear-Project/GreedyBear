@@ -40,9 +40,9 @@ class Cache:
         return self._get_cache().get(version_key, 1)
 
     def bump_data_version(self, version_key: str) -> None:
-        """Invalidate every cache entry keyed off version_key by incrementing it."""
-        cache = self._get_cache()
-        try:
-            cache.incr(version_key)
-        except ValueError:
-            cache.set(version_key, 2, timeout=None)
+        """Invalidate every cache entry keyed off version_key by incrementing it.
+
+        The version is stored without expiry, so it never falls back to a value
+        that old cached responses are still keyed on.
+        """
+        self.set(version_key, self.get_data_version(version_key) + 1)

@@ -85,6 +85,25 @@ class IocRepository:
         self._honeypot_cache[normalized] = honeypot
         return honeypot
 
+    def ensure_honeypot(self, honeypot_name: str) -> Honeypot:
+        """
+        Return the honeypot with this name, creating it if it is not known yet.
+
+        Unlike create_honeypot, this checks the cache first, so repeat calls for
+        an already known honeypot cost nothing and never hit the IntegrityError path.
+
+        Args:
+            honeypot_name: Name of the honeypot to look up or create.
+
+        Returns:
+            A Honeypot instance (cached, newly created, or recovered).
+        """
+        normalized = self._normalize_name(honeypot_name)
+        honeypot = self._honeypot_cache.get(normalized)
+        if honeypot is None:
+            honeypot = self.create_honeypot(honeypot_name)
+        return honeypot
+
     def get_active_honeypots(self) -> list[Honeypot]:
         """
         Retrieve a list of all active honeypots.
@@ -156,9 +175,7 @@ class IocRepository:
         Returns:
             True if the honeypot exists and is enabled, False otherwise.
         """
-        normalized = self._normalize_name(honeypot_name)
-        if normalized not in self._honeypot_cache:
-            self.create_honeypot(honeypot_name)
+        self.ensure_honeypot(honeypot_name)
         return self.is_enabled(honeypot_name)
 
     def save(self, ioc: IOC) -> IOC:

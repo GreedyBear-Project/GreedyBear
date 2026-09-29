@@ -391,6 +391,7 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     value = serializers.CharField(max_length=256)
     scanner = serializers.BooleanField()
     payload_request = serializers.BooleanField()
+    http_attack_types = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True)
     first_seen = serializers.DateField(format="%Y-%m-%d")
     last_seen = serializers.DateField(format="%Y-%m-%d")
     attack_count = serializers.IntegerField(min_value=1)
@@ -409,6 +410,13 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
 class AdvancedFeedResponseSerializer(SimpleFeedResponseSerializer):
     credential_count = serializers.IntegerField(min_value=0)
     sensors = SensorSerializer(many=True, required=False, default=list)
+    payload_hashes = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        allow_empty=True,
+        required=False,
+        default=list,
+        help_text="Lowercase SHA256 hashes of the payloads observed from this IOC. Only included when `verbose=true`.",
+    )
     firehol_categories = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True, required=False)
     destination_ports = serializers.ListField(child=serializers.IntegerField(min_value=1, max_value=65535), required=False)
     days_seen = serializers.ListField(child=serializers.DateField(format="%Y-%m-%d"), required=False)

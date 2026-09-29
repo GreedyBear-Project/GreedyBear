@@ -173,7 +173,7 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
 
         qs = (
             IOC.objects.filter(last_seen__gte=delta)
-            .exclude(honeypots__active=False)
+            .filter(honeypots__active=True)
             .annotate(date=Trunc("last_seen", basis))
             .values("date")
             .annotate(**annotations)
@@ -202,6 +202,6 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
 
         try:
             return parse_humanized_range(range_str)
-        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        except (OverflowError, ValueError, TypeError, KeyError, AttributeError) as exc:
             logger.warning(f"Invalid range parameter '{range_str}': {exc}")
             raise ValidationError(f"Invalid 'range' parameter: '{range_str}'. Expected format like '7d', '24h', or '30d'.") from exc

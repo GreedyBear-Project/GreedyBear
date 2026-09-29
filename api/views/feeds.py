@@ -7,9 +7,10 @@ from datetime import timedelta
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
+from django.contrib.postgres.expressions import ArraySubquery
 from django.core import signing
-from django.db.models import Count, F, Q, QuerySet, Value
-from django.db.models.functions import JSONObject
+from django.db.models import Count, F, OuterRef, Q, QuerySet, Value
+from django.db.models.functions import JSONObject, Lower
 from django.http import HttpResponseBase, StreamingHttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -50,7 +51,7 @@ from api.views.utils import (
 from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
-from greedybear.models import IOC, ShareToken, ViewType
+from greedybear.models import IOC, HoneypotPayload, ShareToken, ViewType
 
 RENDERERS_BY_FORMAT = {
     "json": FeedJSONRenderer,
@@ -303,8 +304,8 @@ class AdvancedFeedView(BaseFeedView):
     include_sensors = True
 
     def get_queryset(self) -> QuerySet:
-        """Overrides base class to include credential count
-        and sensor information."""
+        """Overrides base class to include credential count,
+        sensor information and, when verbose, the hashes of the payloads seen from each IOC."""
         iocs = super().get_queryset()
 
         iocs = iocs.annotate(credential_count=Count("credentials", distinct=True))
@@ -318,6 +319,15 @@ class AdvancedFeedView(BaseFeedView):
                     distinct=True,
                 )
             )
+            if self.request_params.get("verbose", False):
+                # Annotate payload hashes viasubquery instead of another ArrayAgg:
+                # The aggregates above already join honeypots, tags, sensors and credentials into one GROUP BY,
+                # and every additional multi-valued join multiplies the rows per IOC.
+                # ARRAY(subquery) also yields an empty array when an IOC has no payloads.
+                payload_hashes = (
+                    HoneypotPayload.objects.filter(iocs=OuterRef("pk")).annotate(sha256_lower=Lower("sha256")).order_by("sha256_lower").values("sha256_lower")
+                )
+                iocs = iocs.annotate(payload_hashes=ArraySubquery(payload_hashes))
 
         return iocs
 
