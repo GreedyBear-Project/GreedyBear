@@ -109,7 +109,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
 
         self.log.info(
             f"added {len(self.ioc_records)} scanners, attack types for {self.iocs_with_attack_types} IOCs, "
-            f"{self.rfi_hostnames_added} RFI hostnames from {self.honeypot}"
+            f"{self.rfi_hostnames_added} RFI hostnames from {self.honeypot}, skipped {self.skipped}"
         )
 
     def _get_scanners(self, hits: list[dict], attack_types_by_ip: dict[str, set[str]]) -> None:
@@ -124,14 +124,15 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             attack_types_by_ip: Attack types found for each scanner IP.
         """
         for ioc in iocs_from_hits(hits):
-            self.log.info(f"found IP {ioc.name} by honeypot {self.honeypot}")
-            ioc.http_attack_types = sorted(attack_types_by_ip.get(ioc.name, set()))
-            ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name=TANNER_HONEYPOT)
-            if ioc_record:
-                self.ioc_records.append(ioc_record)
-                if ioc.http_attack_types:
-                    self.iocs_with_attack_types += 1
-                threatfox_submission(ioc_record, ioc.related_urls, self.log)
+            with self.skip_on_error(f"IoC {ioc.name}"):
+                self.log.info(f"found IP {ioc.name} by honeypot {self.honeypot}")
+                ioc.http_attack_types = sorted(attack_types_by_ip.get(ioc.name, set()))
+                ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name=TANNER_HONEYPOT)
+                if ioc_record:
+                    self.ioc_records.append(ioc_record)
+                    if ioc.http_attack_types:
+                        self.iocs_with_attack_types += 1
+                    threatfox_submission(ioc_record, ioc.related_urls, self.log)
 
     def _classify_hits(self, hits: list[dict]) -> list[tuple[dict, str, str, list[str]]]:
         """
@@ -183,14 +184,15 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             if "rfi" not in attack_types:
                 continue
 
-            # Only handle RFI for known scanners. Use the cache to avoid one
-            # DB query per hit; fall back to the repo for IPs not loaded above.
-            if scanner_ip not in ioc_cache:
-                ioc_cache[scanner_ip] = self.ioc_repo.get_ioc_by_name(scanner_ip)
-            if not ioc_cache[scanner_ip]:
-                continue
+            with self.skip_on_error(f"RFI payload from {scanner_ip}"):
+                # Only handle RFI for known scanners. Use the cache to avoid one
+                # DB query per hit; fall back to the repo for IPs not loaded above.
+                if scanner_ip not in ioc_cache:
+                    ioc_cache[scanner_ip] = self.ioc_repo.get_ioc_by_name(scanner_ip)
+                if not ioc_cache[scanner_ip]:
+                    continue
 
-            self._extract_rfi_hostnames(hit, scanner_ip, request_text)
+                self._extract_rfi_hostnames(hit, scanner_ip, request_text)
 
     def _extract_request_text(self, hit: dict) -> str:
         """

@@ -92,7 +92,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         self._extract_possible_payload_in_messages(hits)
         self._get_url_downloads(hits)
         self.log.info(
-            f"added {len(self.ioc_records)} scanners, {self.payloads_in_message} payloads found in messages, {self.added_url_downloads} download URLs"
+            f"added {len(self.ioc_records)} scanners, {self.payloads_in_message} payloads found in messages, "
+            f"{self.added_url_downloads} download URLs, skipped {self.skipped}"
         )
 
     def _get_scanners(self, hits: list[dict]) -> None:
@@ -102,12 +103,13 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             hits_by_ip[hit["src_ip"]].append(hit)
 
         for ioc in iocs_from_hits(hits):
-            self.log.info(f"found IP {ioc.name} by honeypot cowrie")
-            ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name="Cowrie")
-            if ioc_record:
-                self.ioc_records.append(ioc_record)
-                threatfox_submission(ioc_record, ioc.related_urls, self.log)
-                self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
+            with self.skip_on_error(f"IoC {ioc.name}"):
+                self.log.info(f"found IP {ioc.name} by honeypot cowrie")
+                ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name="Cowrie")
+                if ioc_record:
+                    self.ioc_records.append(ioc_record)
+                    threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
 
     def _extract_possible_payload_in_messages(self, hits: list[dict]) -> None:
         """
@@ -124,35 +126,36 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             ]:
                 continue
 
-            match_url = re.search(REGEX_URL_PROTOCOL, hit.get("message", ""))
-            if not match_url:
-                continue
+            with self.skip_on_error(f"payload in message from {hit.get('src_ip')}"):
+                match_url = re.search(REGEX_URL_PROTOCOL, hit.get("message", ""))
+                if not match_url:
+                    continue
 
-            scanner_ip = hit["src_ip"]
-            payload_url = match_url.group()
-            payload_hostname = parse_url_hostname(payload_url)
+                scanner_ip = hit["src_ip"]
+                payload_url = match_url.group()
+                payload_hostname = parse_url_hostname(payload_url)
 
-            if not payload_hostname:
-                self.log.warning(f"Failed to parse hostname from URL: {payload_url}")
-                continue
+                if not payload_hostname:
+                    self.log.warning(f"Failed to parse hostname from URL: {payload_url}")
+                    continue
 
-            self.log.info(f"found hidden URL {payload_url} in payload from attacker {scanner_ip}")
-            self.log.info(f"extracted hostname {payload_hostname} from {payload_url}")
+                self.log.info(f"found hidden URL {payload_url} in payload from attacker {scanner_ip}")
+                self.log.info(f"extracted hostname {payload_hostname} from {payload_url}")
 
-            hit_time = parse_timestamp(hit["@timestamp"])
-            ioc = IOC(
-                name=payload_hostname,
-                type=get_ioc_type(payload_hostname),
-                first_seen=hit_time,
-                last_seen=hit_time,
-                related_urls=[payload_url],
-            )
-            sensor = hit.get("_sensor")
-            if sensor:
-                ioc._sensors_to_add = [sensor]
-            self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name="Cowrie")
-            self._add_fks(scanner_ip, payload_hostname)
-            self.payloads_in_message += 1
+                hit_time = parse_timestamp(hit["@timestamp"])
+                ioc = IOC(
+                    name=payload_hostname,
+                    type=get_ioc_type(payload_hostname),
+                    first_seen=hit_time,
+                    last_seen=hit_time,
+                    related_urls=[payload_url],
+                )
+                sensor = hit.get("_sensor")
+                if sensor:
+                    ioc._sensors_to_add = [sensor]
+                self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name="Cowrie")
+                self._add_fks(scanner_ip, payload_hostname)
+                self.payloads_in_message += 1
 
     def _get_url_downloads(self, hits: list[dict]) -> None:
         """
@@ -167,35 +170,36 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             if hit.get("eventid", "") != "cowrie.session.file_download":
                 continue
 
-            scanner_ip = str(hit["src_ip"])
-            download_url = str(hit["url"])
-            shasum = hit.get("shasum")
-            sha_suffix = f" (SHA256: {shasum})" if shasum else ""
-            self.log.info(f"found IP {scanner_ip} downloading from {download_url}{sha_suffix}")
+            with self.skip_on_error(f"download from {hit.get('src_ip')}"):
+                scanner_ip = str(hit["src_ip"])
+                download_url = str(hit["url"])
+                shasum = hit.get("shasum")
+                sha_suffix = f" (SHA256: {shasum})" if shasum else ""
+                self.log.info(f"found IP {scanner_ip} downloading from {download_url}{sha_suffix}")
 
-            # Extract and track download URL
-            if download_url:
-                hostname = parse_url_hostname(download_url)
-                if not hostname:
-                    self.log.warning(f"Failed to parse hostname from download URL: {download_url}")
-                    continue
+                # Extract and track download URL
+                if download_url:
+                    hostname = parse_url_hostname(download_url)
+                    if not hostname:
+                        self.log.warning(f"Failed to parse hostname from download URL: {download_url}")
+                        continue
 
-                hit_time = parse_timestamp(hit["@timestamp"])
-                ioc = IOC(
-                    name=hostname,
-                    type=get_ioc_type(hostname),
-                    first_seen=hit_time,
-                    last_seen=hit_time,
-                    related_urls=[download_url],
-                )
-                sensor = hit.get("_sensor")
-                if sensor:
-                    ioc._sensors_to_add = [sensor]
-                ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name="Cowrie")
-                if ioc_record:
-                    self.added_url_downloads += 1
-                    threatfox_submission(ioc_record, ioc.related_urls, self.log)
-                self._add_fks(scanner_ip, hostname)
+                    hit_time = parse_timestamp(hit["@timestamp"])
+                    ioc = IOC(
+                        name=hostname,
+                        type=get_ioc_type(hostname),
+                        first_seen=hit_time,
+                        last_seen=hit_time,
+                        related_urls=[download_url],
+                    )
+                    sensor = hit.get("_sensor")
+                    if sensor:
+                        ioc._sensors_to_add = [sensor]
+                    ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name="Cowrie")
+                    if ioc_record:
+                        self.added_url_downloads += 1
+                        threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self._add_fks(scanner_ip, hostname)
 
     def _get_sessions(self, ioc: IOC, hits: list[dict]) -> None:
         """
@@ -212,18 +216,19 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             hits_per_session[hit["session"]].append(hit)
 
         for sid, session_hits in hits_per_session.items():
-            session_record = self.session_repo.get_or_create_session(session_id=sid, source=ioc)
+            with self.skip_on_error(f"session {sid} from {ioc.name}"):
+                session_record = self.session_repo.get_or_create_session(session_id=sid, source=ioc)
 
-            for hit in sorted(session_hits, key=lambda hit: hit["timestamp"]):
-                self._process_session_hit(session_record, hit, ioc)
+                for hit in sorted(session_hits, key=lambda hit: hit["timestamp"]):
+                    self._process_session_hit(session_record, hit, ioc)
 
-            if session_record.commands is not None:
-                self._deduplicate_command_sequence(session_record)
-                self.session_repo.save_command_sequence(session_record.commands)
-                self.log.info(f"saved new command execute from {ioc.name} with hash {session_record.commands.commands_hash}")
+                if session_record.commands is not None:
+                    self._deduplicate_command_sequence(session_record)
+                    self.session_repo.save_command_sequence(session_record.commands)
+                    self.log.info(f"saved new command execute from {ioc.name} with hash {session_record.commands.commands_hash}")
 
-            self.ioc_repo.save(session_record.source)
-            self.session_repo.save_session(session_record)
+                self.ioc_repo.save(session_record.source)
+                self.session_repo.save_session(session_record)
 
         self.log.info(f"{len(hits_per_session)} sessions added")
 

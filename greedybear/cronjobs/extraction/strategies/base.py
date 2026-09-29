@@ -3,6 +3,8 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from django.db import transaction
+
 from greedybear.cronjobs.extraction.hit import SkipHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
@@ -54,11 +56,18 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         worth seeing, so it is logged with its traceback, but it is still
         contained so the rest of the chunk goes through.
 
+        The body runs in its own atomic block for two reasons. Postgres aborts
+        the whole transaction on a failed statement, so without a savepoint to
+        roll back to, catching a database error would leave the connection
+        unusable and every later record would fail anyway. It also means a
+        record that fails half way leaves no partial rows behind.
+
         Args:
             what: Short description of the record, used in the log line.
         """
         try:
-            yield
+            with transaction.atomic():
+                yield
         except SkipHitError as exc:
             self.skipped += 1
             self.log.debug(f"skipping {what}: {exc}")
