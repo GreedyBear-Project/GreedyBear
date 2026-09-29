@@ -579,21 +579,12 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "coverage" },
     { name = "django-stubs" },
+    { name = "django-test-migrations" },
     { name = "django-watchfiles" },
     { name = "djangorestframework-stubs" },
-    { name = "ty" },
-]
-lint = [
     { name = "ruff" },
-]
-test = [
-    { name = "coverage" },
-    { name = "django-test-migrations" },
-]
-types = [
-    { name = "django-stubs" },
-    { name = "djangorestframework-stubs" },
     { name = "ty" },
 ]
 
@@ -624,20 +615,13 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "coverage", specifier = "==7.16.0" },
     { name = "django-stubs", specifier = "~=6.1.1" },
+    { name = "django-test-migrations", specifier = "==1.6.0" },
     { name = "django-watchfiles", specifier = "~=1.4" },
     { name = "djangorestframework-stubs", specifier = "~=3.18.1" },
-    { name = "ty", specifier = "==0.0.83" },
-]
-lint = [{ name = "ruff", specifier = "==0.16.7" }]
-test = [
-    { name = "coverage", specifier = "==7.16.0" },
-    { name = "django-test-migrations", specifier = "==1.6.0" },
-]
-types = [
-    { name = "django-stubs", specifier = "~=6.1.1" },
-    { name = "djangorestframework-stubs", specifier = "~=3.18.1" },
-    { name = "ty", specifier = "==0.0.83" },
+    { name = "ruff", specifier = "==0.16.7" },
+    { name = "ty", specifier = "~=0.0.83" },
 ]
 
 [[package]]
