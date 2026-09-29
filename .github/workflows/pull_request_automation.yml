@@ -61,6 +61,7 @@ jobs:
       use_autoflake: false
       use_ruff_formatter: true
       use_ruff_linter: true
+      use_ty: true
 
       packages_path: packages.txt
       django_settings_module: greedybear.settings

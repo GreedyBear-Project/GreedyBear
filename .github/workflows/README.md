@@ -139,6 +139,7 @@ It is composed of one job:
 * **use_flake8** - Optional - Whether to use flake8 linter. By default, it is set to `false`.
 * **use_pylint** - Optional - Whether to use pylint linter. By default, it is set to `false`.
 * **use_ruff_linter** - Optional - Whether to use ruff linter. By default, it is set to `false`.
+* **use_ty** - Optional - Whether to use ty type checker. By default, it is set to `false`.
 * **use_coverage** - Optional - Whether to use coverage. By default, it is set to `false`.
 * **coverage_config_path** - Optional - Path to the coverage configuration file. By default, it is set to `.coveragerc`.
 * **upload_coverage** - Optional - Whether to upload coverage report to GitHub. To work, it needs *use_coverage* to be true. By default, it is set to `false`.
