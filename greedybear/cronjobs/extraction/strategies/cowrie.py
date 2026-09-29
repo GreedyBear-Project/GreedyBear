@@ -71,8 +71,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         honeypot: str,
         ioc_repo: IocRepository,
         sensor_repo: SensorRepository,
-        session_repo: CowrieSessionRepository = None,
-        payload_repo: PayloadRepository = None,
+        session_repo: CowrieSessionRepository | None = None,
+        payload_repo: PayloadRepository | None = None,
     ):
         super().__init__(honeypot, ioc_repo, sensor_repo)
         self.session_repo = session_repo or CowrieSessionRepository()

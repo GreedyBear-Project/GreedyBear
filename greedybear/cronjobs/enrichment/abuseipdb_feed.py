@@ -37,25 +37,25 @@ class AbuseIPDBCron(HttpEnrichmentJob):
         json_data = response.json()
         return json_data.get("data", [])
 
-    def _parse_feed(self, blocklist_data: list) -> dict[str, int]:
+    def _parse_feed(self, raw_data: list) -> dict[str, int]:
         """
         Parse AbuseIPDB blocklist data into a dict keyed by validated IP address.
 
         Args:
-            blocklist_data: Raw blocklist data from AbuseIPDB API.
+            raw_data: Raw blocklist data from AbuseIPDB API.
 
         Returns:
             Dict mapping IP address -> abuse confidence score.
         """
         score_by_ip: dict[str, int] = {}
 
-        for entry in blocklist_data:
+        for entry in raw_data:
             ip_addr = entry.get("ipAddress")
             if not ip_addr:
                 continue
 
-            is_valid, validated_ip = is_valid_ipv4(ip_addr)
-            if not is_valid:
+            _, validated_ip = is_valid_ipv4(ip_addr)
+            if validated_ip is None:
                 continue
 
             score_by_ip[validated_ip] = entry.get("abuseConfidenceScore")

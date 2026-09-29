@@ -42,7 +42,7 @@ class FeedTypeField(serializers.CharField):
     the internal representation is always a list.
     """
 
-    def to_internal_value(self, data: str) -> list[str]:
+    def to_internal_value(self, data: str) -> list[str]:  # ty: ignore[invalid-method-override]
         feed_type_str = super().to_internal_value(data)
         logger.debug(f"Validating feed_type: {feed_type_str}")
         feed_type_list = feed_type_as_list(feed_type_str)
@@ -55,11 +55,11 @@ class FeedTypeField(serializers.CharField):
             raise serializers.ValidationError(f"Invalid feed_type: {', '.join(sorted(invalid_feed_types))} not supported")
         return feed_type_list
 
-    def get_default(self) -> list[str]:
+    def get_default(self) -> list[str]:  # ty: ignore[invalid-method-override]
         """Convert the declared default ("all") to a list ["all"]
         to match internal representaion of other values.
         """
-        return [super().get_default()]
+        return [super().get_default()]  # ty: ignore[invalid-return-type]
 
 
 class ReputationListField(serializers.ListField):
@@ -68,7 +68,7 @@ class ReputationListField(serializers.ListField):
     and represents it as a list.
     """
 
-    def to_internal_value(self, data: str) -> list[str]:
+    def to_internal_value(self, data: str) -> list[str]:  # ty: ignore[invalid-method-override]
         logger.debug(f"Converting reputation list: {data}")
         reputations = data.split(";") if data else []
         return super().to_internal_value(reputations)
@@ -135,19 +135,19 @@ class SimpleFeedRequestSerializer(BaseFeedRequestSerializer):
     # allows explicit override of the ordering in PRIORITIZATION_PRESETS
     ordering = serializers.CharField(required=False, help_text="Override the preset ordering, e.g. `-attack_count`.")
 
-    def validate(self, data: dict) -> dict:
+    def validate(self, attrs: dict) -> dict:
         logger.debug("Validating simple feed request")
-        data = super().validate(data)
-        prioritization_preset = PRIORITIZATION_PRESETS[data["prioritize"]]
+        attrs = super().validate(attrs)
+        prioritization_preset = PRIORITIZATION_PRESETS[attrs["prioritize"]]
         exclude_reputation = []
-        if not data["include_mass_scanners"]:
+        if not attrs["include_mass_scanners"]:
             exclude_reputation.append(IpReputation.MASS_SCANNER)
-        if not data["include_tor_exit_nodes"]:
+        if not attrs["include_tor_exit_nodes"]:
             exclude_reputation.append(IpReputation.TOR_EXIT_NODE)
         return {
             **FEED_DEFAULTS,
             **prioritization_preset,
-            **data,
+            **attrs,
             "exclude_reputation": exclude_reputation,
         }
 
@@ -185,17 +185,17 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     tag_value = serializers.CharField(max_length=256, required=False, allow_blank=True, help_text="Filter by tag value.")
     country_code = serializers.CharField(max_length=2, required=False, allow_blank=True, help_text="Filter by 2-letter attacker country code.")
 
-    def validate(self, data: dict) -> dict:
+    def validate(self, attrs: dict) -> dict:
         logger.debug("Validating advanced feed request")
-        data = super().validate(data)
+        attrs = super().validate(attrs)
         # .get() instead of [] so subclasses without the paginate field (ASN) can reuse this
-        if data.get("paginate"):
-            data["format"] = "json"
-        min_cc = data.get("min_credential_count")
-        max_cc = data.get("max_credential_count")
+        if attrs.get("paginate"):
+            attrs["format"] = "json"
+        min_cc = attrs.get("min_credential_count")
+        max_cc = attrs.get("max_credential_count")
         if min_cc is not None and max_cc is not None and min_cc > max_cc:
             raise serializers.ValidationError("min_credential_count must be less than or equal to max_credential_count")
-        return data
+        return attrs
 
 
 class ASNFeedRequestSerializer(AdvancedFeedRequestSerializer):
@@ -275,29 +275,29 @@ class TokenRequestSerializer(serializers.Serializer):
 
     token = serializers.CharField(help_text="A valid and signed share token.")
 
-    def validate(self, data: dict) -> dict:
+    def validate(self, attrs: dict) -> dict:
         logger.debug("Validating share token")
-        token = data["token"]
+        token = attrs["token"]
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         try:
-            data["share_token"] = ShareToken.objects.get(token_hash=token_hash)
+            attrs["share_token"] = ShareToken.objects.get(token_hash=token_hash)
         except ShareToken.DoesNotExist as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
         try:
-            data["feed_params"] = signing.loads(token, salt=SHARE_TOKEN_SALT, max_age=SHARE_TOKEN_MAX_AGE)
+            attrs["feed_params"] = signing.loads(token, salt=SHARE_TOKEN_SALT, max_age=SHARE_TOKEN_MAX_AGE)
         except signing.BadSignature as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
-        return data
+        return attrs
 
 
 class TokenConsumeRequestSerializer(TokenRequestSerializer):
     """Consume additionally rejects revoked tokens (a revoked link must not return data)."""
 
-    def validate(self, data: dict) -> dict:
-        data = super().validate(data)
-        if data["share_token"].revoked:
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        if attrs["share_token"].revoked:
             raise serializers.ValidationError("Token has been revoked")
-        return data
+        return attrs
 
 
 ### RESPONSES ###

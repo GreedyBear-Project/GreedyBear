@@ -16,9 +16,11 @@ from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
+from rest_framework.pagination import BasePagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import Serializer
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
@@ -94,15 +96,15 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer, FeedNDJSONRenderer]
 
     # REQUEST HANDLING
-    serializer_class = None
-    pagination_class = None
+    serializer_class: type[Serializer]
+    pagination_class: type[BasePagination] | None = None
 
     # QUERYSET SHAPE
     include_sensors = False
     is_aggregated = False
 
     # VALIDATED REQUEST PARAMETERS - populated in get()
-    request_params = None
+    request_params: dict
 
     # OUTPUT SHAPE - set dynamically, depending on the requested format
     build_feed_envelope = False
@@ -124,15 +126,16 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
         return serializer.validated_data
 
     def should_paginate(self, request_data: dict) -> bool:
-        """Whether to paginate this response.
-        Requires a pagination_class and the validated paginate flag."""
-        return self.pagination_class is not None and request_data.get("paginate", False)
+        """Whether to paginate this response, according to the validated paginate flag.
+        Only consulted when a pagination_class is set."""
+        return request_data.get("paginate", False)
 
     def get_renderer_context(self) -> dict:
         """Publish the render-time flags the feed renderers need, so they read
         explicit context keys instead of reaching into view internals."""
         context = super().get_renderer_context()
-        context["verbose"] = (self.request_params or {}).get("verbose", False)
+        # request_params is unset when validation fails and the error response gets rendered
+        context["verbose"] = getattr(self, "request_params", {}).get("verbose", False)
         context["include_sensors"] = self.include_sensors
         context["build_feed_envelope"] = self.build_feed_envelope
         return context
@@ -176,7 +179,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     def render_response(self, request: Request, iocs_queryset: QuerySet) -> HttpResponseBase:
         """Select the renderer for the validated format and hand it the prepared data."""
         requested_format = self.request_params.get("format")
-        if self.should_paginate(self.request_params):
+        if self.pagination_class is not None and self.should_paginate(self.request_params):
             verbose = self.request_params.get("verbose", False)
             paginator = self.pagination_class()
             page = paginator.paginate_queryset(iocs_queryset, request)
@@ -387,7 +390,7 @@ class TrendingFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     cache_namespace = "trending_feeds"
     cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
 
-    def get(self, request: Request) -> Response:
+    def get(self, request: Request) -> HttpResponseBase:
         serializer = TrendingFeedRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
@@ -521,7 +524,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
         serializer = TokenRequestSerializer(data={"token": token})
         serializer.is_valid(raise_exception=True)
         share_token = serializer.validated_data["share_token"]
-        if share_token.user != request.user and not request.user.is_staff:
+        if share_token.user != request.user and not request.user.is_staff:  # ty: ignore[unresolved-attribute]  # IsAuthenticated guarantees a real user
             return Response(
                 {"errors": {"non_field_errors": ["You do not have permission to revoke this token."]}},
                 status=status.HTTP_403_FORBIDDEN,

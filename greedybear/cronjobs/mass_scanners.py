@@ -64,8 +64,8 @@ class MassScannersCron(Cronjob):
                     continue
 
                 # Validate the extracted candidate
-                is_valid, ip_address = is_valid_ipv4(ip_match.group(1))
-                if not is_valid:
+                _, ip_address = is_valid_ipv4(ip_match.group(1))
+                if ip_address is None:
                     # Not a valid IPv4, log at DEBUG level
                     self.log.debug(f"Invalid IPv4 address in line: {line}")
                     continue

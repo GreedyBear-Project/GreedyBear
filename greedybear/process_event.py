@@ -2,10 +2,11 @@ import hashlib
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import CharField, Q
 from django.utils import timezone
 
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
@@ -23,7 +24,7 @@ DEFAULT_EXTERNAL_HONEYPOT = "External"
 # SensorCreateSerializer caps honeypot_software at this length, but sensors
 # registered before that cap could hold more than Honeypot.name accepts, so
 # values are truncated rather than failing the batch with a DataError.
-HONEYPOT_NAME_MAX_LENGTH = Honeypot._meta.get_field("name").max_length
+HONEYPOT_NAME_MAX_LENGTH = cast("CharField", Honeypot._meta.get_field("name")).max_length
 
 
 def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:

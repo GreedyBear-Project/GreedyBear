@@ -40,7 +40,7 @@ class PayloadExtractionJob(Cronjob):
     # Timeout for individual file download requests (seconds).
     DOWNLOAD_TIMEOUT = 120
 
-    def __init__(self, payload_repo: PayloadRepository = None):
+    def __init__(self, payload_repo: PayloadRepository | None = None):
         super().__init__()
         self.payload_repo = payload_repo if payload_repo is not None else PayloadRepository()
 

@@ -3,7 +3,6 @@ from abc import abstractmethod
 from pathlib import Path
 
 import pandas as pd
-from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 from greedybear.cronjobs.scoring.consts import MULTI_VAL_FEATURES, NUM_FEATURES
@@ -66,12 +65,12 @@ class RFModel(MLModel):
 
     @property
     @abstractmethod
-    def untrained_model(self) -> BaseEstimator:
+    def untrained_model(self) -> RandomForestClassifier | RandomForestRegressor:
         """
         Create and configure an untrained Random Forest model.
 
         Returns:
-            BaseEstimator: Configured but untrained scikit-learn Random Forest
+            RandomForestClassifier | RandomForestRegressor: Configured but untrained scikit-learn Random Forest
                 model with all hyperparameters set
         """
 
@@ -88,13 +87,13 @@ class RFClassifier(RFModel, Classifier):
         super().__init__("Random Forest Classifier", "recurrence_probability")
 
     @property
-    def untrained_model(self) -> BaseEstimator:
+    def untrained_model(self) -> RandomForestClassifier:
         """
         Create and configure an untrained Random Forest Classifier.
         Hyperparameters were found by RandomSearchCV.
 
         Returns:
-            BaseEstimator: Configured but untrained scikit-learn Random Forest
+            RandomForestClassifier: Configured but untrained scikit-learn Random Forest
                 Classifier with all hyperparameters set
         """
         with Path(ML_CONFIG_FILE).open() as f:
@@ -120,13 +119,13 @@ class RFRegressor(RFModel, Regressor):
         super().__init__("Random Forest Regressor", "expected_interactions")
 
     @property
-    def untrained_model(self) -> BaseEstimator:
+    def untrained_model(self) -> RandomForestRegressor:
         """
         Create and configure an untrained Random Forest Regressor.
         Hyperparameters were found by RandomSearchCV.
 
         Returns:
-            BaseEstimator: Configured but untrained scikit-learn Random Forest
+            RandomForestRegressor: Configured but untrained scikit-learn Random Forest
                 Regressor with all hyperparameters set
         """
         with Path(ML_CONFIG_FILE).open() as f:
