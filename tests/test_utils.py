@@ -473,10 +473,11 @@ class TestClampToField(SimpleTestCase):
 
     def test_limit_follows_the_schema(self):
         """The point of the helper: widen the column and the clamp widens with it."""
+        oversized = "x" * 5000
         for model, field_name in ((Credential, "username"), (Credential, "password")):
             with self.subTest(field=field_name):
                 declared = model._meta.get_field(field_name).max_length
-                self.assertEqual(len(clamp_to_field(model, field_name, "x" * (declared + 50))), declared)
+                self.assertEqual(len(clamp_to_field(model, field_name, oversized)), declared)
 
     def test_unknown_field_raises(self):
         with self.assertRaises(FieldDoesNotExist):

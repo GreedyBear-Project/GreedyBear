@@ -91,7 +91,7 @@ def get_firehol_categories(ip: str, extracted_ip, firehol_exact_map: dict, cidr_
     return firehol_categories
 
 
-def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
+def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[Hit]]:
     """
     Group hits by source IP, dropping malformed addresses.
 
@@ -104,11 +104,11 @@ def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
         hits: List of raw hit dictionaries with a "src_ip" key.
 
     Returns:
-        Mapping of valid source IP to its hits (plain dict).
+        Mapping of valid source IP to its wrapped hits.
     """
-    hits_by_ip: dict[str, list[dict]] = defaultdict(list)
-    for hit in hits:
-        hit = Hit.wrap(hit)
+    hits_by_ip: dict[str, list[Hit]] = defaultdict(list)
+    for raw_hit in hits:
+        hit = Hit.wrap(raw_hit)
         try:
             hits_by_ip[hit.require_str("src_ip")].append(hit)
         except SkipHitError as exc:
@@ -171,21 +171,21 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
 
     iocs = []
     as_repository = ASRepository()  # single instance for this batch
-    for ip, hits in valid_hits_by_ip.items():
+    for ip, ip_hits in valid_hits_by_ip.items():
         extracted_ip = ip_address(ip)  # infallible: validated above
         if is_non_global_ip(extracted_ip):
             continue
 
         firehol_categories = get_firehol_categories(ip, extracted_ip, firehol_exact_map, cidr_entries)
 
-        # Single pass over hits to accumulate all derived data
+        # Single pass over ip_hits to accumulate all derived data
         dest_ports: set[int] = set()
         sensors_map = {}
         timestamps = []
         login_attempts = 0
         protocols: set[str] = set()
         cves: set[str] = set()
-        for hit in hits:
+        for hit in ip_hits:
             dest_port = hit.get_int("dest_port")
             if dest_port is not None:
                 dest_ports.add(dest_port)
@@ -221,7 +221,7 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         # Sort sensors by ID for consistent processing order
         sensors = sorted(sensors_map.values(), key=lambda s: s.id)
 
-        geoip = next((h.get("geoip") for h in hits if h.get("geoip")), {})
+        geoip = next((h.get("geoip") for h in ip_hits if h.get("geoip")), {})
         attacker_country = geoip.get("country_name", "")
         raw_country_code = geoip.get("country_code2", "")
         attacker_country_code = raw_country_code.upper() if len(raw_country_code) == 2 else ""
@@ -233,8 +233,8 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         ioc = IOC(
             name=ip,
             type=get_ioc_type(ip),
-            interaction_count=len(hits),
-            ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in hits if h.get("ip_rep")), ""), mass_scanner_ips),
+            interaction_count=len(ip_hits),
+            ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in ip_hits if h.get("ip_rep")), ""), mass_scanner_ips),
             autonomous_system=autonomous_system,
             destination_ports=sorted(dest_ports),
             login_attempts=login_attempts,

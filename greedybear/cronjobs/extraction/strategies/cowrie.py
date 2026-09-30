@@ -233,16 +233,16 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
 
         self.log.info(f"{len(hits_per_session)} sessions added")
 
-    def _process_session_hit(self, session_record: CowrieSession, hit: dict, ioc: IOC) -> None:
+    def _process_session_hit(self, session_record: CowrieSession, raw_hit: dict, ioc: IOC) -> None:
         """
         Process a single hit and update the session record.
 
         Args:
             session_record: CowrieSession instance to update
-            hit: Hit document to process
+            raw_hit: Hit document to process, wrapped on the way in
             ioc: Associated IOC for logging
         """
-        hit = Hit.wrap(hit)
+        hit = Hit.wrap(raw_hit)
         eventid = hit.get_str("eventid")
 
         match eventid:

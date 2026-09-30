@@ -205,13 +205,14 @@ def clamp_to_field(model: type[Model], field_name: str, value: str) -> str:
     return value if max_length is None else value[:max_length]
 
 
-def get_nested_value(d: dict, *keys: str) -> Any | None:
+def get_nested_value(d: Any, *keys: str) -> Any | None:
     """
     Traverse a nested dictionary along a path of keys without raising.
     Failed traversals yield None instead of an error.
 
     Args:
-        d: Dict to traverse.
+        d: Mapping to traverse. Anything else yields None rather than raising,
+            which is why this is not narrowed to Mapping.
         *keys: Key path to follow, e.g. "connection", "protocol".
 
     Returns:
