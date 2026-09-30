@@ -130,6 +130,14 @@ class StatisticsViewTestCase(CustomTestCase):
         response = self.client.get("/api/statistics/feeds_types?range=99999999999Y")
         self.assertEqual(response.status_code, 400)
 
+    def test_400_overflow_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_enrichment_sources(self):
+        response = self.client.get("/api/statistics/sources/enrichment?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
     def test_400_invalid_range_countries(self):
         response = self.client.get("/api/statistics/countries?range=invalid")
         self.assertEqual(response.status_code, 400)
