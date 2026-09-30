@@ -195,6 +195,10 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
         max_cc = attrs.get("max_credential_count")
         if min_cc is not None and max_cc is not None and min_cc > max_cc:
             raise serializers.ValidationError("min_credential_count must be less than or equal to max_credential_count")
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError("start_date must be less than or equal to end_date")
         return attrs
 
 
