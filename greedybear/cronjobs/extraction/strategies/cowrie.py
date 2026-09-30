@@ -21,7 +21,7 @@ from greedybear.cronjobs.repositories import (
 )
 from greedybear.models import IOC, CommandSequence, CowrieSession
 from greedybear.regex import REGEX_URL_PROTOCOL
-from greedybear.utils import get_ioc_type, parse_timestamp
+from greedybear.utils import clamp_to_field, get_ioc_type, parse_timestamp
 
 
 def parse_url_hostname(url: str) -> str | None:
@@ -50,10 +50,10 @@ def normalize_command(message: str) -> str:
         message: Raw command message string
 
     Returns:
-        Normalized command string, truncated to 1024 characters
+        Normalized command string, truncated to the width of the column it is
+        stored in.
     """
-    # Truncate to 1024 chars to match CommandSequence.commands field max_length
-    return message.removeprefix("CMD: ").replace("\x00", "[NUL]")[:1024]
+    return clamp_to_field(CommandSequence, "commands", message.removeprefix("CMD: ").replace("\x00", "[NUL]"))
 
 
 class CowrieExtractionStrategy(BaseExtractionStrategy):

@@ -13,25 +13,25 @@ from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, FireHolList, MassScanner
-from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
+from greedybear.models import IOC, Credential, FireHolList, MassScanner
+from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
 
 log = logging.getLogger(__name__)
 
 
-def normalize_credential_field(value: object, max_length: int = 256) -> str:
+def normalize_credential_field(value: object) -> str:
     """
     Normalize a credential field from untrusted input.
 
     Args:
         value: Raw field value.
-        max_length: Maximum length allowed by the model field.
 
     Returns:
-        Sanitized credential field string.
+        Sanitized credential field string, truncated to the width of the
+        column it is stored in. Credential.password has the same width.
     """
     text = "" if value is None else str(value)
-    return text.replace("\x00", "[NUL]")[:max_length]
+    return clamp_to_field(Credential, "username", text.replace("\x00", "[NUL]"))
 
 
 def is_whatsmyip_domain(domain: str, whatsmyip_domains: set) -> bool:
