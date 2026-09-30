@@ -52,7 +52,7 @@ dev = [
     # linting
     "ruff==0.16.7",
     # type checking
-    "ty~=0.0.83",
+    "ty==0.0.83",
     "django-stubs~=6.1.1",
     "djangorestframework-stubs~=3.18.1",
 ]

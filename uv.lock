@@ -621,7 +621,7 @@ dev = [
     { name = "django-watchfiles", specifier = "~=1.4" },
     { name = "djangorestframework-stubs", specifier = "~=3.18.1" },
     { name = "ruff", specifier = "==0.16.7" },
-    { name = "ty", specifier = "~=0.0.83" },
+    { name = "ty", specifier = "==0.0.83" },
 ]
 
 [[package]]
