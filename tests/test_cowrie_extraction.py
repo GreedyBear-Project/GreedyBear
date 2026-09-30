@@ -441,15 +441,20 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         session = Mock()
         session.commands = Mock()
         session.commands.commands = ["ls", "pwd", "whoami"]
+        session.commands.first_seen = datetime(2023, 1, 1, 10, 0, 0)
         session.commands.last_seen = datetime(2023, 1, 1, 10, 0, 10)
 
         existing_cmd_seq = Mock()
+        existing_cmd_seq.first_seen = datetime(2023, 1, 1, 9, 0, 0)
+        existing_cmd_seq.last_seen = datetime(2023, 1, 1, 9, 30, 0)
         self.mock_session_repo.get_command_sequence_by_hash.return_value = existing_cmd_seq
 
         result = self.strategy._deduplicate_command_sequence(session)
 
         self.assertTrue(result)
         self.assertEqual(session.commands, existing_cmd_seq)
+        self.assertEqual(existing_cmd_seq.first_seen, datetime(2023, 1, 1, 9, 0, 0))
+        self.assertEqual(existing_cmd_seq.last_seen, datetime(2023, 1, 1, 10, 0, 10))
         self.assertIsInstance(session.commands.last_seen, datetime)
         self.assertIsNone(session.commands.last_seen.tzinfo)
 
