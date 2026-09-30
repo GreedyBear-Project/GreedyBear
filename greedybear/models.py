@@ -179,7 +179,7 @@ class IOC(models.Model):
     # SCORES
     recurrence_probability = models.FloatField(null=True, default=0)
     expected_interactions = models.FloatField(null=True, default=0)
-    # helper fields that are NOT in the DB field
+    # helper attributes, not DB fields
     _sensors_to_add: list[Sensor]
     _seen_honeypots: list[str]
 
