@@ -48,7 +48,7 @@ dev = [
     "django-watchfiles~=1.4",
     # tests
     "coverage==7.16.0",
-    "django-test-migrations==1.6.0",
+    "django-test-migrations==1.7.0",
     # linting
     "ruff==0.16.7",
     # type checking
