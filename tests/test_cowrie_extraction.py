@@ -13,8 +13,9 @@ from greedybear.cronjobs.extraction.strategies.cowrie import (
     normalize_credential_field,
     parse_url_hostname,
 )
-from greedybear.models import CommandSequence, HoneypotPayload
-from tests import ExtractionTestCase
+from greedybear.cronjobs.repositories import CowrieSessionRepository
+from greedybear.models import IOC, CommandSequence, CowrieSession, HoneypotPayload
+from tests import CustomTestCase, ExtractionTestCase
 
 
 class TestHelperFunctions(ExtractionTestCase):
@@ -599,3 +600,47 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
 
             self.assertEqual(self.mock_session_repo.get_or_create_session.call_count, 2)
             self.assertEqual(mock_process_hit.call_count, 3)
+
+
+class TestCowrieCommandSequenceAcrossRuns(CustomTestCase):
+    """Command sequences of sessions that span multiple extraction runs, using a real session repository."""
+
+    def setUp(self):
+        self.strategy = CowrieExtractionStrategy(
+            "Cowrie",
+            ioc_repo=Mock(),
+            sensor_repo=Mock(),
+            session_repo=CowrieSessionRepository(),
+            payload_repo=Mock(),
+        )
+        self.source = IOC.objects.create(name="10.0.0.1", type="ip")
+
+    @staticmethod
+    def _command_hit(session_id: str, command: str, timestamp: str) -> dict:
+        return {"src_ip": "10.0.0.1", "session": session_id, "eventid": "cowrie.command.input", "message": command, "timestamp": timestamp}
+
+    def test_continued_session_does_not_modify_shared_command_sequence(self):
+        """Commands from a later run must not be appended to a CommandSequence row shared with other sessions."""
+        self.strategy._get_sessions(
+            self.source,
+            [
+                self._command_hit("aaaa01", "uname -a", "2026-09-30T12:01:00"),
+                self._command_hit("aaaa01", "id", "2026-09-30T12:02:00"),
+                self._command_hit("aaaa02", "uname -a", "2026-09-30T12:08:00"),
+                self._command_hit("aaaa02", "id", "2026-09-30T12:09:00"),
+            ],
+        )
+        session_t = CowrieSession.objects.get(session_id=int("aaaa01", 16))
+        session_s = CowrieSession.objects.get(session_id=int("aaaa02", 16))
+        self.assertEqual(session_t.commands_id, session_s.commands_id)
+
+        self.strategy._get_sessions(
+            self.source,
+            [self._command_hit("aaaa02", "whoami", "2026-09-30T12:11:00")],
+        )
+
+        session_t.refresh_from_db()
+        session_s.refresh_from_db()
+        self.assertEqual(session_t.commands.commands, ["uname -a", "id"])
+        self.assertEqual(session_s.commands.commands, ["uname -a", "id", "whoami"])
+        self.assertNotEqual(session_t.commands_id, session_s.commands_id)
