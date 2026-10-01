@@ -139,17 +139,19 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(downloaded, {("ab" * 32).lower()})
 
     def test_upsert_downloaded_payload_creates_new_row(self):
-        fields = {
-            "md5": "m1",
-            "sha1": "s1",
-            "mime_type": "application/octet-stream",
-            "size": 100,
-            "locator": "cowrie/aaa",
-            "mtime": 123.0,
-        }
-        payload, created = self.repo.upsert_downloaded_payload("6" * 64, fields)
+        incoming = HoneypotPayload(
+            sha256="6" * 64,
+            md5="m1",
+            sha1="s1",
+            mime_type="application/octet-stream",
+            size=100,
+            locator="cowrie/aaa",
+            mtime=123.0,
+        )
+        payload, created = self.repo.upsert_downloaded_payload(incoming)
 
         self.assertTrue(created)
+        payload.refresh_from_db()
         self.assertEqual(payload.md5, "m1")
         self.assertEqual(payload.sha1, "s1")
         self.assertEqual(payload.mime_type, "application/octet-stream")
@@ -160,18 +162,20 @@ class TestPayloadRepository(CustomTestCase):
     def test_upsert_downloaded_payload_upgrades_existing_stub_with_truthy_fields(self):
         stub = HoneypotPayload.objects.create(sha256="7" * 64, md5="", sha1="")
 
-        fields = {
-            "md5": "m2",
-            "sha1": "s2",
-            "mime_type": "application/x-elf",
-            "size": 200,
-            "locator": "cowrie/bbb",
-            "mtime": 456.0,
-        }
-        payload, created = self.repo.upsert_downloaded_payload("7" * 64, fields)
+        incoming = HoneypotPayload(
+            sha256="7" * 64,
+            md5="m2",
+            sha1="s2",
+            mime_type="application/x-elf",
+            size=200,
+            locator="cowrie/bbb",
+            mtime=456.0,
+        )
+        payload, created = self.repo.upsert_downloaded_payload(incoming)
 
         self.assertFalse(created)
         self.assertEqual(payload.id, stub.id)
+        payload.refresh_from_db()
         self.assertEqual(payload.md5, "m2")
         self.assertEqual(payload.sha1, "s2")
         self.assertEqual(payload.mime_type, "application/x-elf")
@@ -180,27 +184,30 @@ class TestPayloadRepository(CustomTestCase):
     def test_upsert_downloaded_payload_keeps_existing_value_when_incoming_is_falsy(self):
         HoneypotPayload.objects.create(sha256="8" * 64, md5="keepme")
 
-        fields = {"md5": "", "sha1": "", "mime_type": "", "size": 50, "locator": "cowrie/ccc", "mtime": None}
-        payload, created = self.repo.upsert_downloaded_payload("8" * 64, fields)
+        incoming = HoneypotPayload(sha256="8" * 64, md5="", sha1="", mime_type="", size=50, locator="cowrie/ccc", mtime=None)
+        payload, created = self.repo.upsert_downloaded_payload(incoming)
 
         self.assertFalse(created)
+        payload.refresh_from_db()
         self.assertEqual(payload.md5, "keepme")
 
     def test_upsert_downloaded_payload_always_overwrites_size_and_locator(self):
         HoneypotPayload.objects.create(sha256="9" * 64, size=1, locator="old/locator")
 
-        fields = {"md5": "", "sha1": "", "mime_type": "", "size": 999, "locator": "new/locator", "mtime": None}
-        payload, created = self.repo.upsert_downloaded_payload("9" * 64, fields)
+        incoming = HoneypotPayload(sha256="9" * 64, md5="", sha1="", mime_type="", size=0, locator="new/locator", mtime=None)
+        payload, created = self.repo.upsert_downloaded_payload(incoming)
 
         self.assertFalse(created)
-        self.assertEqual(payload.size, 999)
+        payload.refresh_from_db()
+        self.assertEqual(payload.size, 0)
         self.assertEqual(payload.locator, "new/locator")
 
     def test_upsert_metadata_only_payload_creates_new_row(self):
-        fields = {"md5": "m1", "sha1": "s1", "mime_type": "text/plain", "size": 42, "locator": "cowrie/ddd", "mtime": 789.0}
-        payload, created = self.repo.upsert_metadata_only_payload("0" * 64, fields)
+        incoming = HoneypotPayload(sha256="0" * 64, md5="m1", sha1="s1", mime_type="text/plain", size=42, locator="cowrie/ddd", mtime=789.0)
+        payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertTrue(created)
+        payload.refresh_from_db()
         self.assertFalse(payload.payload_file)
         self.assertEqual(payload.md5, "m1")
         self.assertEqual(payload.sha1, "s1")
@@ -213,32 +220,43 @@ class TestPayloadRepository(CustomTestCase):
         stub = HoneypotPayload.objects.create(sha256=("cd" * 32).lower())
         self.assertEqual(stub.locator, "")
 
-        fields = {"md5": "", "sha1": "", "mime_type": "", "size": None, "locator": "cowrie/eee", "mtime": None}
-        payload, created = self.repo.upsert_metadata_only_payload(("cd" * 32).lower(), fields)
+        incoming = HoneypotPayload(sha256=("cd" * 32).lower(), md5="", sha1="", mime_type="", size=None, locator="cowrie/eee", mtime=None)
+        payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertFalse(created)
         self.assertEqual(payload.id, stub.id)
+        payload.refresh_from_db()
         self.assertEqual(payload.locator, "cowrie/eee")
 
     def test_upsert_metadata_only_payload_does_not_overwrite_existing_locator(self):
         HoneypotPayload.objects.create(sha256=("ef" * 32).lower(), locator="already/set")
 
-        fields = {"md5": "", "sha1": "", "mime_type": "", "size": None, "locator": "cowrie/fff", "mtime": None}
-        payload, created = self.repo.upsert_metadata_only_payload(("ef" * 32).lower(), fields)
+        incoming = HoneypotPayload(sha256=("ef" * 32).lower(), md5="", sha1="", mime_type="", size=None, locator="cowrie/fff", mtime=None)
+        payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertFalse(created)
+        payload.refresh_from_db()
         self.assertEqual(payload.locator, "already/set")
 
     def test_upsert_metadata_only_payload_backfill_does_not_update_other_fields(self):
         HoneypotPayload.objects.create(sha256=("01" * 32).lower(), md5="keepme", mime_type="keepme_mime")
 
-        fields = {"md5": "different", "sha1": "different", "mime_type": "different", "size": 5, "locator": "cowrie/ggg", "mtime": 1.0}
-        payload, created = self.repo.upsert_metadata_only_payload(("01" * 32).lower(), fields)
+        incoming = HoneypotPayload(
+            sha256=("01" * 32).lower(),
+            md5="different",
+            sha1="different",
+            mime_type="different",
+            size=5,
+            locator="cowrie/ggg",
+            mtime=1.0,
+        )
+        payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertFalse(created)
+        payload.refresh_from_db()
         # The backfill did fire (locator was empty)...
         self.assertEqual(payload.locator, "cowrie/ggg")
-        # ...but nothing else was updated, despite fields carrying different values for them.
+        # ...but nothing else was updated, despite the incoming payload carrying different values for them.
         self.assertEqual(payload.md5, "keepme")
         self.assertEqual(payload.mime_type, "keepme_mime")
 

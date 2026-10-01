@@ -10,7 +10,8 @@ from django.core.files.base import ContentFile
 
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories import PayloadFields, PayloadRepository
+from greedybear.cronjobs.repositories import PayloadRepository
+from greedybear.models import HoneypotPayload
 from greedybear.utils import get_time_window
 
 
@@ -209,15 +210,16 @@ class PayloadExtractionJob(Cronjob):
                 self.log.warning(f"Payload {sha256[:12]}… has no locator, skipping.")
                 continue
 
-            fields: PayloadFields = {
-                "md5": payload_meta.get("md5", ""),
-                "sha1": payload_meta.get("sha1", ""),
-                "mime_type": payload_meta.get("mime_type", ""),
-                "size": payload_meta.get("size"),
-                "locator": locator,
-                "mtime": payload_meta.get("mtime"),
-            }
-            payload_obj, _ = self.payload_repo.upsert_metadata_only_payload(sha256, fields)
+            payload = HoneypotPayload(
+                sha256=sha256,
+                md5=payload_meta.get("md5", ""),
+                sha1=payload_meta.get("sha1", ""),
+                mime_type=payload_meta.get("mime_type", ""),
+                size=payload_meta.get("size"),
+                locator=locator,
+                mtime=payload_meta.get("mtime"),
+            )
+            payload_obj, _ = self.payload_repo.upsert_metadata_only_payload(payload)
 
             linked = self.payload_repo.link_sessions_to_payload(payload_obj)
             if linked:
@@ -264,15 +266,16 @@ class PayloadExtractionJob(Cronjob):
 
         # Create the database record, or upgrade an existing hash-only stub with
         # the real file and fresh metadata.
-        fields: PayloadFields = {
-            "md5": payload_meta.get("md5", ""),
-            "sha1": payload_meta.get("sha1", ""),
-            "mime_type": payload_meta.get("mime_type", ""),
-            "size": len(file_content),
-            "locator": locator,
-            "mtime": payload_meta.get("mtime"),
-        }
-        payload_obj, created = self.payload_repo.upsert_downloaded_payload(sha256, fields)
+        payload = HoneypotPayload(
+            sha256=sha256,
+            md5=payload_meta.get("md5", ""),
+            sha1=payload_meta.get("sha1", ""),
+            mime_type=payload_meta.get("mime_type", ""),
+            size=len(file_content),
+            locator=locator,
+            mtime=payload_meta.get("mtime"),
+        )
+        payload_obj, created = self.payload_repo.upsert_downloaded_payload(payload)
 
         # Save the binary content via QuarantineStorage.
         filename = f"{sha256}.vir"

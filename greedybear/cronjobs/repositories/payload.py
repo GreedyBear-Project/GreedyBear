@@ -1,34 +1,22 @@
 import logging
-from typing import TypedDict
 
 from django.contrib.postgres.expressions import ArraySubquery
-from django.db.models import OuterRef, Q
+from django.db.models import OuterRef, Q, QuerySet
 from django.db.models.functions import Lower
 
 from greedybear.models import CowrieSession, HoneypotPayload
 
 
-class PayloadFields(TypedDict):
-    """Known metadata fields for a HoneypotPayload, used to create or upgrade one."""
-
-    md5: str
-    sha1: str
-    mime_type: str
-    size: int | None
-    locator: str
-    mtime: float | None
-
-
 class PayloadRepository:
     """
-    Repository joining HoneypotPayload records with the CowrieSession(s) that
-    transferred the same file, matched by SHA256 hash.
+    Repository for data access to HoneypotPayload records.
 
-    ExtractionJob (Cowrie) and PayloadExtractionJob run independently and can
-    complete in either order within the same tick, so this repository is used
-    from both directions: once a payload is downloaded, and once a Cowrie file
-    transfer is recorded, each side looks for a match already stored by the
-    other.
+    It also links payloads to the CowrieSession(s) that transferred the same
+    file, matched by SHA256 hash. ExtractionJob (Cowrie) and
+    PayloadExtractionJob run independently and can complete in either order
+    within the same tick, so the linking is done from both directions: once a
+    payload is downloaded, and once a Cowrie file transfer is recorded, each
+    side looks for a match already stored by the other.
     """
 
     def __init__(self):
@@ -91,61 +79,86 @@ class PayloadRepository:
         )
         return payload, created
 
-    def upsert_downloaded_payload(self, sha256: str, fields: PayloadFields) -> tuple[HoneypotPayload, bool]:
+    def upsert_downloaded_payload(self, payload: HoneypotPayload) -> tuple[HoneypotPayload, bool]:
         """
         Create a HoneypotPayload row for a file that was just downloaded, or
-        upgrade an existing hash-only stub with it.
+        upgrade the existing row for that hash with it.
 
-        A new row gets every field in `fields`. An existing row always has
-        size and locator overwritten; every other field is overwritten only
-        if its incoming value is truthy, so a blank one never erases
-        existing data.
+        A new row gets every metadata field of `payload`. An existing row
+        always has size and locator overwritten; every other field is
+        overwritten only if its incoming value is truthy, so a blank one
+        never erases existing data. The row is saved in both cases.
 
         Args:
-            sha256: Lower-cased SHA256 hash.
-            fields: Metadata for this download. See PayloadFields.
+            payload: Unsaved HoneypotPayload holding the lower-cased SHA256 and the download's metadata.
 
         Returns:
             Tuple of (HoneypotPayload object, created_flag) where created_flag is True if new.
         """
-        payload, created = HoneypotPayload.objects.get_or_create(sha256=sha256, defaults=fields)
+        payload_record, created = HoneypotPayload.objects.get_or_create(
+            sha256=payload.sha256,
+            defaults={
+                "md5": payload.md5,
+                "sha1": payload.sha1,
+                "mime_type": payload.mime_type,
+                "size": payload.size,
+                "locator": payload.locator,
+                "mtime": payload.mtime,
+            },
+        )
         if not created:
-            for field, value in fields.items():
-                if field in ("size", "locator") or value:
-                    setattr(payload, field, value)
-        return payload, created
+            # Always overwrite size and locator, but only overwrite other fields if the new value is not empty
+            payload_record.size = payload.size
+            payload_record.locator = payload.locator
+            payload_record.md5 = payload.md5 or payload_record.md5
+            payload_record.sha1 = payload.sha1 or payload_record.sha1
+            payload_record.mime_type = payload.mime_type or payload_record.mime_type
+            payload_record.mtime = payload.mtime or payload_record.mtime
+            payload_record.save()
+        return payload_record, created
 
-    def upsert_metadata_only_payload(self, sha256: str, fields: PayloadFields) -> tuple[HoneypotPayload, bool]:
+    def upsert_metadata_only_payload(self, payload: HoneypotPayload) -> tuple[HoneypotPayload, bool]:
         """
         Create a HoneypotPayload row for a payload the server listed but
         this run did not download, or backfill an existing stub's locator.
 
-        A new row gets every field in `fields`, with payload_file left
-        unset. A stub written by _process_payload_hashes always has an empty
-        locator, so an existing row's locator is filled in whenever it's
-        missing, keeping the payload recoverable; no other metadata is
-        updated here since an actual download has not occurred.
+        A new row gets every metadata field of `payload`, with payload_file
+        left unset. An existing row's locator is filled in only if it doesn't
+        already have one; no other metadata is updated here since an actual
+        download has not occurred.
 
         Args:
-            sha256: Lower-cased SHA256 hash.
-            fields: Metadata for this payload. See PayloadFields.
+            payload: Unsaved HoneypotPayload holding the lower-cased SHA256 and the listed metadata.
 
         Returns:
             Tuple of (HoneypotPayload object, created_flag) where created_flag is True if new.
         """
-        payload, created = HoneypotPayload.objects.get_or_create(
-            sha256=sha256,
-            defaults={"payload_file": None, **fields},
+        payload_record, created = HoneypotPayload.objects.get_or_create(
+            sha256=payload.sha256,
+            defaults={
+                # None rather than "", to match the hash-only stubs written by
+                # _process_payload_hashes. The field still expresses "no file"
+                # two ways across the codebase; unifying that is a follow-up.
+                "payload_file": None,
+                "md5": payload.md5,
+                "sha1": payload.sha1,
+                "mime_type": payload.mime_type,
+                "size": payload.size,
+                "locator": payload.locator,
+                "mtime": payload.mtime,
+            },
         )
-        if not created and not payload.locator:
-            payload.locator = fields["locator"]
-            payload.save(update_fields=["locator"])
-        return payload, created
+        if not created and not payload_record.locator:
+            # A hash-only stub written by _process_payload_hashes carries no
+            # locator. Fill it in so the payload stays recoverable.
+            payload_record.locator = payload.locator
+            payload_record.save(update_fields=["locator"])
+        return payload_record, created
 
     def get_downloaded_hashes(self, hashes: set[str]) -> set[str]:
         """
         Given SHA256 hashes in any case, return the subset that already have
-        a downloaded file - i.e. rows that are not hash-only stubs.
+        a downloaded file.
 
         Args:
             hashes: Set of SHA256 hashes to check, in any case.
@@ -157,7 +170,7 @@ class PayloadRepository:
         return set(
             HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
             .filter(sha256_lower__in=hashes_lower)
-            # Django stores an unset FileField as an empty string, not NULL - exclude both.
+            # Django stores an unset FileField as an empty string, but exclude NULL as well.
             .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
             .values_list("sha256_lower", flat=True)
         )
@@ -169,14 +182,15 @@ class PayloadRepository:
         within the given size limit.
 
         Args:
-            max_size_bytes: Largest file size MalwareBazaar's API accepts.
+            max_size_bytes: Largest file size to include, in bytes.
             limit: Maximum number of payloads to return.
 
         Returns:
             Up to `limit` HoneypotPayload rows, with source_honeypots prefetched.
         """
-        # Evaluated into a list here, not left as a queryset, so the caller's
-        # truthiness check and iteration don't each trigger their own SQL query.
+        # Exclude zero-byte files (size=0 or NULL) and payloads without a
+        # quarantine file on disk.  Evaluate into a list so we avoid the
+        # double SQL hit of count() + iterate on a sliced queryset.
         return list(
             HoneypotPayload.objects.filter(is_uploaded_mb=False, size__lte=max_size_bytes)
             .exclude(payload_file="")
@@ -186,7 +200,7 @@ class PayloadRepository:
             .prefetch_related("source_honeypots")[:limit]
         )
 
-    def list_payloads(self):
+    def list_payloads(self) -> QuerySet:
         """
         Return the base queryset for listing/retrieving payloads, with
         related honeypots/IOCs/sessions prefetched, most recent first.
@@ -199,7 +213,7 @@ class PayloadRepository:
         """
         return HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_sessions").order_by("-id")
 
-    def annotate_lower_sha256(self, queryset):
+    def annotate_lower_sha256(self, queryset: QuerySet) -> QuerySet:
         """
         Annotate a HoneypotPayload queryset with sha256_lower, so it can be
         filtered by SHA256 case-insensitively.
@@ -212,10 +226,11 @@ class PayloadRepository:
         """
         return queryset.annotate(sha256_lower=Lower("sha256"))
 
-    def payload_hashes_for_ioc(self):
+    def payload_hashes_for_ioc(self) -> ArraySubquery:
         """
-        Return an array of lower-cased SHA256 hashes for the HoneypotPayloads
-        linked to each IOC, ready to pass to annotate() on an IOC queryset.
+        Return an expression yielding an array of the lower-cased SHA256 hashes
+        of the HoneypotPayloads linked to each IOC, ready to pass to annotate()
+        on an IOC queryset.
 
         Correlates via OuterRef("pk"), so it only works there - it depends
         on that outer query to run.
