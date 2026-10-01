@@ -161,7 +161,7 @@ def get_attack_type(ip_hits: list[dict]) -> str:
     return SCANNER
 
 
-def is_valid_url(url: str | None) -> bool:
+def is_valid_url(url: str) -> bool:
     allowed_schemes = {"http", "https"}
     try:
         parsed = urlparse(url)

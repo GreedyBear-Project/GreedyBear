@@ -48,18 +48,18 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Not a valid hex session ID: {value}")
         return value
 
-    def validate(self, data: dict) -> dict:
-        if data.get("query") and data.get("id"):
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("query") and attrs.get("id"):
             raise serializers.ValidationError("Provide either `query` or `id`, not both.")
-        if not data.get("query") and not data.get("id"):
+        if not attrs.get("query") and not attrs.get("id"):
             raise serializers.ValidationError("Provide either `query` or `id`.")
 
-        start_date = data.get("start_date")
-        end_date = data.get("end_date")
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
         if start_date and end_date and start_date > end_date:
             raise serializers.ValidationError("`start_date` must be less than or equal to `end_date`.")
 
-        return data
+        return attrs
 
 
 class SessionDetailSerializer(serializers.Serializer):

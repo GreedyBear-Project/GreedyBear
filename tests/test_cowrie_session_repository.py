@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from hashlib import sha256
 
 from django.db import IntegrityError
 
@@ -190,6 +191,62 @@ class TestCowrieSessionRepositoryCleanup(CustomTestCase):
         self.assertEqual(deleted_count, 1)
         self.assertFalse(CommandSequence.objects.filter(commands_hash="old_hash").exists())
         self.assertTrue(CommandSequence.objects.filter(commands_hash="recent_hash").exists())
+
+    def test_delete_old_command_sequences_preserves_merged_sequence(self):
+        """Merging an older session onto a recent sequence must not regress last_seen or cause cleanup deletion."""
+        from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
+
+        recent_date = datetime.now() - timedelta(days=5)
+        old_date = datetime.now() - timedelta(days=400)
+        cutoff = datetime.now() - timedelta(days=30)
+
+        commands = ["id", "uname -a"]
+        commands_hash = sha256("\n".join(commands).encode()).hexdigest()
+
+        # Session A with recent observation
+        cmd_seq = CommandSequence.objects.create(
+            commands=commands,
+            commands_hash=commands_hash,
+            first_seen=recent_date,
+            last_seen=recent_date,
+        )
+        source = IOC.objects.create(name="1.1.1.1", type="ip")
+        session_a = CowrieSession.objects.create(
+            session_id=123,
+            source=source,
+            start_time=recent_date,
+            commands=cmd_seq,
+        )
+
+        # Session B with older observation of identical commands merges onto cmd_seq
+        session_b = CowrieSession.objects.create(
+            session_id=456,
+            source=source,
+            start_time=old_date,
+        )
+        session_b.commands = CommandSequence(
+            commands=commands,
+            first_seen=old_date,
+            last_seen=old_date,
+        )
+
+        strategy = CowrieExtractionStrategy(
+            "Cowrie",
+            ioc_repo=None,
+            sensor_repo=None,
+            session_repo=self.repo,
+        )
+        merged = strategy._deduplicate_command_sequence(session_b)
+        self.assertTrue(merged)
+        self.repo.save_command_sequence(session_b.commands)
+
+        # Scheduled cleanup should NOT delete the sequence or nullify session_a.commands
+        deleted_count = self.repo.delete_old_command_sequences(cutoff)
+        self.assertEqual(deleted_count, 0)
+
+        session_a.refresh_from_db()
+        self.assertIsNotNone(session_a.commands)
+        self.assertEqual(session_a.commands_id, cmd_seq.id)
 
     def test_delete_incomplete_sessions(self):
         source = IOC.objects.create(name="1.2.3.4", type="ip")

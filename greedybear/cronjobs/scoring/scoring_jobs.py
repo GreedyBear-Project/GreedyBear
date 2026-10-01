@@ -242,15 +242,15 @@ class UpdateScores(Cronjob):
         Returns:
             int: Number of objects updated
         """
-        iocs = set(iocs)
-        primary_keys = {ioc.pk for ioc in iocs}
+        unique_iocs = set(iocs)
+        primary_keys = {ioc.pk for ioc in unique_iocs}
         data = get_data_by_pks(primary_keys)
         current_date = str(date.today())
         self.log.info("extracting features: score_only")
         df = get_features(data, current_date)
         for s in SCORERS:
             df = s.score(df)
-        return self.update_db(df, iocs)
+        return self.update_db(df, unique_iocs)
 
     def run(self):
         """

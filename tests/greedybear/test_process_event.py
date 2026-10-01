@@ -776,8 +776,9 @@ class TestSensorHoneypotNames(CustomTestCase):
         The serializer caps honeypot_software, but sensors registered before that
         cap can still hold a longer value, which must not break the batch.
         """
-        name = _sensor_honeypot_names([self._hit("a" * 40)])[0]
-        self.assertEqual(name, "a" * HONEYPOT_NAME_MAX_LENGTH)
+        software = "a" * 40
+        name = _sensor_honeypot_names([self._hit(software)])[0]
+        self.assertEqual(name, software[:HONEYPOT_NAME_MAX_LENGTH])
 
 
 class TestLinkSensorHoneypots(CustomTestCase):

@@ -31,8 +31,8 @@ class TorExitNodesCron(Cronjob):
             findings = ip_regex.findall(r.text)
 
             for ip_candidate in findings:
-                is_valid, ip_address = is_valid_ipv4(ip_candidate)
-                if not is_valid:
+                _, ip_address = is_valid_ipv4(ip_candidate)
+                if ip_address is None:
                     self.log.debug(f"Invalid IPv4 address: {ip_candidate}")
                     continue
 

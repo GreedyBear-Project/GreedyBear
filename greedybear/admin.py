@@ -200,6 +200,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "scanner",
         "payload_request",
         "http_attack_types_display",
+        "high_credential_reuse",
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
@@ -216,6 +217,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "type",
         "scanner",
         "payload_request",
+        "high_credential_reuse",
         "ip_reputation",
         "autonomous_system",
     ]
@@ -236,6 +238,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     cves_display = collapsed_list_display("cves", description="CVEs")
     http_attack_types_display = collapsed_list_display("http_attack_types", description="HTTP Attack Types")
 
+    @admin.display(description="Autonomous System", ordering="autonomous_system__asn")
     def autonomous_system_display(self, ioc):
         """
         Shows ASN and AS name neatly in list_display.
@@ -245,9 +248,6 @@ class IOCModelAdmin(GreedyBearModelAdmin):
             name = ioc.autonomous_system.name
             return f"{asn} ({name})" if name else str(asn)
         return "-"
-
-    autonomous_system_display.short_description = "Autonomous System"
-    autonomous_system_display.admin_order_field = "autonomous_system__asn"
 
     def get_queryset(self, request):
         """Override to optimize queries and avoid N+1 problems."""

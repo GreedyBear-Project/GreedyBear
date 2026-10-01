@@ -276,9 +276,10 @@ class FeedResponseSerializersTestCase(CustomTestCase):
         scanner_choices = [True, False]
         payload_request_choices = [True, False]
         feed_type_choices = ["all", "log4pot", "cowrie", "adbhoney"]
+        high_credential_reuse_choices = [True, False]
 
         # generete all possible valid input data using cartesian product
-        valid_data_choices = product(scanner_choices, payload_request_choices, feed_type_choices)
+        valid_data_choices = product(scanner_choices, payload_request_choices, feed_type_choices, high_credential_reuse_choices)
 
         for element in valid_data_choices:
             data_ = {
@@ -287,6 +288,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
                 SCANNER: element[0],
                 PAYLOAD_REQUEST: element[1],
                 "http_attack_types": ["sqli"],
+                "high_credential_reuse": element[3],
                 "first_seen": "2023-03-20",
                 "last_seen": "2023-03-21",
                 "attack_count": "5",
@@ -315,6 +317,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
             "value": True,
             SCANNER: "invalid_scanner",
             PAYLOAD_REQUEST: "invalid_payload_request",
+            "high_credential_reuse": "invalid_high_credential_reuse",
             "first_seen": "31-2023-03",
             "last_seen": "31-2023-03",
             "attack_count": "0",
@@ -338,6 +341,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
             self.assertIn("value", serializer.errors)
             self.assertIn(SCANNER, serializer.errors)
             self.assertIn(PAYLOAD_REQUEST, serializer.errors)
+            self.assertIn("high_credential_reuse", serializer.errors)
             self.assertIn("first_seen", serializer.errors)
             self.assertIn("last_seen", serializer.errors)
             self.assertIn("attack_count", serializer.errors)

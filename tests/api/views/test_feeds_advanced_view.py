@@ -139,6 +139,11 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/advanced/?min_credential_count=10&max_credential_count=5")
         self.assertEqual(response.status_code, 400)
 
+    def test_start_date_after_end_date_raises_validation_error(self):
+        """Should return 400 Bad Request when start_date is later than end_date."""
+        response = self.client.get("/api/feeds/advanced/?start_date=2026-01-20&end_date=2026-01-10")
+        self.assertEqual(response.status_code, 400)
+
     def test_feeds_advanced_includes_sensors(self):
         """Sensors field appears in feeds_advanced response for authenticated users."""
         sensor = Sensor.objects.create(address="10.0.0.1", label="test-sensor")
@@ -235,6 +240,40 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertIsNotNone(target_ioc)
         self.assertIn("credential_count", target_ioc)
         self.assertEqual(target_ioc["credential_count"], 1)
+
+    def test_feeds_advanced_includes_high_credential_reuse(self):
+        """high_credential_reuse appears in the feeds_advanced response."""
+        self.ioc.high_credential_reuse = True
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertIs(target_ioc["high_credential_reuse"], True)
+
+    def test_public_feeds_includes_high_credential_reuse(self):
+        """high_credential_reuse is a base field, so it must appear in the public feed too."""
+        self.ioc.high_credential_reuse = True
+        self.ioc.save()
+        self.client.logout()
+
+        response = self.client.get("/api/feeds/cowrie/all/recent.json")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertIs(target_ioc["high_credential_reuse"], True)
+
+    def test_feeds_ioc_without_high_credential_reuse(self):
+        """An unflagged IOC is returned with False, not a missing key."""
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc_2.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertIs(target_ioc["high_credential_reuse"], False)
 
 
 class FeedsEnhancementsTestCase(CustomTestCase):

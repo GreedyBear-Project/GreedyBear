@@ -44,14 +44,17 @@ Blog = "https://greedybear-project.github.io/"
 
 [dependency-groups]
 dev = [
+    # hot-reload
     "django-watchfiles~=1.4",
-]
-test = [
+    # tests
     "coverage==7.16.0",
     "django-test-migrations==1.6.0",
-]
-lint = [
+    # linting
     "ruff==0.16.7",
+    # type checking
+    "ty==0.0.83",
+    "django-stubs~=6.1.1",
+    "djangorestframework-stubs~=3.18.1",
 ]
 
 [tool.uv]
@@ -150,3 +153,25 @@ known-first-party = [
     "configuration",
     "greedybear",
 ]
+
+# Ignore some ty rules in tests/ directory because
+# - DRF's `response.data` is invisible (unresolved-attribute, not-subscriptable),
+# - `assertIsNotNone()` does not narrow types, so Optional values stay Optional after it
+#   (not-subscriptable, invalid-argument-type, invalid-return-type, invalid-assignment)
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+unresolved-attribute = "ignore"
+not-subscriptable = "ignore"
+invalid-return-type = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+
+# DRF's @api_view returns an AsView protocol that ty doesn't treat as callable,
+# so path() never matches it
+[[tool.ty.overrides]]
+include = ["**/urls.py"]
+
+[tool.ty.overrides.rules]
+no-matching-overload = "ignore"

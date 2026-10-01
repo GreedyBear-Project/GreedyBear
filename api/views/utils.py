@@ -81,6 +81,7 @@ JSON_BASE_FIELDS = (
     "scanner",
     "payload_request",
     "http_attack_types",
+    "high_credential_reuse",
     "ip_reputation",
     "login_attempts",
     "recurrence_probability",
@@ -414,14 +415,14 @@ def _bulk_create_raw_events(events_data: list[dict], batch: EventStatus, api_sou
 
     # Prefetch all sensors in one query
     sensor_ids = {e["sensor_id"] for e in events_data if "sensor_id" in e}
-    sensors_by_id = {s.id: s for s in Sensor.objects.filter(id__in=sensor_ids, api_source=api_source)}
+    sensors_by_id = {s.pk: s for s in Sensor.objects.filter(id__in=sensor_ids, api_source=api_source)}
 
     raw_events = []
 
     for e in events_data:
         sensor_id = e.get("sensor_id")
         if sensor_id not in sensors_by_id:
-            raise ValueError(f"Invalid or missing sensor_id '{sensor_id}' for api_source {api_source.id}. ")
+            raise ValueError(f"Invalid or missing sensor_id '{sensor_id}' for api_source {api_source.pk}. ")
 
     for event in events_data:
         sensor_id = event.get("sensor_id")
@@ -509,7 +510,7 @@ def increment_and_evaluate_lock(api_source: APISource) -> Response | None:
 def resolve_active_api_source(request: Request) -> tuple[APISource | None, Response | None]:
     """Resolve the caller's APISource or explain why it is unusable."""
     try:
-        api_source = request.user.api_source
+        api_source = request.user.api_source  # ty: ignore[unresolved-attribute]  # IsAuthenticated guarantees a real user
     except APISource.DoesNotExist:
         return None, Response(
             {"error": "No APISource linked to your account"},
