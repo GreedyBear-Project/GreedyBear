@@ -1,7 +1,7 @@
 import React from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { Spinner } from "reactstrap";
-import { ContentSection } from "@greedybear/gb-ui";
+import { ContentSection } from "../common/gb-ui/index";
 
 import { verifyEmail } from "./api";
 

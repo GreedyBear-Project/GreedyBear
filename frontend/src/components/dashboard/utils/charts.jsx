@@ -13,7 +13,10 @@ import {
   ComposedChart,
 } from "recharts";
 import { format } from "date-fns";
-import { getRandomColorsArray, useTimePickerStore } from "@greedybear/gb-ui";
+import {
+  getRandomColorsArray,
+  useTimePickerStore,
+} from "../../common/gb-ui/index";
 import {
   FEEDS_STATISTICS_SOURCES_URI,
   FEEDS_STATISTICS_DOWNLOADS_URI,

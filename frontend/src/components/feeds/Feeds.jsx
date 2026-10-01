@@ -10,7 +10,7 @@ import {
   Select,
   useAxiosComponentLoader,
   useDataTable,
-} from "@greedybear/gb-ui";
+} from "../common/gb-ui/index";
 import { MultiSelectDropdown } from "./MultiSelectDropdown";
 import { Form, Formik } from "formik";
 import { feedsTableColumns } from "./tableColumns";

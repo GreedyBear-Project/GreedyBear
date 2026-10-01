@@ -44,9 +44,15 @@ vi.mock("../../../src/stores", () => ({
   useAuthStore: (selector) => mockUseAuthStore(selector),
 }));
 
+// Import store to set serverSynced before Dashboard mounts
+import useDashboardStore from "../../../src/stores/useDashboardStore";
+
 describe("Enrichment Lookup Integration Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Prevent axios.get from firing
+    // by marking the store as already synced this session.
+    useDashboardStore.setState({ serverSynced: true });
   });
 
   test("enrichment lookup section is visible on dashboard page", () => {
@@ -393,5 +399,90 @@ describe("Enrichment Lookup Integration Tests", () => {
       expect(screen.getByText(/\(AWS-Prod\)/i)).toBeInTheDocument();
       expect(screen.getByText(/10\.0\.0\.2/i)).toBeInTheDocument();
     });
+  });
+
+  test("look up an IP with authentication - payload hashes display and toggle", async () => {
+    const user = userEvent.setup();
+
+    mockUseAuthStore.mockImplementation((selector) =>
+      selector({ isAuthenticated: AUTHENTICATION_STATUSES.TRUE }),
+    );
+
+    const hashes = ["a", "b", "c", "d", "e", "f", "0"].map((c) => c.repeat(64));
+    axios.get.mockResolvedValue({
+      data: {
+        found: true,
+        query: "8.8.8.8",
+        ioc: {
+          name: "8.8.8.8",
+          type: "ip",
+          payload_hashes: hashes,
+        },
+      },
+    });
+
+    render(
+      <BrowserRouter>
+        <Dashboard />
+      </BrowserRouter>,
+    );
+
+    await user.type(screen.getByLabelText("IP Address or Domain:"), "8.8.8.8");
+    await user.click(screen.getByRole("button", { name: /Search/i }));
+
+    // only the first 5 hashes are shown, each with a copy button
+    await waitFor(() => {
+      expect(screen.getByText(/Payload Hashes:/i)).toBeInTheDocument();
+    });
+    hashes.slice(0, 5).forEach((hash) => {
+      expect(screen.getByText(hash)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: `Copy ${hash}` }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(hashes[5])).not.toBeInTheDocument();
+    expect(screen.queryByText(hashes[6])).not.toBeInTheDocument();
+
+    // "Show all" reveals the rest, "Show less" collapses again
+    await user.click(screen.getByRole("button", { name: "Show all (7)" }));
+    expect(screen.getByText(hashes[5])).toBeInTheDocument();
+    expect(screen.getByText(hashes[6])).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByText(hashes[6])).not.toBeInTheDocument();
+  });
+
+  test("look up an IP with authentication - no payload hashes section when empty", async () => {
+    const user = userEvent.setup();
+
+    mockUseAuthStore.mockImplementation((selector) =>
+      selector({ isAuthenticated: AUTHENTICATION_STATUSES.TRUE }),
+    );
+
+    axios.get.mockResolvedValue({
+      data: {
+        found: true,
+        query: "8.8.8.8",
+        ioc: {
+          name: "8.8.8.8",
+          type: "ip",
+          payload_hashes: [],
+        },
+      },
+    });
+
+    render(
+      <BrowserRouter>
+        <Dashboard />
+      </BrowserRouter>,
+    );
+
+    await user.type(screen.getByLabelText("IP Address or Domain:"), "8.8.8.8");
+    await user.click(screen.getByRole("button", { name: /Search/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/IOC Details for:/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Payload Hashes:/i)).not.toBeInTheDocument();
   });
 });

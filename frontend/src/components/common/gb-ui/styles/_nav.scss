@@ -1,0 +1,76 @@
+/* nav */
+
+.nav-tabs {
+  background-color: $navbar-dark-bg;
+  .nav-item {
+    &:hover {
+      cursor: pointer;
+    }
+  }
+}
+
+.navbar-dark {
+  background-color: $navbar-dark-bg;
+  // only bottom shadow, useful for dark theme
+  box-shadow: $box-shadow-sm;
+  @include border-bottom-radius($border-radius-lg);
+
+  .navbar-nav {
+    .nav-item {
+      @include media-breakpoint-down(md) {
+        .dropdown-menu {
+          background-color: tint-color($navbar-dark-bg, 2.5%) !important;
+          box-shadow: none;
+
+          .dropdown-item,
+          .dropdown-header {
+            text-align: center;
+          }
+        }
+      }
+      .nav-link.active {
+        color: $nav-tabs-link-active-color !important;
+      }
+    }
+  }
+}
+
+/* links */
+
+.link {
+  cursor: pointer;
+  &:hover {
+    text-decoration: underline !important;
+  }
+}
+
+.link-primary {
+  @extend .link;
+  color: $primary !important;
+}
+
+.link-muted {
+  @extend .link;
+  color: $text-muted-color !important;
+  &:hover {
+    color: $text-muted-color !important;
+  }
+}
+
+.link-ul-primary {
+  @extend .link-primary;
+  text-decoration: underline;
+  &:hover {
+    color: $primary !important;
+    text-decoration: none !important;
+  }
+}
+
+.link-ul-muted {
+  @extend .link-muted;
+  text-decoration: underline;
+  &:hover {
+    color: $text-muted-color !important;
+    text-decoration: none !important;
+  }
+}

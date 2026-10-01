@@ -6,6 +6,7 @@ from rest_framework.serializers import ValidationError
 
 from api.serializers import (
     AdvancedFeedRequestSerializer,
+    HoneypotPayloadSerializer,
     IOCSerializer,
     SimpleFeedResponseSerializer,
     TrendingFeedRequestSerializer,
@@ -13,7 +14,7 @@ from api.serializers import (
 )
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, Honeypot, Sensor
+from greedybear.models import IOC, Honeypot, HoneypotPayload, Sensor
 from tests import CustomTestCase
 
 
@@ -275,9 +276,10 @@ class FeedResponseSerializersTestCase(CustomTestCase):
         scanner_choices = [True, False]
         payload_request_choices = [True, False]
         feed_type_choices = ["all", "log4pot", "cowrie", "adbhoney"]
+        high_credential_reuse_choices = [True, False]
 
         # generete all possible valid input data using cartesian product
-        valid_data_choices = product(scanner_choices, payload_request_choices, feed_type_choices)
+        valid_data_choices = product(scanner_choices, payload_request_choices, feed_type_choices, high_credential_reuse_choices)
 
         for element in valid_data_choices:
             data_ = {
@@ -285,6 +287,8 @@ class FeedResponseSerializersTestCase(CustomTestCase):
                 "value": "140.246.171.141",
                 SCANNER: element[0],
                 PAYLOAD_REQUEST: element[1],
+                "http_attack_types": ["sqli"],
+                "high_credential_reuse": element[3],
                 "first_seen": "2023-03-20",
                 "last_seen": "2023-03-21",
                 "attack_count": "5",
@@ -313,6 +317,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
             "value": True,
             SCANNER: "invalid_scanner",
             PAYLOAD_REQUEST: "invalid_payload_request",
+            "high_credential_reuse": "invalid_high_credential_reuse",
             "first_seen": "31-2023-03",
             "last_seen": "31-2023-03",
             "attack_count": "0",
@@ -336,6 +341,7 @@ class FeedResponseSerializersTestCase(CustomTestCase):
             self.assertIn("value", serializer.errors)
             self.assertIn(SCANNER, serializer.errors)
             self.assertIn(PAYLOAD_REQUEST, serializer.errors)
+            self.assertIn("high_credential_reuse", serializer.errors)
             self.assertIn("first_seen", serializer.errors)
             self.assertIn("last_seen", serializer.errors)
             self.assertIn("attack_count", serializer.errors)
@@ -366,3 +372,37 @@ class IOCSerializerTestCase(CustomTestCase):
         self.assertEqual(sensors_data[0]["label"], "home-pi")
         self.assertEqual(sensors_data[1]["address"], "10.0.0.2")
         self.assertEqual(sensors_data[1]["label"], "")
+
+
+class HoneypotPayloadSerializerTestCase(CustomTestCase):
+    def test_empty_relations_serialize_as_empty_lists(self):
+        payload = HoneypotPayload.objects.create(sha256="a" * 64)
+
+        serializer = HoneypotPayloadSerializer(payload)
+        data = serializer.data
+
+        self.assertEqual(data["iocs"], [])
+        self.assertEqual(data["cowrie_sessions"], [])
+
+    def test_serializes_iocs_as_names(self):
+        payload = HoneypotPayload.objects.create(sha256="b" * 64)
+        payload.iocs.add(self.ioc, self.ioc_2)
+
+        serializer = HoneypotPayloadSerializer(payload)
+        data = serializer.data
+
+        self.assertEqual(sorted(data["iocs"]), sorted([self.ioc.name, self.ioc_2.name]))
+        self.assertEqual(data["cowrie_sessions"], [])
+
+    def test_serializes_cowrie_sessions_as_hex_ids(self):
+        payload = HoneypotPayload.objects.create(sha256="c" * 64)
+        payload.cowrie_sessions.add(self.cowrie_session, self.cowrie_session_2)
+
+        serializer = HoneypotPayloadSerializer(payload)
+        data = serializer.data
+
+        self.assertEqual(
+            sorted(data["cowrie_sessions"]),
+            sorted([f"{self.cowrie_session.session_id:x}", f"{self.cowrie_session_2.session_id:x}"]),
+        )
+        self.assertEqual(data["iocs"], [])

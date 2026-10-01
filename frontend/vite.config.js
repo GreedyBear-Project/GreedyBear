@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { configDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -12,6 +13,7 @@ export default defineConfig({
         environment: 'jsdom',
         setupFiles: './vitest.setup.js',
         css: true,
+        exclude: [...configDefaults.exclude, 'tests/visual/**'],
     },
     base: process.env.VITE_BASE_URL || '/',
 

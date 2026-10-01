@@ -23,7 +23,7 @@ import { clearWidgetDataCache } from "../../../src/hooks/useWidgetData";
 
 vi.mock("axios");
 
-vi.mock("@greedybear/gb-ui", () => ({
+vi.mock("../../../src/components/common/gb-ui/index", () => ({
   useTimePickerStore: () => ({ range: "7d", dateFormat: "yyyy-MM-dd" }),
   getRandomColorsArray: (n) => Array(n).fill("#aabbcc"),
 }));

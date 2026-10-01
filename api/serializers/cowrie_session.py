@@ -1,14 +1,26 @@
+import re
+
 from rest_framework import serializers
+
+from greedybear.regex import REGEX_COWRIE_SESSION_ID
 
 
 class CowrieSessionRequestSerializer(serializers.Serializer):
     query = serializers.CharField(
+        required=False,
         max_length=256,
         help_text=(
             "The search term, can be an IP address, the SHA-256 hash of a command sequence, or a password. "
-            'SHA-256 hashes should match command sequences generated using Python\'s `"\n".join(sequence)` format.'
+            'SHA-256 hashes should match command sequences generated using Python\'s `"\n".join(sequence)` format. '
+            "Mutually exclusive with `id`."
         ),
     )
+    id = serializers.CharField(
+        required=False,
+        max_length=16,
+        help_text=("Hex session ID, in the same format the payloads API returns. Mutually exclusive with `query`."),
+    )
+
     include_similar = serializers.BooleanField(
         required=False,
         default=False,
@@ -24,6 +36,30 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
     include_session_data = serializers.BooleanField(
         required=False, default=False, help_text="When `true`, includes detailed information about matching Cowrie sessions."
     )
+    start_date = serializers.DateField(
+        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or after this date (YYYY-MM-DD)."
+    )
+    end_date = serializers.DateField(
+        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or before this date (YYYY-MM-DD)."
+    )
+
+    def validate_id(self, value: str) -> str:
+        if not re.fullmatch(REGEX_COWRIE_SESSION_ID, value):
+            raise serializers.ValidationError(f"Not a valid hex session ID: {value}")
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("query") and attrs.get("id"):
+            raise serializers.ValidationError("Provide either `query` or `id`, not both.")
+        if not attrs.get("query") and not attrs.get("id"):
+            raise serializers.ValidationError("Provide either `query` or `id`.")
+
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError("`start_date` must be less than or equal to `end_date`.")
+
+        return attrs
 
 
 class SessionDetailSerializer(serializers.Serializer):
@@ -40,7 +76,8 @@ class SessionDetailSerializer(serializers.Serializer):
 class CowrieSessionSerializer(serializers.Serializer):
     """Aggregated view of the sessions matching a query."""
 
-    query = serializers.CharField(max_length=256, help_text="The query this result was produced for.")
+    query = serializers.CharField(required=False, max_length=256, help_text="The query this result was produced for. Present when searching by `query`.")
+    id = serializers.CharField(required=False, max_length=16, help_text="The session ID this result was produced for. Present when searching by `id`.")
     license = serializers.CharField(required=False, help_text="Present when a feed license is configured.")
     commands = serializers.ListField(child=serializers.CharField(), help_text="Unique command sequences, each newline-delimited.")
     sources = serializers.ListField(child=serializers.IPAddressField(), help_text="Unique source IP addresses.")

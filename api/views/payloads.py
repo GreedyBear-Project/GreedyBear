@@ -2,11 +2,13 @@
 # See the file 'LICENSE' for copying permission.
 import logging
 
+from django.db.models.functions import Lower
 from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -49,10 +51,24 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
     :class:`~api.permissions.IsThreatResearcherOrAdmin`.
     """
 
-    queryset = HoneypotPayload.objects.prefetch_related("source_honeypots").order_by("-id")
+    queryset = HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_sessions").order_by("-id")
     serializer_class = HoneypotPayloadSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "sha256"
+
+    def get_object(self) -> HoneypotPayload:
+        """
+        Look up the payload by SHA256, ignoring case.
+
+        The hash comes from the URL so it can be any case, while stored hashes
+        are lower-cased. Matching on Lower("sha256") also finds older rows that
+        were saved before that was true.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        sha256 = self.kwargs[self.lookup_field].lower()
+        obj = get_object_or_404(queryset.annotate(sha256_lower=Lower("sha256")), sha256_lower=sha256)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     @extend_schema(
         summary="Download payload binary",

@@ -15,6 +15,7 @@ from greedybear.cronjobs.extraction.utils import (
 from greedybear.cronjobs.repositories import (
     CowrieSessionRepository,
     IocRepository,
+    PayloadRepository,
     SensorRepository,
 )
 from greedybear.models import IOC, CommandSequence, CowrieSession
@@ -60,8 +61,9 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
 
     Extracts scanner IPs, payload URLs from login attempts and file
     downloads, and session data including credentials and command
-    sequences. Links related IOCs (scanners to download URLs) and
-    deduplicates command sequences by hash.
+    sequences. Links related IOCs (scanners to download URLs), links file
+    transfers to any already-downloaded HoneypotPayload, and deduplicates
+    command sequences by hash.
     """
 
     def __init__(
@@ -69,10 +71,12 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         honeypot: str,
         ioc_repo: IocRepository,
         sensor_repo: SensorRepository,
-        session_repo: CowrieSessionRepository = None,
+        session_repo: CowrieSessionRepository | None = None,
+        payload_repo: PayloadRepository | None = None,
     ):
         super().__init__(honeypot, ioc_repo, sensor_repo)
         self.session_repo = session_repo or CowrieSessionRepository()
+        self.payload_repo = payload_repo or PayloadRepository()
         self.payloads_in_message = 0
         self.added_url_downloads = 0
 
@@ -274,6 +278,9 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                         outfile=outfile,
                         timestamp=timestamp,
                     )
+
+                    if self.payload_repo.link_payload_to_session(session_record, shasum):
+                        self.log.info(f"linked existing payload {shasum[:8]}... to session {session_record.session_id:x}")
 
         session_record.interaction_count += 1
 

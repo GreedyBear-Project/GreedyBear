@@ -95,6 +95,9 @@ class TrainModels(Cronjob):
         """
         self.log.info("fetching current IoC data from DB")
         self.current_data = get_current_data()
+        if not self.current_data:
+            self.log.error("no current IoC data, skipping training run")
+            return
         current_date = max(row["last_seen"] for row in self.current_data)
 
         self.log.info(f"current IoC data is from {current_date}, contains {len(self.current_data)} IoCs")
@@ -125,6 +128,10 @@ class TrainModels(Cronjob):
 
         self.log.info("extracting features from training data")
         training_df = get_features(training_data, training_date)
+        if training_df.empty:
+            self.log.error("no features extracted from training data, skipping training run")
+            self.save_training_data()
+            return
         training_df["interactions_on_eval_day"] = training_df["value"].map(current_ips)
 
         high_corr_pairs = correlated_features(training_df.select_dtypes(include="number"))
@@ -235,15 +242,15 @@ class UpdateScores(Cronjob):
         Returns:
             int: Number of objects updated
         """
-        iocs = set(iocs)
-        primary_keys = {ioc.pk for ioc in iocs}
+        unique_iocs = set(iocs)
+        primary_keys = {ioc.pk for ioc in unique_iocs}
         data = get_data_by_pks(primary_keys)
         current_date = str(date.today())
         self.log.info("extracting features: score_only")
         df = get_features(data, current_date)
         for s in SCORERS:
             df = s.score(df)
-        return self.update_db(df, iocs)
+        return self.update_db(df, unique_iocs)
 
     def run(self):
         """
@@ -262,9 +269,15 @@ class UpdateScores(Cronjob):
         if self.data is None:
             self.log.info("no data handed over from previous task - fetching current IoC data from DB")
             self.data = get_current_data()
+        if not self.data:
+            self.log.error("no IoC data to score, skipping update run")
+            return
         current_date = max(row["last_seen"] for row in self.data)
         self.log.info("extracting features")
         df = get_features(self.data, current_date)
+        if df.empty:
+            self.log.error("no features extracted, skipping score update")
+            return
         for s in SCORERS:
             df = s.score(df)
         self.update_db(df)

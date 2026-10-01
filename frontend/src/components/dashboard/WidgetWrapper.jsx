@@ -1,6 +1,6 @@
 import React from "react";
 import PropTypes from "prop-types";
-import { SmallInfoCard } from "@greedybear/gb-ui";
+import { SmallInfoCard } from "../common/gb-ui/index";
 
 class WidgetErrorBoundary extends React.Component {
   constructor(props) {

@@ -6,6 +6,10 @@ import {
   Collapse,
   NavbarBrand,
   NavbarToggler,
+  UncontrolledDropdown,
+  DropdownToggle,
+  DropdownMenu,
+  DropdownItem,
 } from "reactstrap";
 import { NavLink as RRNavLink } from "react-router-dom";
 import {
@@ -13,14 +17,20 @@ import {
   MdOutlineFeed,
   MdDashboard,
   MdTrendingUp,
+  MdDescription,
 } from "react-icons/md";
 import { RiBookReadFill } from "react-icons/ri";
+import { SiGithub, SiSwagger } from "react-icons/si";
 
 // lib
-import { NavLink } from "@greedybear/gb-ui";
+import { NavLink } from "../components/common/gb-ui/index";
 
 // constants
-import { GREEDYBEAR_DOCS_URL } from "../constants/environment";
+import {
+  GREEDYBEAR_DOCS_URL,
+  GREEDYBEAR_API_SWAGGER_URL,
+  GREEDYBEAR_API_REDOC_URL,
+} from "../constants/environment";
 
 // local
 import UserMenu from "./widget/UserMenu";
@@ -49,17 +59,42 @@ const guestLinks = (
 );
 
 const rightLinks = (
-  <NavItem>
-    <a
-      className="d-flex-start-center btn text-gray"
-      href={GREEDYBEAR_DOCS_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
+  <UncontrolledDropdown nav inNavbar>
+    <DropdownToggle nav className="d-flex-start-center text-gray">
       <RiBookReadFill />
       <span className="ms-1">Docs</span>
-    </a>
-  </NavItem>
+    </DropdownToggle>
+    <DropdownMenu end className="bg-dark" data-bs-popper>
+      <DropdownItem
+        tag="a"
+        href={GREEDYBEAR_DOCS_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <SiGithub className="me-2" />
+        Wiki
+      </DropdownItem>
+      <DropdownItem divider />
+      <DropdownItem
+        tag="a"
+        href={GREEDYBEAR_API_SWAGGER_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <SiSwagger className="me-2" />
+        Swagger UI
+      </DropdownItem>
+      <DropdownItem
+        tag="a"
+        href={GREEDYBEAR_API_REDOC_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <MdDescription className="me-2" />
+        Redoc
+      </DropdownItem>
+    </DropdownMenu>
+  </UncontrolledDropdown>
 );
 
 function AppHeader() {

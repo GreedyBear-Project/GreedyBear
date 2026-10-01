@@ -3,7 +3,7 @@ import "./Home.scss";
 import React from "react";
 import { Container } from "reactstrap";
 
-import { ContentSection } from "@greedybear/gb-ui";
+import { ContentSection } from "../common/gb-ui/index";
 
 import { PUBLIC_URL, VERSION } from "../../constants/environment";
 import { NewsWidget } from "./NewsWidget";

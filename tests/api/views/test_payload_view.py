@@ -85,6 +85,32 @@ class TestRetrievePayload(HoneypotPayloadViewSetTestCase):
         response = self.client.get(f"{PAYLOADS_URL}/{'0' * 64}")
         self.assertEqual(response.status_code, 404)
 
+    # The hash comes from the URL so it can be any case, but stored hashes are
+    # lower-cased. Without a case-insensitive lookup a valid request 404s (#1579).
+
+    def test_retrieve_by_uppercase_sha256(self):
+        """Uppercase hash in the URL should still find the row."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256.upper()}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sha256"], SAMPLE_SHA256)
+
+    def test_retrieve_by_mixed_case_sha256(self):
+        """Mixed case should work too, not just all uppercase."""
+        self.client.force_authenticate(user=self.regular_user)
+        mixed = "".join(c.upper() if i % 2 else c for i, c in enumerate(SAMPLE_SHA256))
+        response = self.client.get(f"{PAYLOADS_URL}/{mixed}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sha256"], SAMPLE_SHA256)
+
+    def test_retrieve_finds_row_stored_uppercase(self):
+        """Older rows saved in uppercase should still be found."""
+        legacy = HoneypotPayload.objects.create(sha256="E" * 64)
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}/{'e' * 64}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sha256"], legacy.sha256)
+
 
 class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
     def test_unauthenticated_is_rejected(self):
@@ -122,3 +148,21 @@ class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
         response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256}/download")
         self.assertEqual(response.status_code, 404)
         self.assertIn("not available", response.json()["detail"])
+
+    # download uses the same lookup as retrieve, so it needs the same checks.
+
+    def test_staff_can_download_with_uppercase_hash(self):
+        """Uppercase should work on the download route too."""
+        self.client.force_authenticate(user=self.superuser)
+        sha = self.payload_with_file.sha256
+        response = self.client.get(f"{PAYLOADS_URL}/{sha.upper()}/download")
+        self.assertEqual(response.status_code, 200)
+        content = b"".join(response.streaming_content)
+        self.assertEqual(content, b"MZ\x90\x00")
+
+    def test_uppercase_hash_still_enforces_permissions(self):
+        """Case-insensitive lookup must not bypass the RBAC check."""
+        self.client.force_authenticate(user=self.regular_user)
+        sha = self.payload_with_file.sha256
+        response = self.client.get(f"{PAYLOADS_URL}/{sha.upper()}/download")
+        self.assertEqual(response.status_code, 403)

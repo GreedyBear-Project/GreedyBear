@@ -141,8 +141,8 @@ export default function ConfigEditor() {
     isDirty,
     setLayouts,
     setWidgetConfigs,
-    save,
-    resetToDefault,
+    saveToServer,
+    resetToServerDefault,
   } = useDashboardStore(
     useShallow((s) => ({
       layouts: s.layouts,
@@ -150,10 +150,13 @@ export default function ConfigEditor() {
       isDirty: s.isDirty,
       setLayouts: s.setLayouts,
       setWidgetConfigs: s.setWidgetConfigs,
-      save: s.save,
-      resetToDefault: s.resetToDefault,
+      saveToServer: s.saveToServer,
+      resetToServerDefault: s.resetToServerDefault,
     })),
   );
+
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isResetting, setIsResetting] = React.useState(false);
 
   const { width, containerRef } = useContainerWidth();
 
@@ -228,13 +231,29 @@ export default function ConfigEditor() {
     [setLayouts, layouts],
   );
 
-  const handleReset = React.useCallback(() => {
+  const handleReset = React.useCallback(async () => {
     if (
-      window.confirm("Reset dashboard to defaults? All changes will be lost.")
+      window.confirm(
+        "Reset dashboard to defaults for all users? This will delete the saved server config.",
+      )
     ) {
-      resetToDefault();
+      setIsResetting(true);
+      try {
+        await resetToServerDefault();
+      } finally {
+        setIsResetting(false);
+      }
     }
-  }, [resetToDefault]);
+  }, [resetToServerDefault]);
+
+  const handleSave = React.useCallback(async () => {
+    setIsSaving(true);
+    try {
+      await saveToServer();
+    } finally {
+      setIsSaving(false);
+    }
+  }, [saveToServer]);
 
   const editableLayouts = React.useMemo(() => {
     const makeEditable = (arr) =>
@@ -276,20 +295,21 @@ export default function ConfigEditor() {
             id="config-reset-btn"
             className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1"
             onClick={handleReset}
+            disabled={isResetting}
             title="Reset to defaults"
           >
             <MdRestartAlt />
-            Reset
+            {isResetting ? "Resetting…" : "Reset"}
           </button>
           <button
             id="config-save-btn"
             className="btn btn-sm btn-primary d-flex align-items-center gap-1"
-            onClick={save}
-            disabled={!isDirty}
+            onClick={handleSave}
+            disabled={!isDirty || isSaving}
             title="Save layout"
           >
             <MdSave />
-            Save
+            {isSaving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>

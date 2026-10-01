@@ -5,7 +5,7 @@ from certego_saas.apps.auth import views as certego_views
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.throttling import POSTUserRateThrottle
 from django.conf import settings
-from django.contrib.auth import get_user_model, login
+from django.contrib.auth import login
 from durin import views as durin_views
 from durin.models import AuthToken
 from rest_framework import status
@@ -22,7 +22,6 @@ from rest_framework.views import APIView
 
 from greedybear.consts import GET
 from greedybear.enums import FrontendPage
-from greedybear.settings import AUTH_USER_MODEL
 
 from .serializers import (
     ChangePasswordSerializer,
@@ -35,8 +34,6 @@ from .throttles import LoginIdentifierThrottle, LoginIPThrottle
 logger = logging.getLogger(__name__)
 
 """ Auth API endpoints """
-
-User: AUTH_USER_MODEL = get_user_model()
 
 
 def revoke_other_tokens(user, current_token=None):

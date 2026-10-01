@@ -339,3 +339,159 @@ class TestIocIdentityDeduplication(MigrationTestCase):
         self.assertTrue(ioc_new.objects.filter(id=first.id).exists())
         self.assertTrue(ioc_new.objects.filter(id=second.id).exists())
         self.assertEqual(ioc_new.objects.count(), 2)
+
+
+@tag("migration")
+class TestTannerHttpAttackTypesMigration(MigrationTestCase):
+    """Tests that the Tanner data migration only touches Tanner attack_type tags."""
+
+    migrate_from = "0065_ioc_http_attack_types"
+    migrate_to = "0066_migrate_tanner_attack_types"
+
+    def test_other_sources_untouched(self):
+        """Tags from other enrichment sources must survive the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.7", type="ip")
+        Tag.objects.create(ioc=ioc, key="malware", value="Mirai", source="threatfox")
+        Tag.objects.create(ioc=ioc, key="ptr_record", value="scanner.example.com", source="rdns")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="sqli", source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="rdns").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="tanner", key="attack_type").count(), 0)
+        self.assertEqual(IOC.objects.get(name="1.2.3.7").http_attack_types, ["sqli"])
+
+    def test_long_value_truncated(self):
+        """A stray value longer than the field's max_length must not abort the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.8", type="ip")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="x" * 200, source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertEqual(IOC.objects.get(name="1.2.3.8").http_attack_types, ["x" * 64])
+
+
+@tag("migration")
+class TestTagIdentityDeduplication(MigrationTestCase):
+    """Tests Tag deduplication before enforcing the identity uniqueness constraint."""
+
+    migrate_from = "0063_eventstatus_started_at"
+    migrate_to = "0064_deduplicate_tag_identity_and_add_constraint"
+
+    def test_deduplicates_identical_tags_keeping_earliest(self):
+
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.4", type="ip")
+        earliest = Tag.objects.create(ioc=ioc, source="tanner", key="attack_type", value="sqli", added="2026-01-01T00:00:00Z")
+        Tag.objects.create(ioc=ioc, source="tanner", key="attack_type", value="sqli", added="2026-01-02T00:00:00Z")
+        Tag.objects.create(ioc=ioc, source="tanner", key="attack_type", value="sqli", added="2026-01-03T00:00:00Z")
+
+        new_state = self.apply_tested_migration()
+        tag_new = new_state.apps.get_model(self.app_name, "Tag")
+
+        remaining = list(tag_new.objects.filter(ioc_id=ioc.id))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].id, earliest.id)
+
+    def test_keeps_lowest_id_when_added_ties(self):
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="dup.example", type="domain")
+        same_instant = "2026-01-01T00:00:00Z"
+        older = Tag.objects.create(ioc=ioc, source="reverse_dns", key="hostname", value="a.example", added=same_instant)
+        Tag.objects.create(ioc=ioc, source="reverse_dns", key="hostname", value="a.example", added=same_instant)
+
+        new_state = self.apply_tested_migration()
+        tag_new = new_state.apps.get_model(self.app_name, "Tag")
+
+        remaining = list(tag_new.objects.filter(ioc_id=ioc.id))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].id, older.id)
+
+    def test_distinguishes_tags_by_every_identity_field(self):
+
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc_a = IOC.objects.create(name="ioc-a", type="ip")
+        ioc_b = IOC.objects.create(name="ioc-b", type="ip")
+        same_key_value_diff_ioc = Tag.objects.create(ioc=ioc_a, source="threatfox", key="malware", value="mirai")
+        diff_ioc = Tag.objects.create(ioc=ioc_b, source="threatfox", key="malware", value="mirai")
+        diff_source = Tag.objects.create(ioc=ioc_a, source="abuseipdb", key="malware", value="mirai")
+        diff_key = Tag.objects.create(ioc=ioc_a, source="threatfox", key="family", value="mirai")
+        diff_value = Tag.objects.create(ioc=ioc_a, source="threatfox", key="malware", value="gafgyt")
+
+        new_state = self.apply_tested_migration()
+        tag_new = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(tag_new.objects.count(), 5)
+        for kept in (same_key_value_diff_ioc, diff_ioc, diff_source, diff_key, diff_value):
+            self.assertTrue(tag_new.objects.filter(id=kept.id).exists())
+
+    def test_unique_constraint_is_enforced_after_migration(self):
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="constraint-check", type="ip")
+        Tag.objects.create(ioc=ioc, source="tanner", key="attack_type", value="rfi")
+
+        new_state = self.apply_tested_migration()
+        ioc_new = new_state.apps.get_model(self.app_name, "IOC")
+        tag_new = new_state.apps.get_model(self.app_name, "Tag")
+        ioc_new_ref = ioc_new.objects.get(id=ioc.id)
+
+        with self.assertRaises(IntegrityError):
+            tag_new.objects.create(ioc=ioc_new_ref, source="tanner", key="attack_type", value="rfi")
+
+
+@tag("migration")
+class TestMigrateCredentialReuseTags(MigrationTestCase):
+    """Tests that credential_reuse tags become the IOC.high_credential_reuse flag."""
+
+    migrate_from = "0068_ioc_high_credential_reuse"
+    migrate_to = "0069_migrate_credential_reuse_tags"
+
+    def test_credential_reuse_tag_becomes_flag(self):
+        """IOCs with the credential_reuse tag get flagged, and the tag is deleted."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        flagged = IOC.objects.create(name="1.1.1.1", type="ip")
+        IOC.objects.create(name="2.2.2.2", type="ip")
+        Tag.objects.create(ioc=flagged, source="credential_reuse", key="behavior", value="high_credential_reuse")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertIs(IOC.objects.get(name="1.1.1.1").high_credential_reuse, True)
+        self.assertIs(IOC.objects.get(name="2.2.2.2").high_credential_reuse, False)
+        self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())
+
+    def test_other_tags_are_kept(self):
+        """Tags from other sources are not touched by the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="3.3.3.3", type="ip")
+        Tag.objects.create(ioc=ioc, source="credential_reuse", key="behavior", value="high_credential_reuse")
+        Tag.objects.create(ioc=ioc, source="threatfox", key="malware", value="mirai")
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.filter(source="threatfox", ioc__name="3.3.3.3").count(), 1)
+        self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())

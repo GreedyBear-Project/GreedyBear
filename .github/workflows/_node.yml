@@ -97,10 +97,10 @@ jobs:
         language: ['javascript']
     steps:
       - name: Check out latest commit for current branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node_version }}
           cache: 'npm'
@@ -137,7 +137,7 @@ jobs:
         if: ${{ inputs.check_packages_licenses }}
         id: license_check_report
         continue-on-error: true
-        uses: pilosus/action-pip-license-checker@v2
+        uses: pilosus/action-pip-license-checker@v3
         with:
           requirements: ${{ inputs.requirements_path }}
           external: ${{ inputs.working_directory }}/licenses.csv

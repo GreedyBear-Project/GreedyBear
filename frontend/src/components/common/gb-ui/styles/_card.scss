@@ -1,0 +1,32 @@
+// Card
+
+.card {
+  padding: 0;
+  border: 1px solid $secondary;
+  &.flat {
+    border-radius: 0 !important;
+    .card-header {
+      border-radius: 0 !important;
+      border: none !important;
+    }
+  }
+  &.shadow {
+    box-shadow: 1px 2px 4px 0 $primary !important;
+  }
+  .card-header {
+    padding: 0.4rem;
+    background-color: $tertiary;
+  }
+  .card-body {
+    padding: 0.8rem;
+  }
+  .card-footer {
+    font-size: $font-size-base * 0.9;
+    border-top-color: $light;
+    border-bottom-right-radius: 1rem;
+    border-bottom-left-radius: 1rem;
+    &:last-child {
+      @include border-bottom-radius(0);
+    }
+  }
+}

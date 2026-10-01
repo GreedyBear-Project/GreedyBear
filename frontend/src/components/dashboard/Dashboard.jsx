@@ -4,7 +4,7 @@ import { Container } from "reactstrap";
 import { MdSettings } from "react-icons/md";
 import { useShallow } from "zustand/shallow";
 
-import { ElasticTimePicker, useTimePickerStore } from "@greedybear/gb-ui";
+import { ElasticTimePicker, useTimePickerStore } from "../common/gb-ui/index";
 
 import DashboardRenderer from "./DashboardRenderer";
 import useDashboardStore from "../../stores/useDashboardStore";
@@ -16,13 +16,22 @@ function Dashboard() {
 
   const isSuperuser = useAuthStore(React.useCallback((s) => s.isSuperuser, []));
 
-  const { widgetConfigs, layouts, savedVersion } = useDashboardStore(
-    useShallow((s) => ({
-      widgetConfigs: s.widgetConfigs,
-      layouts: s.layouts,
-      savedVersion: s.savedVersion,
-    })),
-  );
+  const { widgetConfigs, layouts, savedVersion, loadFromServer } =
+    useDashboardStore(
+      useShallow((s) => ({
+        widgetConfigs: s.widgetConfigs,
+        layouts: s.layouts,
+        savedVersion: s.savedVersion,
+        loadFromServer: s.loadFromServer,
+      })),
+    );
+
+  // Fetch the globally persisted layout once per session.
+  // loadFromServer is guarded internally by `serverSynced` so it only fires
+  // when the user is authenticated and no fetch has been made yet this session.
+  React.useEffect(() => {
+    loadFromServer();
+  }, [loadFromServer]);
 
   const staticLayouts = React.useMemo(() => {
     const freeze = (arr) =>

@@ -1,0 +1,91 @@
+@use "sass:math";
+@use "sass:color";
+@use "sass:map";
+
+// theme
+@import "variables";
+@import "bootstrap/scss/bootstrap";
+@import url("https://fonts.googleapis.com/css?family=Montserrat:200,300,400,500,600|Roboto:700");
+
+// local files
+@import "_alerts";
+@import "_button";
+@import "_card";
+@import "_chat";
+@import "_form";
+@import "_list";
+@import "_nav";
+@import "_overwrite";
+@import "_recharts";
+@import "_spinners";
+@import "_table";
+@import "_text";
+@import "_toast";
+@import "_utils";
+
+/* custom properties */
+
+:root {
+  --primary: #{$primary} !important;
+  --secondary: #{$secondary} !important;
+  --tertiary: #{$tertiary} !important;
+  --dark: #{$dark} !important;
+  --light: #{$light} !important;
+  --info: #{$info} !important;
+  --body-bg: #{$body-bg} !important;
+  --gray: #{$gray} !important;
+  --dark-bluish-grey: #{$dark-bluish-grey} !important;
+  --light-bluish-grey: #{$light-bluish-grey} !important;
+  --accent: #{$sev-high} !important;
+  --accent-2: #{$accent-2} !important;
+  --accent-1: #{$accent-1} !important;
+  --tertiary: #{$tertiary} !important;
+  --advisory: #{$sev-low} !important;
+  --gray: #{$gray} !important;
+  --darker: #{$darker} !important;
+}
+
+/* custom SCSS */
+
+body {
+  margin-top: 5rem;
+  line-height: 1.65;
+  font-size: 12pt;
+}
+
+footer {
+  z-index: 9999 !important;
+}
+
+hr {
+  background-color: $light;
+}
+
+a:hover {
+  color: $primary !important;
+  text-decoration: none !important;
+}
+
+// date
+
+.date-hoverable {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  cursor: pointer;
+  &:hover {
+    background-color: $dark;
+    color: $info;
+  }
+}
+
+// style scrollbar for webkit (mostly Chrome)
+::-webkit-scrollbar {
+  width: $scrollbar-size;
+  height: $scrollbar-size;
+  background: rgba($gray-800, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: $gray-100;
+  border-radius: math.div($scrollbar-size, 2);
+}

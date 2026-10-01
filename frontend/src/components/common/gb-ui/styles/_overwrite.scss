@@ -1,0 +1,38 @@
+// bg
+.bg-gradient {
+  background: $gradient !important;
+  color: $dark !important;
+}
+
+.bg-dark-blue {
+  background-color: $dark-bluish-grey !important;
+}
+
+.bg-light-blue {
+  background-color: $light-bluish-grey !important;
+}
+
+.bg-body {
+  background-color: $body-bg !important;
+}
+
+// border
+.border-gradient {
+  border-image: $gradient !important;
+  border-image-slice: 1;
+  border-style: solid;
+}
+
+// content-section
+.content-section {
+  background: $dark;
+  padding: 10px 20px;
+  border: 1px solid $dark;
+  box-shadow: 0 9px 18px 0 rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+  border-radius: 3px;
+  margin-bottom: 20px;
+  .shadow {
+    box-shadow: 0 9px 18px 0 $darker;
+  }
+}

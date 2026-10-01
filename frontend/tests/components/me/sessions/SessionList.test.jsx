@@ -8,7 +8,10 @@ import {
   deleteOtherSessions,
   deleteTokenById,
 } from "../../../../src/components/me/sessions/api";
-import { confirm, useAxiosComponentLoader } from "@greedybear/gb-ui";
+import {
+  confirm,
+  useAxiosComponentLoader,
+} from "../../../../src/components/common/gb-ui/index";
 
 vi.mock("../../../../src/components/me/sessions/api", () => ({
   deleteOtherSessions: vi.fn(),
@@ -17,8 +20,10 @@ vi.mock("../../../../src/components/me/sessions/api", () => ({
 
 const refetchMock = vi.fn();
 
-vi.mock("@greedybear/gb-ui", async () => {
-  const actual = await vi.importActual("@greedybear/gb-ui");
+vi.mock("../../../../src/components/common/gb-ui/index", async () => {
+  const actual = await vi.importActual(
+    "../../../../src/components/common/gb-ui/index",
+  );
   return {
     ...actual,
     confirm: vi.fn(),

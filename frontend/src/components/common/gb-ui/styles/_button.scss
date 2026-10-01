@@ -1,0 +1,59 @@
+// buttons
+
+.btn-darker {
+  &:not(.disabled) {
+    &:hover {
+      color: $primary !important;
+      text-decoration: none;
+    }
+  }
+}
+
+.btn-info,
+.btn-outline-info {
+  &:not(.disabled) {
+    &:hover {
+      color: $light !important;
+      text-decoration: none;
+    }
+  }
+}
+
+.btn-group-xs > .btn,
+.btn-xs {
+  padding: 0.25rem 0.4rem;
+  font-size: 0.875rem;
+  line-height: 0.75;
+  border-radius: 0.2rem;
+}
+
+.btn-gradient {
+  @extend .text-gradient;
+  &:hover {
+    color: $gradient-color-1 !important;
+    border: 1px $gradient-color-1 solid !important;
+  }
+  &:focus {
+    border: 1px $gradient-color-1 solid !important;
+  }
+}
+
+.btn-outline-gradient {
+  @extend .btn-gradient;
+  border: 1px $gradient-color-1 solid !important;
+}
+
+#ScrollToTopButton {
+  z-index: 9999 !important;
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1rem;
+  animation: fadeIn 700ms ease-in-out 1s both;
+  cursor: pointer;
+}
+
+a.btn {
+  &:hover {
+    color: inherit !important;
+  }
+}

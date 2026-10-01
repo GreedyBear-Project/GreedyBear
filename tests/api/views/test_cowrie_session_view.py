@@ -165,10 +165,88 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("credentials", response.data)
 
+    # # # # # Session ID Query Tests # # # # #
+    def test_id_query(self):
+        """Test lookup of a single session by its hex ID."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], "ffffffffffff")
+        self.assertNotIn("query", response.data)
+        self.assertEqual(response.data["sources"], [self.ioc.name])
+
+    def test_id_query_with_session_data(self):
+        """Test that the ID lookup returns the matching session only."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff&include_session_data=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertEqual(response.data["sessions"][0]["source"], self.ioc.name)
+
+    def test_id_query_excludes_session_with_zero_duration(self):
+        """Incomplete sessions are left out, same as the other lookups."""
+        CowrieSession.objects.create(
+            session_id=int("abc123", 16),
+            start_time=self.current_time,
+            duration=0,
+            source=self.ioc,
+        )
+        response = self.client.get("/api/cowrie_session?id=abc123")
+        self.assertEqual(response.status_code, 404)
+
+    def test_id_query_is_case_insensitive(self):
+        """Hex parses either case, so both should resolve to the same session."""
+        lower = self.client.get("/api/cowrie_session?id=ffffffffffff")
+        upper = self.client.get("/api/cowrie_session?id=FFFFFFFFFFFF")
+        self.assertEqual(lower.status_code, 200)
+        self.assertEqual(upper.status_code, 200)
+        self.assertEqual(lower.data["sources"], upper.data["sources"])
+
+    def test_nonexistent_id(self):
+        """Test that view returns 404 for an unknown session ID."""
+        response = self.client.get("/api/cowrie_session?id=abcdef123456")
+        self.assertEqual(response.status_code, 404)
+
+    def test_invalid_id_is_rejected(self):
+        """Non-hex IDs should be a validation error, not a 404."""
+        response = self.client.get("/api/cowrie_session?id=nothex")
+        self.assertEqual(response.status_code, 400)
+
+    def test_id_rejects_input_int_would_accept(self):
+        """int(x, 16) takes prefixes, signs and underscores, the regex should not."""
+        for value in ["0xff", "-ff", "f_f", "+ff"]:
+            response = self.client.get("/api/cowrie_session", {"id": value})
+            self.assertEqual(response.status_code, 400, value)
+
+    def test_id_longer_than_16_digits_is_rejected(self):
+        """session_id is a 64 bit field, so more than 16 hex digits can't exist."""
+        response = self.client.get("/api/cowrie_session?id=" + "f" * 17)
+        self.assertEqual(response.status_code, 400)
+
+    def test_id_beyond_signed_bigint_returns_404(self):
+        """16 hex digits can exceed a signed 64 bit int, that should 404 and not crash."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffffffff")
+        self.assertEqual(response.status_code, 404)
+
+    def test_query_and_id_together_is_rejected(self):
+        """The two parameters select different things, so only one is allowed."""
+        response = self.client.get("/api/cowrie_session?query=140.246.171.141&id=ffffffffffff")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not both", str(response.data))
+
+    def test_missing_query_and_id_message(self):
+        """With neither parameter the error should not mention "not both"."""
+        response = self.client.get("/api/cowrie_session")
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("not both", str(response.data))
+
     # # # # # Hash Validation Tests # # # # #
     def test_nonexistent_hash(self):
         """Test that view returns 404 for nonexistent hash."""
         response = self.client.get(f"/api/cowrie_session?query={'f' * 64}")
+        self.assertEqual(response.status_code, 404)
+
+    def test_nonexistent_session_when_hash_exists(self):
+        """ "Test that view returns 404 when hash exists but not used in any session."""
+        response = self.client.get(f"/api/cowrie_session?query={self.command_sequence_not_used.commands_hash}")
         self.assertEqual(response.status_code, 404)
 
     def test_hash_wrong_length(self):
@@ -288,3 +366,56 @@ class CowrieSessionViewTestCase(CustomTestCase):
         """Test that passwords exceeding max length return 400."""
         response = self.client.get(f"/api/cowrie_session?query={'a' * 257}")
         self.assertEqual(response.status_code, 400)
+
+    # # # # # Date Filter Tests # # # # #
+    def test_filter_by_start_date_only(self):
+        """Should return only sessions occurring on or after start_date."""
+        start_date = "2026-01-20"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date={start_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertGreaterEqual(session_date, start_date)
+
+    def test_filter_by_end_date_only(self):
+        """Should return only sessions occurring on or before end_date."""
+        end_date = "2026-01-20"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&end_date={end_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertLessEqual(session_date, end_date)
+
+    def test_filter_by_exact_date_range(self):
+        """Should return only sessions within the start_date and end_date window."""
+        start_date = "2026-01-15"
+        end_date = "2026-01-25"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date={start_date}&end_date={end_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertTrue(start_date <= session_date <= end_date, f"Session date {session_date} is outside range [{start_date}, {end_date}]")
+
+    def test_start_date_after_end_date_raises_validation_error(self):
+        """Should return 400 Bad Request when start_date is later than end_date."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&start_date=2026-01-20&end_date=2026-01-10")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_with_date_filter_missing_ip_returns_200_empty(self):
+        """Should return 200 OK with empty payloads when date filter is applied even if no sessions match."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date=2026-02-01&end_date=2026-02-10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["commands"], [])
+        self.assertEqual(response.data["sources"], [])

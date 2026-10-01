@@ -1,5 +1,5 @@
 import React from "react";
-import { ContentSection } from "@greedybear/gb-ui";
+import { ContentSection } from "../common/gb-ui/index";
 import { Spinner } from "reactstrap";
 import { GREEDYBEAR_NEWS_URL } from "../../constants/api";
 export const MAX_NEWS_ITEMS = 3;

@@ -1,0 +1,34 @@
+.recharts-reference-line {
+  stroke: $white;
+  stroke-opacity: 0.75;
+
+  .recharts-label {
+    stroke: $color-contrast-light;
+    stroke-opacity: 0.75;
+  }
+}
+
+.recharts-tooltip-wrapper {
+  .tooltip {
+    position: relative;
+  }
+}
+
+.recharts-tooltip-cursor {
+  fill: rgba($white, 0.1);
+}
+
+.recharts-cartesian-axis-tick-value {
+  &.recharts-text {
+    font-size: $rc-axis-font-size;
+    fill: $color-contrast-light;
+  }
+}
+
+svg.recharts-surface {
+  overflow: visible;
+}
+
+.recharts-text.recharts-polar-angle-axis-tick-value tspan {
+  fill: $secondary !important;
+}

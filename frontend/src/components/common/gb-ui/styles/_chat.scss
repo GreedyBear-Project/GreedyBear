@@ -1,0 +1,65 @@
+.chat-bubble {
+  display: inline-block;
+  flex-basis: auto;
+  flex-shrink: 0;
+  flex-grow: 0;
+  align-self: flex-start;
+  width: $chat-bubble-width;
+  padding: $chat-bubble-padding;
+  font-size: $chat-bubble-font-size;
+  font-weight: $font-weight-bold;
+  color: $color-contrast-light;
+  text-align: center;
+  text-transform: uppercase;
+  word-break: keep-all;
+  white-space: nowrap;
+  background: $chat-bubble-color;
+  border-radius: 50%;
+
+  &.chat-bubble-sm {
+    width: $chat-bubble-width-sm;
+    padding: $chat-bubble-padding-sm;
+    font-size: $chat-bubble-font-size-sm;
+
+    &.avatar-success {
+      height: $chat-bubble-width-sm;
+      padding: 0;
+    }
+  }
+
+  &.chat-bubble-xs {
+    width: $chat-bubble-width-xs;
+    padding: $chat-bubble-padding-xs;
+    font-size: $chat-bubble-font-size-xs;
+
+    &.avatar-success {
+      height: $chat-bubble-width-xs;
+      padding: 0;
+    }
+  }
+
+  &.avatar-success {
+    height: $chat-bubble-width;
+    padding: 0;
+  }
+
+  @include media-breakpoint-down(md) {
+    width: $chat-bubble-width * 0.75;
+    font-size: $chat-bubble-font-size * 0.75;
+
+    &.chat-bubble-sm {
+      font-size: $chat-bubble-font-size-sm * 0.75;
+    }
+  }
+
+  &.highlight {
+    background: $primary;
+  }
+}
+
+.navbar {
+  .chat-bubble {
+    color: $navbar-dark-bg;
+    background: $chat-nav-bubble-color;
+  }
+}
