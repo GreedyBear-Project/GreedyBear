@@ -255,6 +255,16 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 if session_record.commands is None:
                     session_record.commands = CommandSequence()
                     session_record.commands.first_seen = parse_timestamp(hit["timestamp"])
+                if session_record.commands.pk is not None:
+                    # Session continues from a previous extraction run.
+                    # Its stored sequence may be shared with other sessions,
+                    # so extend a copy instead of modifying the row.
+                    stored = session_record.commands
+                    session_record.commands = CommandSequence(
+                        commands=list(stored.commands),
+                        first_seen=stored.first_seen,
+                        last_seen=stored.last_seen,
+                    )
 
                 command = normalize_command(hit["message"])
                 session_record.commands.last_seen = parse_timestamp(hit["timestamp"])
