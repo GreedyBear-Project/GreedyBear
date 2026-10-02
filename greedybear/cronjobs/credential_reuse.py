@@ -1,5 +1,6 @@
 from django.db.models import Count
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.models import IOC, IocType
 
@@ -43,6 +44,7 @@ class CredentialReuseCron(Cronjob):
         flagged = IOC.objects.filter(id__in=ioc_ids).update(high_credential_reuse=True)
 
         self.log.info(f"Credential reuse detection complete: flagged {flagged} IPs")
+        invalidate_ioc_cache()
 
     def _get_candidates(self) -> list[tuple]:
         queryset = (

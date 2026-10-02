@@ -4,9 +4,11 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import caches
 from django.test import override_settings
 
-from greedybear.cache import Cache, build_versioned_key
+from greedybear.cache import Cache, build_versioned_key, invalidate_ioc_cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
-from greedybear.models import IOC, IocType
+from greedybear.cronjobs.enrichment.base_enrichment import BaseEnrichmentJob
+from greedybear.cronjobs.repositories.tag import TagRepository
+from greedybear.models import IOC, IocType, Tag
 from tests import CustomTestCase, E2ETestCase, MockElasticHit
 
 TEST_CACHES = {
@@ -101,6 +103,29 @@ class TestCache(CustomTestCase):
         self.cache.bump_data_version("ver")  # -> 3
         self.cache.bump_data_version("ver")  # -> 4
         self.assertEqual(self.cache.get_data_version("ver"), 4)
+
+    def test_invalidate_ioc_cache_bumps_version(self):
+        before = self.cache.get_data_version(IOC_DATA_VERSION_KEY)
+        invalidate_ioc_cache()
+        self.assertEqual(self.cache.get_data_version(IOC_DATA_VERSION_KEY), before + 1)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class EnrichmentWriteInvalidationTestCase(CustomTestCase):
+    """Tag writes through the shared enrichment funnel must orphan cached feeds."""
+
+    def test_write_tags_bumps_version(self):
+        class ProbeJob(BaseEnrichmentJob):
+            SOURCE_NAME = "probe-source"
+
+            def run(self) -> None:
+                pass
+
+        cache = Cache(API_CACHE_ALIAS)
+        before = cache.get_data_version(IOC_DATA_VERSION_KEY)
+        ProbeJob(tag_repo=TagRepository())._write_tags([{"ioc_id": self.ioc.id, "key": "k", "value": "v"}])
+        self.assertEqual(cache.get_data_version(IOC_DATA_VERSION_KEY), before + 1)
+        self.assertTrue(Tag.objects.filter(source="probe-source").exists())
 
 
 @override_settings(CACHES=DB_CACHES)

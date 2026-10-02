@@ -2,6 +2,7 @@ import re
 
 import requests
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import IocRepository, MassScannerRepository
@@ -81,3 +82,5 @@ class MassScannersCron(Cronjob):
                 if created:
                     self.log.info(f"added new mass scanner {ip_address}")
                     self.ioc_repo.update_ioc_reputation(ip_address, IpReputation.MASS_SCANNER)
+
+        invalidate_ioc_cache()

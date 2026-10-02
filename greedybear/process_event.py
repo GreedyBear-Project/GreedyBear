@@ -9,11 +9,12 @@ from django.db import transaction
 from django.db.models import CharField, Q
 from django.utils import timezone
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import iocs_from_hits
-from greedybear.cronjobs.repositories import IocRepository, SensorRepository
+from greedybear.cronjobs.repositories import IocRepository, PayloadRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, HoneypotPayload, RawEvent
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, RawEvent
 from greedybear.utils import get_attack_type, is_valid_url
 
 logger = logging.getLogger(__name__)
@@ -178,7 +179,7 @@ def _process_array_field(saved_ioc: IOC, ip_hits: list[dict], hit_key: str, fiel
     logger.debug(f"added {len(to_add)} {field_name[:-1]}(s) → IOC {saved_ioc.name}")
 
 
-def _process_payload_hashes(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_payload_hashes(payload_repo: PayloadRepository, saved_ioc: IOC, ip_hits: list[dict]) -> None:
     """
     Links observed payload hashes to HoneypotPayload rows.
 
@@ -190,14 +191,7 @@ def _process_payload_hashes(saved_ioc: IOC, ip_hits: list[dict]) -> None:
     if not hashes:
         return
     for sha256_hash in hashes:
-        payload, created = HoneypotPayload.objects.get_or_create(
-            sha256=sha256_hash,
-            defaults={
-                "payload_file": None,
-                "md5": "",
-                "sha1": "",
-            },
-        )
+        payload, created = payload_repo.get_or_create_stub(sha256_hash)
         payload.iocs.add(saved_ioc)
         if created:
             logger.debug(f"created hash-only payload {sha256_hash[:12]}…")
@@ -333,6 +327,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         # post processing
         ioc_repo = IocRepository()
         sensor_repo = SensorRepository()
+        payload_repo = PayloadRepository()
         processor = IocProcessor(ioc_repo, sensor_repo)
 
         with transaction.atomic():
@@ -358,7 +353,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
                 _process_commands(ip_hits)
                 _process_array_field(saved_ioc, ip_hits, hit_key="_protocol", field_name="protocols")
                 _process_array_field(saved_ioc, ip_hits, hit_key="_cve_id", field_name="cves")
-                _process_payload_hashes(saved_ioc, ip_hits)
+                _process_payload_hashes(payload_repo, saved_ioc, ip_hits)
 
                 processed_iocs.append(saved_ioc)
 
@@ -376,6 +371,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
 
             batch.status = EventStatusType.COMPLETED
             batch.ioc_count = len(processed_iocs)
+            invalidate_ioc_cache()
 
     except Exception as exc:
         logger.exception(f"[task={task_id}] Failed")

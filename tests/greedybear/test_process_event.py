@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.utils import timezone
 
 from api.serializers.events import EventSerializer
-from greedybear.cronjobs.repositories import IocRepository
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+from greedybear.cronjobs.repositories import IocRepository, PayloadRepository
 from greedybear.models import IOC, CommandSequence, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
     DEFAULT_EXTERNAL_HONEYPOT,
@@ -688,53 +691,54 @@ class TestProcessPayloadHashes(CustomTestCase):
         HoneypotPayload.objects.all().delete()
         self.ioc = IOC.objects.create(name="10.0.0.5", type="ip")
         self.sha256 = "a" * 64
+        self.payload_repo = PayloadRepository()
 
     def _hit(self, sha256):
         return {"_payload_hash": sha256}
 
     def test_stub_payload_created_and_linked(self):
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
         self.assertIn(self.ioc, payload.iocs.all())
 
     def test_stub_payload_has_no_file(self):
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
         self.assertFalse(payload.payload_file)
 
     def test_idempotent_double_call_no_duplicate_row(self):
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         self.assertEqual(HoneypotPayload.objects.filter(sha256=self.sha256).count(), 1)
 
     def test_existing_payload_with_file_not_overwritten(self):
         """If PayloadExtractionJob already quarantined the file, we must not clobber it."""
         existing = HoneypotPayload.objects.create(sha256=self.sha256, md5="deadbeef")
         existing.payload_file.save("sample.bin", ContentFile(b"data"))
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         existing.refresh_from_db()
         self.assertTrue(existing.payload_file)
         self.assertIn(self.ioc, existing.iocs.all())
 
     def test_multiple_hashes_all_linked(self):
         hits = [self._hit("a" * 64), self._hit("b" * 64)]
-        _process_payload_hashes(self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
         self.assertEqual(self.ioc.payloads.count(), 2)
 
     def test_same_hash_linked_to_multiple_iocs(self):
         ioc2 = IOC.objects.create(name="10.0.0.6", type="ip")
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
-        _process_payload_hashes(ioc2, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, ioc2, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
         self.assertIn(self.ioc, payload.iocs.all())
         self.assertIn(ioc2, payload.iocs.all())
 
     def test_no_payload_hash_in_hits_no_db_write(self):
         with self.assertNumQueries(0):
-            _process_payload_hashes(self.ioc, [{"src_ip": "1.1.1.1"}])
+            _process_payload_hashes(self.payload_repo, self.ioc, [{"src_ip": "1.1.1.1"}])
 
     def test_empty_hash_string_skipped(self):
-        _process_payload_hashes(self.ioc, [self._hit("")])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("")])
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
     def test_uppercase_hash_deduplicates_with_lowercase(self):
@@ -742,9 +746,9 @@ class TestProcessPayloadHashes(CustomTestCase):
         DB-level Lower() constraint must treat the same hash in different
         cases as the same row, no duplicate created.
         """
-        _process_payload_hashes(self.ioc, [self._hit("a" * 64)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("a" * 64)])
         # same hash, uppercase, should find existing row, not create a second
-        _process_payload_hashes(self.ioc, [self._hit("A" * 64)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("A" * 64)])
         self.assertEqual(HoneypotPayload.objects.count(), 1)
 
 
@@ -1001,3 +1005,57 @@ class TestLongProtocolDoesNotFailBatch(CustomTestCase):
         credential_width = Credential._meta.get_field("protocol").max_length
         self.assertEqual(credential_width, RawEvent._meta.get_field("protocol").max_length)
         self.assertEqual(credential_width, EventSerializer().fields["protocol"].max_length)
+
+
+INVALIDATION_CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "greedybear-invalidation-default",
+    },
+    "api": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "greedybear-invalidation-api-cache",
+    },
+}
+
+
+@override_settings(CACHES=INVALIDATION_CACHES)
+class TestBatchCompletionInvalidatesCache(CustomTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = make_user(username="invalidation_user")
+        self.api_source = make_api_source(self.user, name="InvalidationSource")
+        self.sensor = make_sensor(api_source=self.api_source)
+        self.batch = make_batch(self.api_source, task_id="task-invalidation")
+        make_raw_event(self.batch, self.sensor, src_ip="10.9.9.9", event_type="ssh")
+
+    def _version(self) -> int:
+        return Cache(API_CACHE_ALIAS).get_data_version(IOC_DATA_VERSION_KEY)
+
+    @patch(PATCH_UPDATE_SCORES)
+    @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
+    @patch(PATCH_IOC_PROCESSOR)
+    @patch(PATCH_IOCS_FROM_HITS)
+    def test_completed_batch_bumps_version(self, mock_hits, mock_processor_cls, mock_attack, mock_scores_cls):
+        saved_ioc = IOC.objects.create(name="10.9.9.9", type="ip")
+        mock_hits.return_value = [make_ioc("10.9.9.9")]
+        processor_instance = MagicMock()
+        processor_instance.add_ioc.return_value = saved_ioc
+        mock_processor_cls.return_value = processor_instance
+        mock_scores_cls.return_value = MagicMock()
+
+        before = self._version()
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self._version(), before + 1)
+
+    @patch(PATCH_IOCS_FROM_HITS, side_effect=RuntimeError("boom"))
+    def test_failed_batch_does_not_bump_version(self, mock_hits):
+        before = self._version()
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "failed")
+        self.assertEqual(self._version(), before)

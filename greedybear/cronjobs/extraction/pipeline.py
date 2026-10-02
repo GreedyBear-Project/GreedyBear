@@ -1,8 +1,8 @@
 import logging
 from collections import defaultdict
 
-from greedybear.cache import Cache
-from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY, TRENDING_FEEDS_DATA_VERSION_KEY
+from greedybear.cache import Cache, invalidate_ioc_cache
+from greedybear.consts import API_CACHE_ALIAS, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.bucket_updater import BucketUpdater
 from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
 from greedybear.cronjobs.extraction.strategies.factory import ExtractionStrategyFactory
@@ -124,7 +124,7 @@ class ExtractionPipeline:
         # bump lands in the shared DB-backed cache so gunicorn workers see it.
         if ioc_record_count > 0:
             self.log.info("Invalidating feeds cache")
-            Cache(API_CACHE_ALIAS).bump_data_version(IOC_DATA_VERSION_KEY)
+            invalidate_ioc_cache()
 
         if bucket_updater.total_update_count > 0:
             self.log.info("Invalidating feeds trending cache")

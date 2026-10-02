@@ -155,9 +155,10 @@ class TestCredentialReuseCron(CustomTestCase):
 
         self.assertFalse(IOC.objects.filter(high_credential_reuse=True).exists())
 
+    @patch("greedybear.cronjobs.credential_reuse.invalidate_ioc_cache")
     @patch("greedybear.cronjobs.credential_reuse.MIN_CREDENTIAL_REUSE", 1)
     @patch("greedybear.cronjobs.credential_reuse.MIN_LOGIN_ATTEMPTS", 1)
-    def test_flags_all_candidates_in_one_update(self):
+    def test_flags_all_candidates_in_one_update(self, mock_invalidate):
         """All candidates are flagged with a single UPDATE, not one query per IP."""
         ioc1 = self._make_ioc("4.4.4.4")
         ioc2 = self._make_ioc("5.5.5.5")
@@ -167,10 +168,12 @@ class TestCredentialReuseCron(CustomTestCase):
         cred.sources.add(ioc1, ioc2, ioc3)
 
         # one query to find the candidates, one UPDATE to flag them all
+        # (cache invalidation is mocked out of the query count and asserted separately)
         with self.assertNumQueries(2):
             self.cron.run()
 
         self.assertEqual(IOC.objects.filter(high_credential_reuse=True).count(), 3)
+        mock_invalidate.assert_called_once()
 
     @patch("greedybear.cronjobs.credential_reuse.MAX_CANDIDATES", 1)
     @patch("greedybear.cronjobs.credential_reuse.MIN_CREDENTIAL_REUSE", 1)

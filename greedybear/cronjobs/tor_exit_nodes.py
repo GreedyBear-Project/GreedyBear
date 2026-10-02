@@ -2,6 +2,7 @@ import re
 
 import requests
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import IocRepository
@@ -42,6 +43,7 @@ class TorExitNodesCron(Cronjob):
                     self.ioc_repo.update_ioc_reputation(ip_address, IpReputation.TOR_EXIT_NODE)
 
             self.log.info("Completed download of Tor exit node list")
+            invalidate_ioc_cache()
 
         except requests.RequestException:
             self.log.exception("Failed to fetch Tor exit nodes")
