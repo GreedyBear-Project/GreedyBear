@@ -4,12 +4,15 @@
 from datetime import datetime
 from ipaddress import ip_address
 
+from django.core.exceptions import FieldDoesNotExist
 from django.test import SimpleTestCase
 
 from greedybear.consts import DOMAIN, IP
+from greedybear.models import CommandSequence, Credential
 from greedybear.utils import (
     PAYLOAD_REQUEST,
     SCANNER,
+    clamp_to_field,
     get_attack_type,
     get_ioc_type,
     get_nested_value,
@@ -445,6 +448,40 @@ class TestGetNestedValue(SimpleTestCase):
         get_nested_value(hit, "connection", "protocol")
         get_nested_value(hit, "connection", "missing")
         self.assertEqual(hit, {"connection": {"protocol": "smbd"}})
+
+
+class TestClampToField(SimpleTestCase):
+    def test_clamps_to_char_field_width(self):
+        result = clamp_to_field(Credential, "username", "x" * 300)
+        self.assertEqual(len(result), 256)
+
+    def test_clamps_to_array_inner_field_width(self):
+        """An ArrayField stores each element in its inner field, so that is the limit."""
+        result = clamp_to_field(CommandSequence, "commands", "x" * 2000)
+        self.assertEqual(len(result), 1024)
+
+    def test_short_value_is_untouched(self):
+        self.assertEqual(clamp_to_field(Credential, "username", "admin"), "admin")
+
+    def test_empty_value_is_untouched(self):
+        self.assertEqual(clamp_to_field(Credential, "username", ""), "")
+
+    def test_field_without_max_length_is_untouched(self):
+        value = "x" * 5000
+        self.assertEqual(clamp_to_field(CommandSequence, "commands_hash", value[:64]), value[:64])
+        self.assertEqual(clamp_to_field(CommandSequence, "first_seen", value), value)
+
+    def test_limit_follows_the_schema(self):
+        """The point of the helper: widen the column and the clamp widens with it."""
+        oversized = "x" * 5000
+        for model, field_name in ((Credential, "username"), (Credential, "password")):
+            with self.subTest(field=field_name):
+                declared = model._meta.get_field(field_name).max_length
+                self.assertEqual(len(clamp_to_field(model, field_name, oversized)), declared)
+
+    def test_unknown_field_raises(self):
+        with self.assertRaises(FieldDoesNotExist):
+            clamp_to_field(Credential, "not_a_field", "value")
 
 
 class TestTimeWindowCalculation(SimpleTestCase):

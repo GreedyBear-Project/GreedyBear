@@ -1,12 +1,14 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db.models import Model
 
 from greedybear.consts import DOMAIN, IP, PAYLOAD_REQUEST, SCANNER
 
@@ -179,13 +181,38 @@ def is_valid_url(url: str) -> bool:
         return False
 
 
-def get_nested_value(d: dict, *keys: str) -> Any | None:
+def clamp_to_field(model: type[Model], field_name: str, value: str) -> str:
+    """
+    Truncate a string to the width of the column it is headed for.
+
+    Reads max_length off the model field so the limit cannot drift from the
+    schema. An ArrayField takes its limit from the inner field, because that
+    is what each element is stored in; the outer max_length would be the
+    number of elements.
+
+    Args:
+        model: Model owning the field.
+        field_name: Name of the field on the model.
+        value: String to truncate.
+
+    Returns:
+        The value cut to the field's max_length, or unchanged if the field
+        does not declare one.
+    """
+    field = model._meta.get_field(field_name)
+    base_field = getattr(field, "base_field", None)
+    max_length = getattr(base_field if base_field is not None else field, "max_length", None)
+    return value if max_length is None else value[:max_length]
+
+
+def get_nested_value(d: Any, *keys: str) -> Any | None:
     """
     Traverse a nested dictionary along a path of keys without raising.
     Failed traversals yield None instead of an error.
 
     Args:
-        d: Dict to traverse.
+        d: Mapping to traverse. Anything else yields None rather than raising,
+            which is why this is not narrowed to Mapping.
         *keys: Key path to follow, e.g. "connection", "protocol".
 
     Returns:
@@ -196,7 +223,8 @@ def get_nested_value(d: dict, *keys: str) -> Any | None:
         return None
     current = d
     for key in keys:
-        if not isinstance(current, dict):
+        # Mapping rather than dict, so a wrapped hit traverses like a plain one
+        if not isinstance(current, Mapping):
             return None
         current = current.get(key)
     return current
