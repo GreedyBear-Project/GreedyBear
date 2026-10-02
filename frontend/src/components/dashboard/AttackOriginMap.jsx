@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import {
   ComposableMap,
   Geographies,
@@ -32,6 +33,9 @@ const COLOR_EMPTY = "#2a2a3a";
 const COLOR_LOW = "#ffffb2";
 const COLOR_MID = "#fd8d3c";
 const COLOR_HIGH = "#bd0026";
+
+// gap between the cursor and the tooltip
+const TOOLTIP_OFFSET = 14;
 
 const MapPaths = React.memo(
   ({ geoData, getColor, handleMouseEnter, handleMouseLeave }) => {
@@ -90,6 +94,26 @@ export default function AttackOriginMap() {
     name: "",
     count: 0,
   });
+
+  const tooltipRef = React.useRef(null);
+
+  // Place the tooltip next to the cursor, flipping it to the other side
+  // when it would overflow the right or bottom edge of the viewport.
+  React.useLayoutEffect(() => {
+    const el = tooltipRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    let left = tooltip.x + TOOLTIP_OFFSET;
+    if (left + width > window.innerWidth) {
+      left = tooltip.x - TOOLTIP_OFFSET - width;
+    }
+    let top = tooltip.y + TOOLTIP_OFFSET;
+    if (top + height > window.innerHeight) {
+      top = tooltip.y - TOOLTIP_OFFSET - height;
+    }
+    el.style.left = `${Math.max(0, left)}px`;
+    el.style.top = `${Math.max(0, top)}px`;
+  }, [tooltip]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -193,41 +217,45 @@ export default function AttackOriginMap() {
         userSelect: "none",
       }}
     >
-      {/* Tooltip */}
-      {tooltip.visible && (
-        <div
-          style={{
-            position: "fixed",
-            left: tooltip.x + 14,
-            top: tooltip.y - 10,
-            background: "rgba(20,20,32,0.95)",
-            border: "1px solid #444",
-            borderRadius: 6,
-            padding: "6px 10px",
-            pointerEvents: "none",
-            zIndex: 9999,
-            fontSize: 13,
-            color: "#eee",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <strong>{tooltip.name}</strong>
-          {tooltip.count > 0 ? (
-            <>
-              <br />
-              <span style={{ color: "#ff7070" }}>
-                {tooltip.count.toLocaleString()} IOC
-                {tooltip.count !== 1 ? "s" : ""}
-              </span>
-            </>
-          ) : (
-            <>
-              <br />
-              <span style={{ color: "#888" }}>No data</span>
-            </>
-          )}
-        </div>
-      )}
+      {/* Tooltip: rendered in document.body because the grid item that
+          hosts this widget is transformed and clips its overflow, which
+          breaks position: fixed. */}
+      {tooltip.visible &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            data-testid="map-tooltip"
+            style={{
+              position: "fixed",
+              background: "rgba(20,20,32,0.95)",
+              border: "1px solid #444",
+              borderRadius: 6,
+              padding: "6px 10px",
+              pointerEvents: "none",
+              zIndex: 9999,
+              fontSize: 13,
+              color: "#eee",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <strong>{tooltip.name}</strong>
+            {tooltip.count > 0 ? (
+              <>
+                <br />
+                <span style={{ color: "#ff7070" }}>
+                  {tooltip.count.toLocaleString()} IOC
+                  {tooltip.count !== 1 ? "s" : ""}
+                </span>
+              </>
+            ) : (
+              <>
+                <br />
+                <span style={{ color: "#888" }}>No data</span>
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
 
       {/* Map */}
       <div style={{ overflow: "hidden" }}>
