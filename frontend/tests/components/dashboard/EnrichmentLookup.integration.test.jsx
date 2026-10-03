@@ -132,7 +132,7 @@ describe("Enrichment Lookup Integration Tests", () => {
       asn: "12345",
       destination_ports: [22, 80, 443],
       firehol_categories: ["abuse"],
-      general_honeypot: ["Cowrie", "Heralding"],
+      honeypots: ["Cowrie", "Heralding"],
       recurrence_probability: 0.85,
       expected_interactions: 120.5,
     };
