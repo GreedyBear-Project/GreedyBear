@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from tests import CustomTestCase
 
 TS = "2026-09-29T10:00:00.000Z"
@@ -44,17 +44,17 @@ class TestRequire(CustomTestCase):
         self.assertEqual(Hit({"src_ip": "1.2.3.4"}).require("src_ip"), "1.2.3.4")
 
     def test_missing_key(self):
-        with self.assertRaises(SkipHitError):
+        with self.assertRaises(InvalidHitError):
             Hit({}).require("src_ip")
 
     def test_none_value(self):
-        with self.assertRaises(SkipHitError):
+        with self.assertRaises(InvalidHitError):
             Hit({"src_ip": None}).require("src_ip")
 
     def test_blank_string(self):
         """execute() already treats a whitespace-only src_ip as missing."""
         for blank in ("", "   ", "\t\n"):
-            with self.assertRaises(SkipHitError):
+            with self.assertRaises(InvalidHitError):
                 Hit({"src_ip": blank}).require("src_ip")
 
     def test_zero_is_not_missing(self):
@@ -63,7 +63,7 @@ class TestRequire(CustomTestCase):
         self.assertEqual(Hit({"duration": 0.0}).require("duration"), 0.0)
 
     def test_message_names_the_field(self):
-        with self.assertRaises(SkipHitError) as ctx:
+        with self.assertRaises(InvalidHitError) as ctx:
             Hit({}).require("@timestamp")
         self.assertIn("@timestamp", str(ctx.exception))
 
@@ -76,7 +76,7 @@ class TestRequireStr(CustomTestCase):
         self.assertEqual(Hit({"session": 1234}).require_str("session"), "1234")
 
     def test_missing(self):
-        with self.assertRaises(SkipHitError):
+        with self.assertRaises(InvalidHitError):
             Hit({}).require_str("type")
 
 
@@ -85,17 +85,17 @@ class TestRequireTime(CustomTestCase):
         self.assertEqual(Hit({"@timestamp": TS}).require_time("@timestamp"), datetime(2026, 9, 29, 10, 0, 0))
 
     def test_missing(self):
-        with self.assertRaises(SkipHitError):
+        with self.assertRaises(InvalidHitError):
             Hit({}).require_time("@timestamp")
 
     def test_unparsable_is_skipped_not_raised_raw(self):
         """parse_timestamp raises ValueError on junk and TypeError on None."""
         for bad in ("not-a-date", "", "2026-13-45"):
-            with self.assertRaises(SkipHitError):
+            with self.assertRaises(InvalidHitError):
                 Hit({"@timestamp": bad}).require_time("@timestamp")
 
     def test_message_includes_the_value(self):
-        with self.assertRaises(SkipHitError) as ctx:
+        with self.assertRaises(InvalidHitError) as ctx:
             Hit({"@timestamp": "junk"}).require_time("@timestamp")
         self.assertIn("junk", str(ctx.exception))
 

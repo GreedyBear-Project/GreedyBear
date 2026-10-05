@@ -4,7 +4,7 @@ from collections import defaultdict
 from greedybear.cache import Cache, invalidate_ioc_cache
 from greedybear.consts import API_CACHE_ALIAS, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.bucket_updater import BucketUpdater
-from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.strategies.factory import ExtractionStrategyFactory
 from greedybear.cronjobs.repositories import (
     ElasticRepository,
@@ -78,7 +78,7 @@ class ExtractionPipeline:
                     # a hit without a source or a honeypot cannot be attributed
                     hit.require("src_ip")
                     hit.require("type")
-                except SkipHitError as exc:
+                except InvalidHitError as exc:
                     self.log.debug(f"Skipping hit: {exc}")
                     continue
 

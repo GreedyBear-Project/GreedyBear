@@ -1,4 +1,5 @@
 from greedybear.consts import SCANNER
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import iocs_from_hits, threatfox_submission
 
@@ -12,7 +13,7 @@ class GenericExtractionStrategy(BaseExtractionStrategy):
     extraction logic.
     """
 
-    def extract_from_hits(self, hits: list[dict]) -> None:
+    def extract_from_hits(self, hits: list[Hit]) -> None:
         """
         Extract IOCs from honeypot log hits.
         Converts hits to IOC records, persists them via the IOC processor,

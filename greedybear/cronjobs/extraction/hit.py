@@ -8,7 +8,7 @@ from greedybear.utils import parse_timestamp
 log = logging.getLogger(__name__)
 
 
-class SkipHitError(Exception):
+class InvalidHitError(Exception):
     """Raised when a hit lacks a field it cannot be processed without."""
 
 
@@ -21,7 +21,7 @@ class Hit(MutableMapping):
     fields the document does not have rather than returning them as null.
 
     The accessors split that into two cases. `require*` is for fields a hit is
-    useless without and raises SkipHitError so the caller can drop just that hit.
+    useless without and raises InvalidHitError so the caller can drop just that hit.
     `get_*` is for optional fields and falls back to a default instead.
 
     Mapping access is kept so a wrapped hit can be passed to code that still
@@ -92,11 +92,11 @@ class Hit(MutableMapping):
             The raw value.
 
         Raises:
-            SkipHitError: If the field is missing or blank.
+            InvalidHitError: If the field is missing or blank.
         """
         value = self._data.get(key)
         if value is None or (isinstance(value, str) and not value.strip()):
-            raise SkipHitError(f"hit is missing required field '{key}'")
+            raise InvalidHitError(f"hit is missing required field '{key}'")
         return value
 
     def require_str(self, key: str) -> str:
@@ -110,7 +110,7 @@ class Hit(MutableMapping):
             The value as a stripped string.
 
         Raises:
-            SkipHitError: If the field is missing or blank.
+            InvalidHitError: If the field is missing or blank.
         """
         return str(self.require(key)).strip()
 
@@ -125,13 +125,13 @@ class Hit(MutableMapping):
             The parsed naive datetime.
 
         Raises:
-            SkipHitError: If the field is missing, blank, or not a valid timestamp.
+            InvalidHitError: If the field is missing, blank, or not a valid timestamp.
         """
         value = self.require(key)
         try:
             return parse_timestamp(value)
         except (TypeError, ValueError) as exc:
-            raise SkipHitError(f"hit has an unparsable '{key}': {value!r}") from exc
+            raise InvalidHitError(f"hit has an unparsable '{key}': {value!r}") from exc
 
     # --- optional fields --------------------------------------------------
 

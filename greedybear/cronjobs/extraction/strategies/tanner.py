@@ -4,6 +4,7 @@ import re
 from urllib.parse import unquote, unquote_plus, urlparse
 
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
@@ -85,7 +86,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         self.iocs_with_attack_types = 0
         self.rfi_hostnames_added = 0
 
-    def extract_from_hits(self, hits: list[dict]) -> None:
+    def extract_from_hits(self, hits: list[Hit]) -> None:
         """
         Extract IOCs from Tanner honeypot log hits.
 
@@ -112,7 +113,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             f"{self.rfi_hostnames_added} RFI hostnames from {self.honeypot}, skipped {self.skipped}"
         )
 
-    def _get_scanners(self, hits: list[dict], attack_types_by_ip: dict[str, set[str]]) -> None:
+    def _get_scanners(self, hits: list[Hit], attack_types_by_ip: dict[str, set[str]]) -> None:
         """
         Save each scanner IP with the attack types found for it.
 
@@ -134,7 +135,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
                         self.iocs_with_attack_types += 1
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
 
-    def _classify_hits(self, hits: list[dict]) -> list[tuple[dict, str, str, list[str]]]:
+    def _classify_hits(self, hits: list[Hit]) -> list[tuple[Hit, str, str, list[str]]]:
         """
         Find the attack types in each hit, without using the database.
 
@@ -166,7 +167,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             detections.append((hit, scanner_ip, request_text, attack_types))
         return detections
 
-    def _handle_rfi(self, detections: list[tuple[dict, str, str, list[str]]]) -> None:
+    def _handle_rfi(self, detections: list[tuple[Hit, str, str, list[str]]]) -> None:
         """
         Save the remote hostnames from RFI attacks as PAYLOAD_REQUEST IOCs.
 
@@ -194,7 +195,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
 
                 self._extract_rfi_hostnames(hit, scanner_ip, request_text)
 
-    def _extract_request_text(self, hit: dict) -> str:
+    def _extract_request_text(self, hit: Hit) -> str:
         """
         Build a combined text from the URL path, query string, and POST body.
 
@@ -238,7 +239,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         """
         return [attack_type for attack_type, pattern in TANNER_ATTACK_PATTERNS.items() if pattern.search(text)]
 
-    def _extract_rfi_hostnames(self, hit: dict, scanner_ip: str, request_text: str) -> None:
+    def _extract_rfi_hostnames(self, hit: Hit, scanner_ip: str, request_text: str) -> None:
         """
         Extract remote hostnames from RFI payloads as PAYLOAD_REQUEST IOCs.
 

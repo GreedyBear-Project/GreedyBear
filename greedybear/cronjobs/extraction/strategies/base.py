@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 from django.db import transaction
 
-from greedybear.cronjobs.extraction.hit import SkipHitError
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 
@@ -52,7 +52,7 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         and is caught per honeypot, which drops every remaining record in the
         chunk as well.
 
-        A SkipHitError is expected and logged quietly. Anything else is a bug
+        An InvalidHitError is expected and logged quietly. Anything else is a bug
         worth seeing, so it is logged with its traceback, but it is still
         contained so the rest of the chunk goes through.
 
@@ -68,7 +68,7 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         try:
             with transaction.atomic():
                 yield
-        except SkipHitError as exc:
+        except InvalidHitError as exc:
             self.skipped += 1
             self.log.debug(f"skipping {what}: {exc}")
         except Exception:
@@ -76,7 +76,7 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
             self.log.exception(f"failed to process {what} from honeypot {self.honeypot}")
 
     @abstractmethod
-    def extract_from_hits(self, hits: list[dict]) -> None:
+    def extract_from_hits(self, hits: list[Hit]) -> None:
         """
         Extract IOC records from honeypot log hits.
         Subclasses must implement this method to define honeypot-specific

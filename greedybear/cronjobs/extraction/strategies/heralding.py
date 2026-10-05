@@ -1,6 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 from greedybear.consts import SCANNER
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
@@ -52,7 +53,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         super().__init__(honeypot, ioc_repo, sensor_repo)
         self.credentials_added = 0
 
-    def extract_from_hits(self, hits: list[dict]) -> None:
+    def extract_from_hits(self, hits: list[Hit]) -> None:
         """
         Extract IOCs from Heralding honeypot log hits.
 
@@ -66,7 +67,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         self._classify_credential_attacks(hits)
         self.log.info(f"added {len(self.ioc_records)} scanners, {self.credentials_added} credentials from {self.honeypot}, skipped {self.skipped}")
 
-    def _get_scanners(self, hits: list[dict]) -> None:
+    def _get_scanners(self, hits: list[Hit]) -> None:
         """Extract scanner IPs from hits."""
         for ioc in iocs_from_hits(hits):
             with self.skip_on_error(f"IoC {ioc.name}"):
@@ -80,7 +81,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
                     self.ioc_records.append(ioc_record)
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
 
-    def _classify_credential_attacks(self, hits: list[dict]) -> None:
+    def _classify_credential_attacks(self, hits: list[Hit]) -> None:
         """
         Classify credential brute-force attempts by protocol and persist credentials.
 
@@ -125,7 +126,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
                     self.credentials_added += 1
                     self.log.info(f"stored credential for protocol={protocol}")
 
-    def _extract_protocol(self, hit: dict) -> str | None:
+    def _extract_protocol(self, hit: Hit) -> str | None:
         """
         Extract and normalise the protocol name from a hit.
 

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.test import override_settings
 
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies.cowrie import (
     CowrieExtractionStrategy,
     normalize_command,
@@ -527,7 +528,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         mock_ioc_record.payload_request = False
         self.strategy.ioc_processor.add_ioc.return_value = mock_ioc_record
 
-        hits = [{"src_ip": "1.2.3.4", "session": "s1", "eventid": "cowrie.session.connect"}]
+        hits = [Hit({"src_ip": "1.2.3.4", "session": "s1", "eventid": "cowrie.session.connect"})]
 
         with patch.object(self.strategy, "_get_sessions"), patch.object(self.strategy, "_extract_possible_payload_in_messages"):
             self.strategy.extract_from_hits(hits)
@@ -550,9 +551,9 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         mock_iocs_from_hits.return_value = [ioc1, ioc2]
 
         hits = [
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"},
-            {"src_ip": "2.2.2.2", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"}),
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"}),
+            Hit({"src_ip": "2.2.2.2", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"}),
         ]
 
         mock_ioc_record1 = Mock()

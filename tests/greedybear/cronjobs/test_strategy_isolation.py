@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from greedybear.cronjobs.extraction.hit import SkipHitError
+from greedybear.cronjobs.extraction.hit import InvalidHitError
 from greedybear.cronjobs.extraction.strategies.generic import GenericExtractionStrategy
 from greedybear.models import IOC, Honeypot
 from tests import CustomTestCase
@@ -62,7 +62,7 @@ class SkipOnErrorTestCase(CustomTestCase):
         strategy = self._strategy()
         strategy.log = MagicMock()
         with strategy.skip_on_error("IoC 1.2.3.4"):
-            raise SkipHitError("missing required field 'src_ip'")
+            raise InvalidHitError("missing required field 'src_ip'")
         self.assertEqual(strategy.skipped, 1)
         strategy.log.debug.assert_called_once()
         strategy.log.exception.assert_not_called()
@@ -173,11 +173,11 @@ class MissingFieldTestCase(CustomTestCase):
         self.assertEqual(session.commands.commands, [""])
 
     def test_command_hit_without_timestamp_is_skipped_cleanly(self):
-        """A command with no timestamp cannot be placed in time, so it raises SkipHitError."""
+        """A command with no timestamp cannot be placed in time, so it raises InvalidHitError."""
         ioc = IOC.objects.create(name="45.83.64.52", type="ip")
         strategy = self._cowrie()
         hit = {"eventid": "cowrie.command.input", "message": "CMD: ls"}
-        with self.assertRaises(SkipHitError):
+        with self.assertRaises(InvalidHitError):
             strategy._process_session_hit(self._session(ioc), hit, ioc)
 
     def test_closed_hit_without_duration_does_not_raise(self):
@@ -188,11 +188,11 @@ class MissingFieldTestCase(CustomTestCase):
         self.assertIsNone(session.duration)
 
     def test_a_skipped_hit_costs_only_that_hit(self):
-        """The per session guard turns the SkipHitError into one lost session, not the chunk."""
+        """The per session guard turns the InvalidHitError into one lost session, not the chunk."""
         from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
 
         strategy = self._cowrie()
         with strategy.skip_on_error("session 1"):
-            raise SkipHitError("hit is missing required field 'timestamp'")
+            raise InvalidHitError("hit is missing required field 'timestamp'")
         self.assertEqual(strategy.skipped, 1)
         self.assertIsInstance(strategy, CowrieExtractionStrategy)

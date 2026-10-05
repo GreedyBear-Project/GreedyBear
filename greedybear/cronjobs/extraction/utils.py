@@ -1,6 +1,7 @@
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from ipaddress import ip_address, ip_network
 from logging import Logger
 from urllib.parse import urlparse
@@ -9,7 +10,7 @@ import requests
 from django.conf import settings
 
 from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
-from greedybear.cronjobs.extraction.hit import Hit, SkipHitError
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
@@ -91,7 +92,7 @@ def get_firehol_categories(ip: str, extracted_ip, firehol_exact_map: dict, cidr_
     return firehol_categories
 
 
-def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[Hit]]:
+def group_valid_hits_by_ip(hits: Sequence[Hit | dict]) -> dict[str, list[Hit]]:
     """
     Group hits by source IP, dropping malformed addresses.
 
@@ -111,7 +112,7 @@ def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[Hit]]:
         hit = Hit.wrap(raw_hit)
         try:
             hits_by_ip[hit.require_str("src_ip")].append(hit)
-        except SkipHitError as exc:
+        except InvalidHitError as exc:
             log.debug(f"skipping hit: {exc}")
 
     valid_hits_by_ip = {}
@@ -125,7 +126,7 @@ def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[Hit]]:
     return valid_hits_by_ip
 
 
-def iocs_from_hits(hits: list[dict]) -> list[IOC]:
+def iocs_from_hits(hits: Sequence[Hit | dict]) -> list[IOC]:
     """
     Convert Elasticsearch hits into IOC objects with associated sensors.
     Groups hits by source IP, filters out non-global addresses, and

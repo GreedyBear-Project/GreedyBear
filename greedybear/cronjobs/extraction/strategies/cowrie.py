@@ -81,7 +81,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         self.payloads_in_message = 0
         self.added_url_downloads = 0
 
-    def extract_from_hits(self, hits: list[dict]) -> None:
+    def extract_from_hits(self, hits: list[Hit]) -> None:
         """
         Main extraction entry point. Processes hits and extracts scanners,
         payloads, downloads, and sessions.
@@ -97,11 +97,13 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             f"{self.added_url_downloads} download URLs, skipped {self.skipped}"
         )
 
-    def _get_scanners(self, hits: list[dict]) -> None:
+    def _get_scanners(self, hits: list[Hit]) -> None:
         """Extract scanner IPs and sessions."""
         hits_by_ip = defaultdict(list)
         for hit in hits:
-            hits_by_ip[hit["src_ip"]].append(hit)
+            # stripped, so the key matches the IOC name iocs_from_hits derives
+            # from the same field with require_str
+            hits_by_ip[hit.require_str("src_ip")].append(hit)
 
         for ioc in iocs_from_hits(hits):
             with self.skip_on_error(f"IoC {ioc.name}"):
@@ -112,7 +114,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
                     self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
 
-    def _extract_possible_payload_in_messages(self, hits: list[dict]) -> None:
+    def _extract_possible_payload_in_messages(self, hits: list[Hit]) -> None:
         """
         Extract URLs hidden in attack payloads (login messages, file uploads).
         Processes all hits once for efficiency (O(M) instead of O(N*M)).
@@ -158,7 +160,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 self._add_fks(scanner_ip, payload_hostname)
                 self.payloads_in_message += 1
 
-    def _get_url_downloads(self, hits: list[dict]) -> None:
+    def _get_url_downloads(self, hits: list[Hit]) -> None:
         """
         Extract file download attempts and associate scanners with download URLs.
 
@@ -202,7 +204,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                         threatfox_submission(ioc_record, ioc.related_urls, self.log)
                     self._add_fks(scanner_ip, hostname)
 
-    def _get_sessions(self, ioc: IOC, hits: list[dict]) -> None:
+    def _get_sessions(self, ioc: IOC, hits: list[Hit]) -> None:
         """
         Extract and save session data for a given scanner IOC.
 
