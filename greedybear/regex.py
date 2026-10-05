@@ -5,3 +5,9 @@ REGEX_URL = REGEX_CVE_URL[2:]
 REGEX_URL_PROTOCOL = r"(?:htt|ft|tc|lda)ps?:?" + REGEX_CVE_URL
 # Cowrie session IDs are stored in a 64 bit BigIntegerField, so at most 16 hex digits
 REGEX_COWRIE_SESSION_ID = r"[0-9a-fA-F]{1,16}"
+
+# Observable and credential patterns previously kept in consts.py.
+# Domain labels are capped at 60 characters; an all-numeric value is rejected by callers.
+REGEX_DOMAIN = r"^[a-zA-Z\d-]{1,60}(\.[a-zA-Z\d-]{1,60})*$"
+# At least 12 non-space characters and one ASCII letter. IPv4/IPv6 checks live in is_ip_address().
+REGEX_PASSWORD = r"^(?=.*[a-zA-Z])\S{12,}$"
