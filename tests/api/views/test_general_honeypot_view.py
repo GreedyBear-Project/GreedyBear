@@ -23,18 +23,25 @@ class HoneypotViewTestCase(CustomTestCase):
 
     def test_200_presence_flag_without_value(self):
         # a valueless query param is treated as truthy
-        for query in ["?only_active", "?onlyActive"]:
+        for query in ["?only_active"]:
             with self.subTest(query=query):
                 response = self.client.get(f"/api/honeypot/{query}")
                 self.assertEqual(response.status_code, 200)
                 self.assertNotIn("Ddospot", response.json())
 
     def test_200_flag_disabled(self):
-        for query in ["?only_active=false", "?onlyActive=false"]:
+        for query in ["?only_active=false"]:
             with self.subTest(query=query):
                 response = self.client.get(f"/api/honeypot/{query}")
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("Ddospot", response.json())
+
+    def test_legacy_onlyactive_param_is_ignored(self):
+        # onlyActive is no longer a recognized parameter; it is silently dropped
+        # and has no effect, same as passing no parameter at all
+        response = self.client.get("/api/honeypot/?onlyActive=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Ddospot", response.json())
 
     def test_400_invalid_flag_value(self):
         response = self.client.get("/api/honeypot/?only_active=not_a_bool")
@@ -47,18 +54,10 @@ class HoneypotRequestSerializerTestCase(CustomTestCase):
         serializer.is_valid(raise_exception=True)
         self.assertEqual(serializer.validated_data, {"only_active": False})
 
-    def test_legacy_alias_is_normalized(self):
-        # the deprecated spelling maps onto only_active and does not leak through
-        serializer = HoneypotRequestSerializer(data={"onlyActive": "true"})
+    def test_flag_enables_the_filter(self):
+        serializer = HoneypotRequestSerializer(data={"only_active": "true"})
         serializer.is_valid(raise_exception=True)
         self.assertEqual(serializer.validated_data, {"only_active": True})
-
-    def test_either_spelling_enables_the_filter(self):
-        for data in [{"only_active": "true"}, {"onlyActive": "true"}, {"only_active": "false", "onlyActive": "true"}]:
-            with self.subTest(data=data):
-                serializer = HoneypotRequestSerializer(data=data)
-                serializer.is_valid(raise_exception=True)
-                self.assertEqual(serializer.validated_data, {"only_active": True})
 
     def test_invalid_value(self):
         serializer = HoneypotRequestSerializer(data={"only_active": "not_a_bool"})
