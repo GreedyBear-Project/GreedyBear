@@ -27,6 +27,8 @@ class GenericExtractionStrategy(BaseExtractionStrategy):
                 self.log.info(f"IoC {ioc.name} found by honeypot {self.honeypot}")
                 ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name=self.honeypot)
                 if ioc_record:
-                    self.ioc_records.append(ioc_record)
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    # appended last: anything above can raise and roll the
+                    # savepoint back, and the record must not outlive that
+                    self.ioc_records.append(ioc_record)
         self.log.info(f"added {len(self.ioc_records)} IoCs from {self.honeypot}, skipped {self.skipped}")

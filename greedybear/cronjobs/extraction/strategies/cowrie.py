@@ -110,9 +110,9 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 self.log.info(f"found IP {ioc.name} by honeypot cowrie")
                 ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name="Cowrie")
                 if ioc_record:
-                    self.ioc_records.append(ioc_record)
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
                     self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
+                    self.ioc_records.append(ioc_record)
 
     def _extract_possible_payload_in_messages(self, hits: list[Hit]) -> None:
         """

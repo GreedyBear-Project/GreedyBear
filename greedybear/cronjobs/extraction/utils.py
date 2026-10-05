@@ -15,7 +15,7 @@ from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, Credential, FireHolList, MassScanner
-from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
+from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip
 
 log = logging.getLogger(__name__)
 
@@ -193,7 +193,7 @@ def iocs_from_hits(hits: Sequence[Hit | dict]) -> list[IOC]:
             sensor = hit.get("_sensor")
             if sensor is not None and getattr(sensor, "id", None):
                 sensors_map[sensor.id] = sensor
-            timestamp = hit.get("@timestamp")
+            timestamp = hit.get_time("@timestamp")
             if timestamp is not None:
                 timestamps.append(timestamp)
             if hit.get("username") or hit.get("password"):
@@ -251,8 +251,10 @@ def iocs_from_hits(hits: Sequence[Hit | dict]) -> list[IOC]:
         ioc._sensors_to_add = sensors
 
         if timestamps:
-            ioc.first_seen = parse_timestamp(min(timestamps))
-            ioc.last_seen = parse_timestamp(max(timestamps))
+            # already datetimes: get_time parses per hit, so one unparsable
+            # value is skipped instead of raising out of the whole chunk here
+            ioc.first_seen = min(timestamps)
+            ioc.last_seen = max(timestamps)
         iocs.append(ioc)
     return iocs
 

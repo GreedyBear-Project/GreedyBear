@@ -78,8 +78,8 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
                     honeypot_name=HERALDING_HONEYPOT,
                 )
                 if ioc_record:
-                    self.ioc_records.append(ioc_record)
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self.ioc_records.append(ioc_record)
 
     def _classify_credential_attacks(self, hits: list[Hit]) -> None:
         """

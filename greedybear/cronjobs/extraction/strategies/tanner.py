@@ -130,10 +130,10 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
                 ioc.http_attack_types = sorted(attack_types_by_ip.get(ioc.name, set()))
                 ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name=TANNER_HONEYPOT)
                 if ioc_record:
-                    self.ioc_records.append(ioc_record)
                     if ioc.http_attack_types:
                         self.iocs_with_attack_types += 1
                     threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self.ioc_records.append(ioc_record)
 
     def _classify_hits(self, hits: list[Hit]) -> list[tuple[Hit, str, str, list[str]]]:
         """
