@@ -4,8 +4,8 @@ import re
 from rest_framework import serializers
 
 from api.serializers.utils import PresenceFlagField
-from greedybear.regex import REGEX_DOMAIN
 from greedybear.models import IOC, Sensor, Tag
+from greedybear.regex import REGEX_DOMAIN
 from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
