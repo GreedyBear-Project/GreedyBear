@@ -7,6 +7,7 @@ from django.db import transaction
 
 from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
+from greedybear.cronjobs.extraction.utils import threatfox_submission
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 
 
@@ -41,6 +42,27 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         self.ioc_processor = IocProcessor(self.ioc_repo, self.sensor_repo)
         self.ioc_records = []
         self.skipped = 0
+        self._threatfox_queue: list[tuple] = []
+
+    def queue_threatfox(self, ioc_record, related_urls) -> None:
+        """
+        Hold a ThreatFox submission back until its transaction has closed.
+
+        Submitting inside a guarded block would keep a database transaction
+        open across an HTTP call, and a submission that already went out
+        cannot be taken back when the block rolls back.
+
+        Args:
+            ioc_record: The saved IOC to submit.
+            related_urls: URLs to submit with it.
+        """
+        self._threatfox_queue.append((ioc_record, related_urls))
+
+    def flush_threatfox(self) -> None:
+        """Send the queued submissions, once their records have been committed."""
+        queued, self._threatfox_queue = self._threatfox_queue, []
+        for ioc_record, related_urls in queued:
+            threatfox_submission(ioc_record, related_urls, self.log)
 
     @contextmanager
     def skip_on_error(self, what: str) -> Iterator[None]:

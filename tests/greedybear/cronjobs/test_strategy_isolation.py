@@ -24,14 +24,14 @@ class SkipOnErrorTestCase(CustomTestCase):
 
         return GenericExtractionStrategy(HONEYPOT, IocRepository(), SensorRepository())
 
-    @patch("greedybear.cronjobs.extraction.strategies.generic.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_control_all_three_are_extracted(self, _tf):
         strategy = self._strategy()
         strategy.extract_from_hits([hit(ip) for ip in IPS])
         self.assertEqual(len(strategy.ioc_records), 3)
         self.assertEqual(strategy.skipped, 0)
 
-    @patch("greedybear.cronjobs.extraction.strategies.generic.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_one_failing_record_does_not_lose_the_others(self, _tf):
         strategy = self._strategy()
         real_add = strategy.ioc_processor.add_ioc
@@ -49,7 +49,7 @@ class SkipOnErrorTestCase(CustomTestCase):
         self.assertTrue(IOC.objects.filter(name=IPS[0]).exists())
         self.assertTrue(IOC.objects.filter(name=IPS[2]).exists())
 
-    @patch("greedybear.cronjobs.extraction.strategies.generic.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_failure_does_not_escape_the_strategy(self, _tf):
         """The per honeypot try in the pipeline stays as an outer net, but must not be needed here."""
         strategy = self._strategy()
@@ -116,7 +116,7 @@ class RealMalformedRecordTestCase(CustomTestCase):
             }
         )
 
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_overlong_rfi_hostname_costs_one_record_not_the_chunk(self, _tf):
         strategy = self._tanner()
         chunk = [self._tanner_hit(f"45.83.64.{i}", f"good{i}.example.com") for i in range(1, 6)]
@@ -129,7 +129,7 @@ class RealMalformedRecordTestCase(CustomTestCase):
         self.assertEqual(saved, 5)
         self.assertEqual(strategy.skipped, 1)
 
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_nothing_escapes_to_the_pipeline(self, _tf):
         strategy = self._tanner()
         strategy.extract_from_hits([self._tanner_hit("193.32.162.99", self.LONG_HOST)])

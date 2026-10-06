@@ -11,7 +11,6 @@ from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
     normalize_credential_field,
-    threatfox_submission,
 )
 from greedybear.cronjobs.repositories import (
     CowrieSessionRepository,
@@ -92,6 +91,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         self._get_scanners(hits)
         self._extract_possible_payload_in_messages(hits)
         self._get_url_downloads(hits)
+        self.flush_threatfox()
         self.log.info(
             f"added {len(self.ioc_records)} scanners, {self.payloads_in_message} payloads found in messages, "
             f"{self.added_url_downloads} download URLs, skipped {self.skipped}"
@@ -110,7 +110,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 self.log.info(f"found IP {ioc.name} by honeypot cowrie")
                 ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name="Cowrie")
                 if ioc_record:
-                    threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self.queue_threatfox(ioc_record, ioc.related_urls)
                     self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
                     self.ioc_records.append(ioc_record)
 
@@ -201,7 +201,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                     ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name="Cowrie")
                     if ioc_record:
                         self.added_url_downloads += 1
-                        threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                        self.queue_threatfox(ioc_record, ioc.related_urls)
                     self._add_fks(scanner_ip, hostname)
 
     def _get_sessions(self, ioc: IOC, hits: list[Hit]) -> None:

@@ -8,7 +8,6 @@ from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
-    threatfox_submission,
 )
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import IOC
@@ -107,6 +106,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
         # them in would drop attack types found in earlier runs.
         self._get_scanners(hits, attack_types_by_ip)
         self._handle_rfi(detections)
+        self.flush_threatfox()
 
         self.log.info(
             f"added {len(self.ioc_records)} scanners, attack types for {self.iocs_with_attack_types} IOCs, "
@@ -132,7 +132,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
                 if ioc_record:
                     if ioc.http_attack_types:
                         self.iocs_with_attack_types += 1
-                    threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self.queue_threatfox(ioc_record, ioc.related_urls)
                     self.ioc_records.append(ioc_record)
 
     def _classify_hits(self, hits: list[Hit]) -> list[tuple[Hit, str, str, list[str]]]:
@@ -292,6 +292,6 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name=TANNER_HONEYPOT)
             if ioc_record:
                 self.rfi_hostnames_added += 1
-                threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                self.queue_threatfox(ioc_record, ioc.related_urls)
 
             self._add_fks(scanner_ip, hostname)

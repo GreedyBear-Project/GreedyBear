@@ -6,7 +6,6 @@ from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
     normalize_credential_field,
-    threatfox_submission,
 )
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import Credential
@@ -65,6 +64,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         """
         self._get_scanners(hits)
         self._classify_credential_attacks(hits)
+        self.flush_threatfox()
         self.log.info(f"added {len(self.ioc_records)} scanners, {self.credentials_added} credentials from {self.honeypot}, skipped {self.skipped}")
 
     def _get_scanners(self, hits: list[Hit]) -> None:
@@ -78,7 +78,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
                     honeypot_name=HERALDING_HONEYPOT,
                 )
                 if ioc_record:
-                    threatfox_submission(ioc_record, ioc.related_urls, self.log)
+                    self.queue_threatfox(ioc_record, ioc.related_urls)
                     self.ioc_records.append(ioc_record)
 
     def _classify_credential_attacks(self, hits: list[Hit]) -> None:
