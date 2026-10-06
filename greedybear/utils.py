@@ -1,7 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
@@ -144,7 +144,7 @@ def get_ioc_type(ioc: str) -> str:
     return IP if is_valid else DOMAIN
 
 
-def get_attack_type(ip_hits: list[dict]) -> str:
+def get_attack_type(ip_hits: Sequence[Mapping]) -> str:
     """
     Determines the attack type based on the raw hits for a specific IP.
 

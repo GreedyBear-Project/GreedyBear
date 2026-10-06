@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from greedybear.cronjobs.extraction.hit import InvalidHitError
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.strategies.generic import GenericExtractionStrategy
 from greedybear.models import IOC, Honeypot
 from tests import CustomTestCase
@@ -12,7 +12,7 @@ IPS = ["45.83.64.1", "45.83.64.2", "45.83.64.3"]
 
 
 def hit(ip):
-    return {"src_ip": ip, "type": HONEYPOT, "@timestamp": "2026-09-29T10:00:00.000Z", "geoip": {}}
+    return Hit({"src_ip": ip, "type": HONEYPOT, "@timestamp": "2026-09-29T10:00:00.000Z", "geoip": {}})
 
 
 class SkipOnErrorTestCase(CustomTestCase):
@@ -106,13 +106,15 @@ class RealMalformedRecordTestCase(CustomTestCase):
         return TannerExtractionStrategy(TANNER_HONEYPOT, IocRepository(), SensorRepository())
 
     def _tanner_hit(self, ip, host):
-        return {
-            "src_ip": ip,
-            "type": "tanner",
-            "@timestamp": "2026-09-29T10:00:00.000Z",
-            "url": f"/index.php?page=http://{host}/shell.txt",
-            "geoip": {},
-        }
+        return Hit(
+            {
+                "src_ip": ip,
+                "type": "tanner",
+                "@timestamp": "2026-09-29T10:00:00.000Z",
+                "url": f"/index.php?page=http://{host}/shell.txt",
+                "geoip": {},
+            }
+        )
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
     def test_overlong_rfi_hostname_costs_one_record_not_the_chunk(self, _tf):
@@ -161,14 +163,14 @@ class MissingFieldTestCase(CustomTestCase):
     def test_login_hit_without_username_does_not_raise(self):
         ioc = IOC.objects.create(name="45.83.64.50", type="ip")
         strategy = self._cowrie()
-        hit = {"eventid": "cowrie.login.failed", "password": "toor"}  # username absent
+        hit = Hit({"eventid": "cowrie.login.failed", "password": "toor"})  # username absent
         strategy._process_session_hit(self._session(ioc), hit, ioc)
 
     def test_command_hit_without_message_records_an_empty_command(self):
         ioc = IOC.objects.create(name="45.83.64.51", type="ip")
         strategy = self._cowrie()
         session = self._session(ioc)
-        hit = {"eventid": "cowrie.command.input", "timestamp": "2026-09-29T10:00:00.000Z"}
+        hit = Hit({"eventid": "cowrie.command.input", "timestamp": "2026-09-29T10:00:00.000Z"})
         strategy._process_session_hit(session, hit, ioc)
         self.assertEqual(session.commands.commands, [""])
 
@@ -176,7 +178,7 @@ class MissingFieldTestCase(CustomTestCase):
         """A command with no timestamp cannot be placed in time, so it raises InvalidHitError."""
         ioc = IOC.objects.create(name="45.83.64.52", type="ip")
         strategy = self._cowrie()
-        hit = {"eventid": "cowrie.command.input", "message": "CMD: ls"}
+        hit = Hit({"eventid": "cowrie.command.input", "message": "CMD: ls"})
         with self.assertRaises(InvalidHitError):
             strategy._process_session_hit(self._session(ioc), hit, ioc)
 
@@ -184,7 +186,7 @@ class MissingFieldTestCase(CustomTestCase):
         ioc = IOC.objects.create(name="45.83.64.53", type="ip")
         strategy = self._cowrie()
         session = self._session(ioc)
-        strategy._process_session_hit(session, {"eventid": "cowrie.session.closed"}, ioc)
+        strategy._process_session_hit(session, Hit({"eventid": "cowrie.session.closed"}), ioc)
         self.assertIsNone(session.duration)
 
     def test_a_skipped_hit_costs_only_that_hit(self):

@@ -92,7 +92,7 @@ def get_firehol_categories(ip: str, extracted_ip, firehol_exact_map: dict, cidr_
     return firehol_categories
 
 
-def group_valid_hits_by_ip(hits: Sequence[Hit | dict]) -> dict[str, list[Hit]]:
+def group_valid_hits_by_ip(hits: Sequence[Hit]) -> dict[str, list[Hit]]:
     """
     Group hits by source IP, dropping malformed addresses.
 
@@ -108,8 +108,7 @@ def group_valid_hits_by_ip(hits: Sequence[Hit | dict]) -> dict[str, list[Hit]]:
         Mapping of valid source IP to its wrapped hits.
     """
     hits_by_ip: dict[str, list[Hit]] = defaultdict(list)
-    for raw_hit in hits:
-        hit = Hit.wrap(raw_hit)
+    for hit in hits:
         try:
             hits_by_ip[hit.require_str("src_ip")].append(hit)
         except InvalidHitError as exc:
@@ -126,7 +125,7 @@ def group_valid_hits_by_ip(hits: Sequence[Hit | dict]) -> dict[str, list[Hit]]:
     return valid_hits_by_ip
 
 
-def iocs_from_hits(hits: Sequence[Hit | dict]) -> list[IOC]:
+def iocs_from_hits(hits: Sequence[Hit]) -> list[IOC]:
     """
     Convert Elasticsearch hits into IOC objects with associated sensors.
     Groups hits by source IP, filters out non-global addresses, and

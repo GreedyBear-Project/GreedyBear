@@ -241,7 +241,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertEqual(session_record.start_time, datetime(2023, 1, 1, 10, 0, 0))
         self.assertIsNone(session_record.start_time.tzinfo)
@@ -262,7 +262,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertTrue(session_record.login_attempt)
         self.mock_session_repo.add_credential.assert_called_once_with(session_record, "root", "password123")
@@ -280,7 +280,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertTrue(session_record.command_execution)
         self.assertIsInstance(session_record.commands, CommandSequence)
@@ -301,7 +301,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertEqual(session_record.duration, 10.5)
 
@@ -319,7 +319,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_called_once_with(
             session=session_record,
@@ -350,7 +350,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        strategy._process_session_hit(self.cowrie_session, hit, ioc)
+        strategy._process_session_hit(self.cowrie_session, Hit(hit), ioc)
 
         self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
         self.assertIn(self.cowrie_session.source, payload.iocs.all())
@@ -369,7 +369,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_called_once_with(
             session=session_record,
@@ -395,7 +395,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_not_called()
         self.mock_payload_repo.link_payload_to_session.assert_not_called()
@@ -511,7 +511,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
             "timestamp": "2025-06-01T12:00:00.000000+00:00",
         }
 
-        self.strategy._process_session_hit(session_record, hit, Mock())
+        self.strategy._process_session_hit(session_record, Hit(hit), Mock())
 
         self.assertIsInstance(session_record.start_time, datetime)
         self.assertIsNone(session_record.start_time.tzinfo)
@@ -617,8 +617,8 @@ class TestCowrieCommandSequenceAcrossRuns(CustomTestCase):
         self.source = IOC.objects.create(name="10.0.0.1", type="ip")
 
     @staticmethod
-    def _command_hit(session_id: str, command: str, timestamp: str) -> dict:
-        return {"src_ip": "10.0.0.1", "session": session_id, "eventid": "cowrie.command.input", "message": command, "timestamp": timestamp}
+    def _command_hit(session_id: str, command: str, timestamp: str) -> Hit:
+        return Hit({"src_ip": "10.0.0.1", "session": session_id, "eventid": "cowrie.command.input", "message": command, "timestamp": timestamp})
 
     def test_continued_session_does_not_modify_shared_command_sequence(self):
         """Commands from a later run must not be appended to a CommandSequence row shared with other sessions."""

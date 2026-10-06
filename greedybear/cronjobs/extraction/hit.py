@@ -1,8 +1,9 @@
 import logging
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime
 from typing import Any
 
+from greedybear.consts import REQUIRED_ELASTIC_FIELDS, REQUIRED_EVENT_FIELDS
 from greedybear.utils import parse_timestamp
 
 log = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ class InvalidHitError(Exception):
     """Raised when a hit lacks a field it cannot be processed without."""
 
 
-class Hit(MutableMapping):
+class Hit(Mapping):
     """
     Dict-like view over a single Elasticsearch hit with typed accessors.
 
@@ -24,48 +25,77 @@ class Hit(MutableMapping):
     useless without and raises InvalidHitError so the caller can drop just that hit.
     `get_*` is for optional fields and falls back to a default instead.
 
-    Mapping access is kept so a wrapped hit can be passed to code that still
-    treats hits as plain dicts.
+    Read access is kept so a hit can be passed to code that treats hits as
+    plain dicts. It is a Mapping rather than a MutableMapping because the hit
+    is input data: the one field we add, `_sensor`, is set through
+    `attach_sensor` so the write lives in here rather than in the pipeline.
     """
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, required: Iterable[str] = ()):
         """
         Wrap a hit dictionary.
 
         Args:
-            data: The hit as returned by ElasticRepository, already converted
-                with `to_dict()`.
+            data: The hit as a plain dictionary.
+            required: Fields the hit cannot be processed without. Prefer the
+                `from_*` constructors, which pass the right set for their source.
+
+        Raises:
+            InvalidHitError: If any required field is missing or blank.
         """
         self._data = data
+        for key in required:
+            self.require(key)
 
     @classmethod
-    def wrap(cls, hit) -> "Hit":
+    def from_elastic(cls, raw: dict) -> "Hit":
         """
-        Return a hit as a Hit, leaving one that already is alone.
-
-        Hits reach the extraction helpers from two places: the pipeline, which
-        wraps them, and the event collector in process_event, which builds plain
-        dicts. Wrapping on the way in lets both use the typed accessors without
-        the callers having to agree on a type.
+        Build a hit from an Elasticsearch document.
 
         Args:
-            hit: A Hit or a plain hit dictionary.
+            raw: The hit as returned by ElasticRepository, already converted
+                with `to_dict()`.
 
         Returns:
-            The hit as a Hit.
+            The validated hit.
+
+        Raises:
+            InvalidHitError: If the document cannot be attributed.
         """
-        return hit if isinstance(hit, cls) else cls(hit)
+        return cls(raw, REQUIRED_ELASTIC_FIELDS)
+
+    @classmethod
+    def from_event(cls, raw: dict) -> "Hit":
+        """
+        Build a hit from a RawEvent submitted to the collector API.
+
+        Args:
+            raw: The normalised event dictionary.
+
+        Returns:
+            The validated hit.
+
+        Raises:
+            InvalidHitError: If the event has no source address.
+        """
+        return cls(raw, REQUIRED_EVENT_FIELDS)
+
+    def attach_sensor(self, sensor) -> None:
+        """
+        Record the sensor that reported this hit, for the strategies to read.
+
+        This is the only field GreedyBear adds to a hit, so it is the only
+        write the class allows.
+
+        Args:
+            sensor: The Sensor the hit was reported by.
+        """
+        self._data["_sensor"] = sensor
 
     # --- mapping protocol -------------------------------------------------
 
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._data[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self._data[key]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._data)

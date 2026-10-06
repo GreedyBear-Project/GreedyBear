@@ -15,11 +15,19 @@ class TestHitMapping(CustomTestCase):
         self.assertIn("src_ip", hit)
         self.assertEqual(len(hit), 1)
 
-    def test_writes_like_a_dict(self):
-        """ExtractionPipeline.execute() sets hit['_sensor'] on the way through."""
+    def test_attach_sensor_is_the_only_write(self):
+        """ExtractionPipeline.execute() records the sensor on the way through."""
         hit = Hit({"src_ip": "1.2.3.4"})
-        hit["_sensor"] = "sensor-object"
+        hit.attach_sensor("sensor-object")
         self.assertEqual(hit["_sensor"], "sensor-object")
+
+    def test_is_read_only(self):
+        """A hit is input data, so it does not take arbitrary writes."""
+        hit = Hit({"a": 1})
+        with self.assertRaises(TypeError):
+            hit["b"] = 2
+        with self.assertRaises(TypeError):
+            del hit["a"]
 
     def test_get_and_iteration(self):
         hit = Hit({"a": 1, "b": 2})
@@ -32,11 +40,6 @@ class TestHitMapping(CustomTestCase):
     def test_missing_key_still_raises_keyerror(self):
         with self.assertRaises(KeyError):
             Hit({})["nope"]
-
-    def test_delete(self):
-        hit = Hit({"a": 1})
-        del hit["a"]
-        self.assertEqual(len(hit), 0)
 
 
 class TestRequire(CustomTestCase):
