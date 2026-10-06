@@ -23,18 +23,14 @@ class HoneypotViewTestCase(CustomTestCase):
 
     def test_200_presence_flag_without_value(self):
         # a valueless query param is treated as truthy
-        for query in ["?only_active"]:
-            with self.subTest(query=query):
-                response = self.client.get(f"/api/honeypot/{query}")
-                self.assertEqual(response.status_code, 200)
-                self.assertNotIn("Ddospot", response.json())
+        response = self.client.get("/api/honeypot/?only_active")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Ddospot", response.json())
 
     def test_200_flag_disabled(self):
-        for query in ["?only_active=false"]:
-            with self.subTest(query=query):
-                response = self.client.get(f"/api/honeypot/{query}")
-                self.assertEqual(response.status_code, 200)
-                self.assertIn("Ddospot", response.json())
+        response = self.client.get("/api/honeypot/?only_active=false")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Ddospot", response.json())
 
     def test_legacy_onlyactive_param_is_ignored(self):
         # onlyActive is no longer a recognized parameter; it is silently dropped
