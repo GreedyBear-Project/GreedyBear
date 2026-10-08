@@ -290,8 +290,8 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
                 ioc._sensors_to_add = [sensor]
 
             ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name=TANNER_HONEYPOT)
+            self._add_fks(scanner_ip, hostname)
             if ioc_record:
                 self.rfi_hostnames_added += 1
+                # queued last: a rollback inside this block cannot take back a submission
                 self.queue_threatfox(ioc_record, ioc.related_urls)
-
-            self._add_fks(scanner_ip, hostname)

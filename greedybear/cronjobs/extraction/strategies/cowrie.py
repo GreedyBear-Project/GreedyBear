@@ -110,9 +110,10 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 self.log.info(f"found IP {ioc.name} by honeypot cowrie")
                 ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=SCANNER, honeypot_name="Cowrie")
                 if ioc_record:
-                    self.queue_threatfox(ioc_record, ioc.related_urls)
                     self._get_sessions(ioc_record, hits_by_ip.get(ioc.name, []))
                     self.ioc_records.append(ioc_record)
+                    # queued last: a rollback inside this block cannot take back a submission
+                    self.queue_threatfox(ioc_record, ioc.related_urls)
 
     def _extract_possible_payload_in_messages(self, hits: list[Hit]) -> None:
         """
@@ -199,10 +200,11 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                     if sensor:
                         ioc._sensors_to_add = [sensor]
                     ioc_record = self.ioc_processor.add_ioc(ioc, attack_type=PAYLOAD_REQUEST, honeypot_name="Cowrie")
+                    self._add_fks(scanner_ip, hostname)
                     if ioc_record:
                         self.added_url_downloads += 1
+                        # queued last: a rollback inside this block cannot take back a submission
                         self.queue_threatfox(ioc_record, ioc.related_urls)
-                    self._add_fks(scanner_ip, hostname)
 
     def _get_sessions(self, ioc: IOC, hits: list[Hit]) -> None:
         """
