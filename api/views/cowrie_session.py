@@ -19,6 +19,16 @@ from greedybear.models import CommandSequence, CowrieSession, ViewType
 from greedybear.utils import is_ip_address, is_sha256hash
 
 
+def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Sort key for IP addresses that orders IPv4 before IPv6.
+
+    Addresses of different versions are not comparable with each other,
+    so the version is used as the primary key.
+    """
+    address = ipaddress.ip_address(ip)
+    return address.version, address
+
+
 @extend_schema_view(
     get=extend_schema(
         tags=["Cowrie Session"],
@@ -100,7 +110,7 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
 
         unique_commands = {s.commands for s in sessions if s.commands}
         data["commands"] = sorted("\n".join(cmd.commands) for cmd in unique_commands)
-        data["sources"] = sorted({s.source.name for s in sessions}, key=lambda ip: ipaddress.ip_address(ip))
+        data["sources"] = sorted({s.source.name for s in sessions}, key=_ip_sort_key)
         if request_serializer.validated_data["include_credentials"]:
             data["credentials"] = sorted({str(c) for s in sessions for c in s.credentials.all()})
         if request_serializer.validated_data["include_session_data"]:
