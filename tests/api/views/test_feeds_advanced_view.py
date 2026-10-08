@@ -9,7 +9,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from api.throttles import SharedFeedRateThrottle
-from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken
+from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken, Tag
 from tests import CustomTestCase
 
 
@@ -45,7 +45,19 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         iocs = [json.loads(line) for line in lines]
         target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
         self.assertIn("days_seen", target_ioc)
-        self.assertIn("firehol_categories", target_ioc)
+
+    def test_firehol_tags_in_feed(self):
+        """FireHol blocklist membership reaches consumers through tags."""
+        Tag.objects.create(ioc=self.ioc, key="blocklist", value="greensnow", source="firehol")
+
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        iocs = [json.loads(line) for line in lines]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+
+        firehol_values = [t["value"] for t in target_ioc["tags"] if t["source"] == "firehol"]
+        self.assertEqual(firehol_values, ["greensnow"])
 
     def test_delimeter(self):
         response = self.client.get("/api/feeds/advanced/?format=ndjson&include_mass_scanners")

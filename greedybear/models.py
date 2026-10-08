@@ -172,7 +172,6 @@ class IOC(models.Model):
     http_attack_types = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     high_credential_reuse = models.BooleanField(default=False)
     ip_reputation = models.CharField(max_length=32, blank=True)
-    firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
     protocols = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
     cves = pg_fields.ArrayField(models.CharField(max_length=50), default=list)

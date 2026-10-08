@@ -204,7 +204,6 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
-        "firehol_categories_display",
         "autonomous_system_display",
         "destination_ports_display",
         "protocols_display",
@@ -232,7 +231,6 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     honeypots_display = collapsed_list_display("honeypots")
     sensors_display = collapsed_list_display("sensors")
     related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
-    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
     destination_ports_display = collapsed_list_display("destination_ports")
     protocols_display = collapsed_list_display("protocols")
     cves_display = collapsed_list_display("cves", description="CVEs")

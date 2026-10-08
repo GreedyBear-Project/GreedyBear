@@ -308,22 +308,6 @@ class TestMergeIocs(ExtractionTestCase):
         self.assertEqual(result.related_urls, [])
         self.assertEqual(result.destination_ports, [])
 
-    def test_updates_firehol_categories(self):
-        existing = self._create_mock_ioc(firehol_categories=[])
-        new = self._create_mock_ioc(firehol_categories=["blocklist_de", "greensnow"])
-
-        result = self.processor._merge_iocs(existing, new)
-
-        self.assertEqual(sorted(result.firehol_categories), ["blocklist_de", "greensnow"])
-
-    def test_clears_stale_firehol_categories(self):
-        existing = self._create_mock_ioc(firehol_categories=["greensnow"])
-        new = self._create_mock_ioc(firehol_categories=[])
-
-        result = self.processor._merge_iocs(existing, new)
-
-        self.assertEqual(result.firehol_categories, [])
-
     def test_updates_attacker_country_code(self):
         existing = self._create_mock_ioc(attacker_country_code="")
         new = self._create_mock_ioc(attacker_country_code="NP")
