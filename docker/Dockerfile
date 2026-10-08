@@ -1,6 +1,6 @@
 ## ------------------------------- UV Stage ------------------------------ ##
 
-FROM ghcr.io/astral-sh/uv:0.11.1 AS uv-bin
+FROM ghcr.io/astral-sh/uv:0.12.23 AS uv-bin
 
 FROM python:3.13-slim-trixie AS uv
 
