@@ -24,3 +24,7 @@ coverage.xml
 
 # gbctl configuration file
 .gbctl.conf
+
+# frontend tests
+frontend/test-results/
+frontend/playwright-report/
