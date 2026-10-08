@@ -403,6 +403,30 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
 
+    def test_end_date_only_includes_end_day(self):
+        """Bare ?end_date=X must include IOCs seen at any hour of day X."""
+        self.ioc.last_seen = datetime(2026, 9, 30, 12, 0)
+        self.ioc.save()
+        response = self.client.get("/api/feeds/advanced/?end_date=2026-09-30")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
+    def test_end_date_includes_whole_end_day(self):
+        """Same-day start=end=X must include IOCs seen at any hour of day X."""
+        self.ioc.last_seen = datetime(2026, 9, 30, 23, 59)
+        self.ioc.save()
+        response = self.client.get("/api/feeds/advanced/?start_date=2026-09-30&end_date=2026-09-30")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
+    def test_end_date_excludes_next_midnight(self):
+        """End bound stays exclusive of the next day: X+1 00:00 must not leak in."""
+        self.ioc.last_seen = datetime(2026, 10, 1, 0, 0)
+        self.ioc.save()
+        response = self.client.get("/api/feeds/advanced/?start_date=2026-09-30&end_date=2026-09-30")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
     def test_filter_by_country_code(self):
         """Filter by country_code returns only matching IOCs."""
         self.ioc.attacker_country_code = "IT"
