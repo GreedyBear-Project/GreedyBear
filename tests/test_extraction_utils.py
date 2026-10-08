@@ -10,7 +10,7 @@ from greedybear.cronjobs.extraction.utils import (
     threatfox_submission,
 )
 from greedybear.enums import IpReputation
-from greedybear.models import FireHolList, MassScanner
+from greedybear.models import MassScanner
 
 from . import CustomTestCase, ExtractionTestCase
 
@@ -334,69 +334,6 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_empty_hits_returns_empty_list(self):
         iocs = iocs_from_hits([])
         self.assertEqual(iocs, [])
-
-    def test_firehol_enrichment_exact_ip_match(self):
-        """Test that IOCs get FireHol categories for exact IP matches (.ipset files)"""
-        FireHolList.objects.create(ip_address="8.8.8.8", source="blocklist_de")
-        FireHolList.objects.create(ip_address="8.8.8.8", source="greensnow")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertIn("blocklist_de", ioc.firehol_categories)
-        self.assertIn("greensnow", ioc.firehol_categories)
-        self.assertEqual(len(ioc.firehol_categories), 2)
-
-    def test_firehol_enrichment_network_range_match(self):
-        """Test that IOCs get FireHol categories when IP is within a CIDR range (.netset files)"""
-        FireHolList.objects.create(ip_address="8.8.8.0/24", source="dshield")
-
-        hits = [self._create_hit(src_ip="8.8.8.100")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertIn("dshield", ioc.firehol_categories)
-
-    def test_firehol_enrichment_no_match(self):
-        """Test that IOCs have empty FireHol categories when there's no match"""
-        FireHolList.objects.create(ip_address="1.1.1.1", source="blocklist_de")
-        FireHolList.objects.create(ip_address="9.9.9.0/24", source="dshield")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertEqual(ioc.firehol_categories, [])
-
-    def test_firehol_enrichment_mixed_match(self):
-        """Test FireHol enrichment with both exact match and network range match"""
-        FireHolList.objects.create(ip_address="8.8.8.8", source="blocklist_de")
-        FireHolList.objects.create(ip_address="8.8.0.0/16", source="dshield")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertIn("blocklist_de", ioc.firehol_categories)
-        self.assertIn("dshield", ioc.firehol_categories)
-
-    def test_firehol_enrichment_deduplicates_sources(self):
-        """Test that duplicate sources are not added"""
-        FireHolList.objects.create(ip_address="8.8.8.8", source="blocklist_de")
-        FireHolList.objects.create(ip_address="8.8.0.0/16", source="blocklist_de")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        # Should only have one instance of blocklist_de
-        self.assertEqual(ioc.firehol_categories.count("blocklist_de"), 1)
 
     def test_collects_sensors_from_hits(self):
         """Test that sensors are collected from hits and returned"""

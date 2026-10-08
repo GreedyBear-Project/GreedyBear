@@ -1,12 +1,15 @@
+from ipaddress import ip_address
+
 import requests
 
-from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.enrichment.base_enrichment import BaseEnrichmentJob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import FireHolRepository
+from greedybear.models import IOC, IocType
 from greedybear.utils import is_valid_cidr, is_valid_ipv4
 
 
-class FireHolCron(Cronjob):
+class FireHolCron(BaseEnrichmentJob):
     """
     Fetch and store IP blocklists from FireHol repository.
 
@@ -14,14 +17,18 @@ class FireHolCron(Cronjob):
     Automatically cleans up entries older than 30 days.
     """
 
-    def __init__(self, firehol_repo=None):
+    SOURCE_NAME = "firehol"
+    WRITE_METHOD = "replace"
+
+    def __init__(self, firehol_repo=None, tag_repo=None):
         """
         Initialize the FireHol cronjob with repository dependency.
 
         Args:
             firehol_repo: Optional FireHolRepository instance for testing.
+            tag_repo: Optional TagRepository instance for testing.
         """
-        super().__init__()
+        super().__init__(tag_repo=tag_repo)
         self.firehol_repo = firehol_repo if firehol_repo is not None else FireHolRepository()
 
     def run(self) -> None:
@@ -74,6 +81,77 @@ class FireHolCron(Cronjob):
 
         # Clean up old FireHolList entries
         self._cleanup_old_entries()
+
+        self._write_blocklist_tags()
+
+    def _write_blocklist_tags(self) -> None:
+        """
+        Tag every IOC that appears on a stored blocklist.
+
+        Runs after the lists are refreshed, so the tags reflect what was
+        just downloaded. Both exact IP entries and CIDR ranges are matched.
+        """
+        entries_by_ip = self.firehol_repo.get_entries_by_ip()
+        cidr_entries = self.firehol_repo.get_cidr_entries()
+
+        # An empty table means every download failed. Rewriting now would
+        # delete all existing tags and put nothing back, so keep them.
+        if not entries_by_ip and not cidr_entries:
+            self.log.warning("No FireHol entries stored, keeping existing tags")
+            return
+
+        self.log.info(f"Matching {len(entries_by_ip)} IPs and {len(cidr_entries)} ranges against known IOCs")
+
+        matching_iocs = self._match_iocs(entries_by_ip)
+        tag_entries = self._build_tag_entries(matching_iocs, entries_by_ip)
+        tag_entries += self._match_cidr_entries(cidr_entries)
+
+        created_count = self._write_tags(tag_entries)
+        self.log.info(f"{self.SOURCE_NAME} enrichment completed, created {created_count} tags.")
+
+    def _build_tag_entries(self, matching_iocs, entries_by_ip) -> list[dict]:
+        """
+        Turn matched IOCs into tag entries.
+
+        Each blocklist an IOC appears on becomes one tag.
+
+        Args:
+            matching_iocs: List of (ioc_id, ip_address) tuples from _match_iocs.
+            entries_by_ip: Dict mapping IP address to its list of sources.
+
+        Returns:
+            List of dicts with keys: ioc_id, key, value.
+        """
+        tag_entries = []
+        for ioc_id, ioc_name in matching_iocs:
+            tag_entries.extend({"ioc_id": ioc_id, "key": "blocklist", "value": source} for source in entries_by_ip[ioc_name])
+        return tag_entries
+
+    def _match_cidr_entries(self, cidr_entries: list[tuple]) -> list[dict]:
+        """
+        Match IP-type IOCs against the stored CIDR ranges.
+
+        Ranges need a membership test, so this cannot be done with the
+        name lookup used for exact entries. Domains are skipped, since
+        they cannot sit inside a network.
+
+        Args:
+            cidr_entries: List of (ip_network, source) tuples.
+
+        Returns:
+            List of dicts with keys: ioc_id, key, value.
+        """
+        if not cidr_entries:
+            return []
+
+        tag_entries = []
+        for ioc_id, ioc_name in IOC.objects.filter(type=IocType.IP).values_list("id", "name").iterator():
+            try:
+                parsed_ip = ip_address(ioc_name)
+            except ValueError:
+                continue
+            tag_entries.extend({"ioc_id": ioc_id, "key": "blocklist", "value": source} for network, source in cidr_entries if parsed_ip in network)
+        return tag_entries
 
     def _cleanup_old_entries(self):
         """
