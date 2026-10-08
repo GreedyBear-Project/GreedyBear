@@ -22,7 +22,6 @@ dependencies = [
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
     "elasticsearch==9.5.1",
-    "psycopg[c]~=3.3",
     # ML / data science
     "scikit-learn~=1.9.0",
     "pandas~=3.0",
@@ -55,6 +54,11 @@ dev = [
     "ty==0.0.83",
     "django-stubs~=6.1.1",
     "djangorestframework-stubs~=3.18.1",
+    # pre-compiled psycopg
+    "psycopg[binary]~=3.3",
+]
+prod = [
+    "psycopg[c]~=3.3",
 ]
 
 [tool.uv]
