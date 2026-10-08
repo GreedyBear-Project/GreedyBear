@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.test import override_settings
 
+from greedybear.consts import IP
 from greedybear.cronjobs.extraction.strategies.cowrie import (
     CowrieExtractionStrategy,
     normalize_command,
@@ -35,6 +36,11 @@ class TestHelperFunctions(ExtractionTestCase):
         """Test URL parsing with port number."""
         result = parse_url_hostname("http://evil.com:8080/download")
         self.assertEqual(result, "evil.com")
+
+    def test_parse_url_hostname_ipv6(self):
+        """Test URL parsing with IPv6 address."""
+        result = parse_url_hostname("http://[2001:db8::1]/foo")
+        self.assertEqual(result, "2001:db8::1")
 
     def test_parse_url_hostname_invalid_url(self):
         """Test URL parsing with invalid URL."""
@@ -143,6 +149,26 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         # Verify honeypot is set via honeypot_name argument
         self.assertEqual(call_args.kwargs.get("honeypot_name"), "Cowrie")
 
+    def test_extract_payload_in_messages_with_ipv6_url(self):
+        """Test extraction of bracketed IPv6 URLs from login failure messages."""
+        hits = [
+            {
+                "src_ip": "1.2.3.4",
+                "eventid": "cowrie.login.failed",
+                "message": "Failed login with http://[2001:db8::1]:8080/malware.exe",
+                "@timestamp": "2025-01-01T00:00:00",
+            }
+        ]
+
+        self.strategy._extract_possible_payload_in_messages(hits)
+
+        self.assertEqual(self.strategy.ioc_processor.add_ioc.call_count, 1)
+        ioc_arg = self.strategy.ioc_processor.add_ioc.call_args[0][0]
+
+        self.assertEqual(ioc_arg.name, "2001:db8::1")
+        self.assertEqual(ioc_arg.type, IP)
+        self.assertIn("http://[2001:db8::1]:8080/malware.exe", ioc_arg.related_urls)
+
     def test_extract_payload_in_messages_no_url(self):
         """Test extraction when message has no URL."""
         hits = [
@@ -150,6 +176,21 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
                 "src_ip": "1.2.3.4",
                 "eventid": "cowrie.login.failed",
                 "message": "Failed login attempt",
+            }
+        ]
+
+        self.strategy._extract_possible_payload_in_messages(hits)
+
+        # Should not add any IOC
+        self.strategy.ioc_processor.add_ioc.assert_not_called()
+
+    def test_extract_payload_in_messages_invalid_ipv6_url(self):
+        """Test extraction when message has an invalid URL."""
+        hits = [
+            {
+                "src_ip": "1.2.3.4",
+                "eventid": "cowrie.login.failed",
+                "message": "Failed login with http://[zzz]/foo",
             }
         ]
 
