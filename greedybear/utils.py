@@ -138,10 +138,9 @@ def get_ioc_type(ioc: str) -> str:
         ioc: IOC name string (IP address or domain).
 
     Returns:
-        IP if the value is a valid IPv4 address, DOMAIN otherwise.
+        IP if the value is a valid IP address (IPv4 or IPv6), DOMAIN otherwise.
     """
-    is_valid, _ = is_valid_ipv4(ioc)
-    return IP if is_valid else DOMAIN
+    return IP if is_ip_address(ioc.strip()) else DOMAIN
 
 
 def get_attack_type(ip_hits: Sequence[Mapping]) -> str:

@@ -1,7 +1,7 @@
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from greedybear.models import CowrieSession
+from greedybear.models import IOC, CowrieSession, IocType
 from tests import CustomTestCase
 
 
@@ -116,6 +116,24 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertIn("credentials", response.data)
         self.assertIn("sessions", response.data)
         self.assertEqual(len(response.data["sources"]), 2)
+
+    def test_sources_with_mixed_ip_versions(self):
+        """Test that sources mixing IPv4 and IPv6 addresses are sorted without error."""
+        ioc_v6 = IOC.objects.create(name="2001:db8::1", type=IocType.IP.value)
+        CowrieSession.objects.create(
+            session_id=int("cccccccccccc", 16),
+            start_time=self.current_time,
+            duration=3.0,
+            login_attempt=True,
+            command_execution=True,
+            interaction_count=1,
+            source=ioc_v6,
+            commands=self.command_sequence,
+        )
+
+        response = self.client.get(f"/api/cowrie_session?query={self.hash}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sources"], ["140.246.171.141", "2001:db8::1"])
 
     # # # # # IP Address Validation Tests # # # # #
     def test_nonexistent_ip_address(self):

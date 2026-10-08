@@ -286,6 +286,14 @@ class TestGetIocType(CustomTestCase):
         self.assertEqual(get_ioc_type("255.255.255.255"), IP)
         self.assertEqual(get_ioc_type("192.168.1.1"), IP)
 
+    def test_ipv6_returns_ip(self):
+        self.assertEqual(get_ioc_type("2001:db8::1"), IP)
+        self.assertEqual(get_ioc_type("::1"), IP)
+        self.assertEqual(get_ioc_type("fe80::1ff:fe23:4567:890a"), IP)
+
+    def test_padded_ipv4_still_returns_ip(self):
+        self.assertEqual(get_ioc_type("  1.2.3.4  "), IP)
+
     def test_domain_returns_domain(self):
         self.assertEqual(get_ioc_type("example.com"), DOMAIN)
 

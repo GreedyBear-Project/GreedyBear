@@ -33,7 +33,7 @@ class SensorSerializer(serializers.ModelSerializer):
 
 
 class IOCSerializer(serializers.ModelSerializer):
-    general_honeypot = HoneypotRelatedField(many=True, read_only=True, source="honeypots")
+    honeypots = HoneypotRelatedField(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     sensors = SensorSerializer(many=True, read_only=True)
     payload_hashes = serializers.SerializerMethodField(help_text="Lowercase SHA256 hashes of the payloads observed from this IOC.")
@@ -74,18 +74,6 @@ class EnrichmentSerializer(serializers.Serializer):
 
 
 class HoneypotRequestSerializer(serializers.Serializer):
-    """Query params for the honeypot list endpoint.
-    ``onlyActive`` is the legacy camelCase spelling kept for backwards compatibility.
-    Either spelling enables the filter.
-    """
+    """Query params for the honeypot list endpoint."""
 
     only_active = PresenceFlagField(default=False, help_text="Include only active honeypots.")
-    onlyActive = PresenceFlagField(  # noqa: N815
-        default=False,
-        help_text="Deprecated alias for only_active.",
-    )
-
-    def validate(self, attrs):
-        legacy_flag = attrs.pop("onlyActive")
-        attrs["only_active"] = attrs["only_active"] or legacy_flag
-        return attrs
