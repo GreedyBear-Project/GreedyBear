@@ -580,11 +580,13 @@ dev = [
     { name = "django-test-migrations" },
     { name = "django-watchfiles" },
     { name = "djangorestframework-stubs" },
-    { name = "psycopg", extra = ["binary"] },
     { name = "ruff" },
     { name = "ty" },
 ]
-prod = [
+psycopg-bin = [
+    { name = "psycopg", extra = ["binary"] },
+]
+psycopg-c = [
     { name = "psycopg", extra = ["c"] },
 ]
 
@@ -619,11 +621,11 @@ dev = [
     { name = "django-test-migrations", specifier = "==1.7.0" },
     { name = "django-watchfiles", specifier = "~=1.4" },
     { name = "djangorestframework-stubs", specifier = "~=3.18.1" },
-    { name = "psycopg", extras = ["binary"], specifier = "~=3.3" },
     { name = "ruff", specifier = "==0.16.7" },
     { name = "ty", specifier = "==0.0.83" },
 ]
-prod = [{ name = "psycopg", extras = ["c"], specifier = "~=3.3" }]
+psycopg-bin = [{ name = "psycopg", extras = ["binary"], specifier = "~=3.3" }]
+psycopg-c = [{ name = "psycopg", extras = ["c"], specifier = "~=3.3" }]
 
 [[package]]
 name = "gunicorn"
