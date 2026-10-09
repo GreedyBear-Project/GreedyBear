@@ -23,7 +23,7 @@ class TestTannerExtractionStrategy(ExtractionTestCase):
         )
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_extract_scanner_ips(self, mock_threatfox, mock_iocs_from_hits):
         mock_ioc = self._create_mock_ioc("1.2.3.4")
         mock_iocs_from_hits.return_value = [mock_ioc]
@@ -49,7 +49,7 @@ class TestTannerExtractionStrategy(ExtractionTestCase):
         self.assertEqual(len(self.strategy.ioc_records), 0)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_multiple_scanners(self, mock_threatfox, mock_iocs_from_hits):
         ioc1 = self._create_mock_ioc("1.2.3.4")
         ioc2 = self._create_mock_ioc("5.6.7.8")
@@ -381,7 +381,7 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         )
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_rfi_hostname_as_payload_request(self, mock_threatfox, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         mock_ioc_record = self._create_mock_ioc("1.2.3.4")
@@ -399,7 +399,7 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.assertEqual(payload_calls[0][1]["honeypot_name"], TANNER_HONEYPOT)
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.tanner.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_rfi_links_scanner_to_hostname(self, mock_threatfox, mock_iocs_from_hits):
         mock_iocs_from_hits.return_value = []
         scanner_record = self._create_mock_ioc("1.2.3.4")

@@ -19,7 +19,7 @@ class TestGenericExtractionStrategy(ExtractionTestCase):
         )
 
     @patch("greedybear.cronjobs.extraction.strategies.generic.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.generic.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_processes_enabled_honeypot(self, mock_threatfox, mock_iocs_from_hits):
         self.mock_ioc_repo.is_enabled.return_value = True
 
@@ -90,7 +90,7 @@ class TestGenericExtractionStrategy(ExtractionTestCase):
         self.assertEqual(call_kwargs["honeypot_name"], "TestHoneypot")
 
     @patch("greedybear.cronjobs.extraction.strategies.generic.iocs_from_hits")
-    @patch("greedybear.cronjobs.extraction.strategies.generic.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_processes_ioc_with_sensors(self, mock_threatfox, mock_iocs_from_hits):
         """Test that sensors are passed to add_ioc when present"""
         self.mock_ioc_repo.is_enabled.return_value = True

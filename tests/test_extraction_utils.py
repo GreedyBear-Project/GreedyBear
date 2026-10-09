@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 from greedybear.consts import IP
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.utils import (
     correct_ip_reputation,
     group_valid_hits_by_ip,
@@ -45,7 +46,7 @@ class TestCorrectIpReputationTestCase(CustomTestCase):
 
 class TestGroupValidHitsByIp(CustomTestCase):
     def _hit(self, src_ip):
-        return {"src_ip": src_ip}
+        return Hit({"src_ip": src_ip})
 
     def test_keeps_valid_grouped_by_ip(self):
         grouped = group_valid_hits_by_ip([self._hit("1.2.3.4"), self._hit("1.2.3.4"), self._hit("5.6.7.8")])
@@ -89,7 +90,7 @@ class IocsFromHitsTestCase(CustomTestCase):
             hit["username"] = username
         if password is not None:
             hit["password"] = password
-        return hit
+        return Hit(hit)
 
     def test_creates_ioc_from_single_hit(self):
         hits = [self._create_hit(src_ip="8.8.8.8", dest_port=22)]
@@ -155,7 +156,7 @@ class IocsFromHitsTestCase(CustomTestCase):
 
     def test_handles_missing_dest_port(self):
         hits = [
-            {"src_ip": "8.8.8.8", "@timestamp": "2025-01-01T12:00:00.000Z"},
+            Hit({"src_ip": "8.8.8.8", "@timestamp": "2025-01-01T12:00:00.000Z"}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -168,7 +169,7 @@ class IocsFromHitsTestCase(CustomTestCase):
         self.assertEqual(ioc.autonomous_system.asn, 15169)
 
     def test_handles_missing_geoip(self):
-        hits = [{"src_ip": "8.8.8.8", "@timestamp": "2025-01-01T12:00:00.000Z"}]
+        hits = [Hit({"src_ip": "8.8.8.8", "@timestamp": "2025-01-01T12:00:00.000Z"})]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
         self.assertIsNone(ioc.autonomous_system)
@@ -441,7 +442,7 @@ class IocsFromHitsTestCase(CustomTestCase):
         ]
 
         # manually injecting the geo
-        hits[0]["geoip"] = {"country_name": "Nepal"}
+        hits[0] = Hit({**hits[0], "geoip": {"country_name": "Nepal"}})
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)
@@ -464,7 +465,7 @@ class IocsFromHitsTestCase(CustomTestCase):
             )
         ]
 
-        hits[0]["geoip"] = {"country_name": "Nepal", "country_code2": "NP"}
+        hits[0] = Hit({**hits[0], "geoip": {"country_name": "Nepal", "country_code2": "NP"}})
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)
@@ -483,7 +484,7 @@ class IocsFromHitsTestCase(CustomTestCase):
             )
         ]
 
-        hits[0]["geoip"] = {"country_name": "Nepal"}
+        hits[0] = Hit({**hits[0], "geoip": {"country_name": "Nepal"}})
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)
@@ -502,7 +503,7 @@ class IocsFromHitsTestCase(CustomTestCase):
             )
         ]
 
-        hits[0]["geoip"] = {"country_name": "Nepal", "country_code2": "NPL"}
+        hits[0] = Hit({**hits[0], "geoip": {"country_name": "Nepal", "country_code2": "NPL"}})
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)
@@ -522,7 +523,7 @@ class IocsFromHitsTestCase(CustomTestCase):
         ]
 
         # Manually injecting the geoip info to simulate AS enrichment
-        hits[0]["geoip"] = {"asn": 2945, "as_org": "greedybear", "country_name": "Nepal"}
+        hits[0] = Hit({**hits[0], "geoip": {"asn": 2945, "as_org": "greedybear", "country_name": "Nepal"}})
 
         iocs = iocs_from_hits(hits)
         self.assertEqual(len(iocs), 1)
@@ -540,8 +541,8 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_aggregates_protocols_from_hits(self):
         """Protocols from all hits for the same IP are collected and lowercased."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "SSH"},
-            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "telnet"},
+            Hit({**self._create_hit(src_ip="8.8.8.8"), "protocol": "SSH"}),
+            Hit({**self._create_hit(src_ip="8.8.8.8"), "protocol": "telnet"}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -550,8 +551,8 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_deduplicates_protocols(self):
         """Duplicate protocols for the same IP are deduplicated."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"},
-            {**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"},
+            Hit({**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"}),
+            Hit({**self._create_hit(src_ip="8.8.8.8"), "protocol": "ssh"}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -560,7 +561,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_dionaea_protocol(self):
         """Dionaea connection.protocol is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Dionaea"), "connection": {"protocol": "smbd"}},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Dionaea"), "connection": {"protocol": "smbd"}}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -569,7 +570,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_heralding_proto(self):
         """Heralding proto field is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Heralding"), "proto": "vnc"},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Heralding"), "proto": "vnc"}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -578,7 +579,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_suricata_app_proto(self):
         """Suricata app_proto is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "app_proto": "rfb"},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "app_proto": "rfb"}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -587,8 +588,8 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_aggregates_cves_from_hits(self):
         """CVEs from all hits for the same IP are collected and uppercased."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "cve-2021-44228"}},
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2022-0001"}},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "cve-2021-44228"}}),
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2022-0001"}}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -597,8 +598,8 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_deduplicates_cves(self):
         """Duplicate CVEs for the same IP are deduplicated."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}}),
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2021-44228"}}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -607,7 +608,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_space_separated_cves_in_single_hit(self):
         """A single hit with multiple space-separated CVEs splits them all."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2019-12263 CVE-2019-12261 CVE-2019-12260"}},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Suricata"), "alert": {"cve_id": "CVE-2019-12263 CVE-2019-12261 CVE-2019-12260"}}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]
@@ -616,7 +617,7 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_cowrie_cve(self):
         """Cowrie cve field is extracted correctly."""
         hits = [
-            {**self._create_hit(src_ip="8.8.8.8", hit_type="Cowrie"), "cve": "CVE-2026-24061"},
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Cowrie"), "cve": "CVE-2026-24061"}),
         ]
         iocs = iocs_from_hits(hits)
         ioc = iocs[0]

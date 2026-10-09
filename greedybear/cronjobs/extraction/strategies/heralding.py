@@ -1,11 +1,11 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 from greedybear.consts import SCANNER
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
     normalize_credential_field,
-    threatfox_submission,
 )
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import Credential
@@ -52,7 +52,7 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         super().__init__(honeypot, ioc_repo, sensor_repo)
         self.credentials_added = 0
 
-    def extract_from_hits(self, hits: list[dict]) -> None:
+    def extract_from_hits(self, hits: list[Hit]) -> None:
         """
         Extract IOCs from Heralding honeypot log hits.
 
@@ -64,22 +64,24 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         """
         self._get_scanners(hits)
         self._classify_credential_attacks(hits)
-        self.log.info(f"added {len(self.ioc_records)} scanners, {self.credentials_added} credentials from {self.honeypot}")
+        self.flush_threatfox()
+        self.log.info(f"added {len(self.ioc_records)} scanners, {self.credentials_added} credentials from {self.honeypot}, skipped {self.skipped}")
 
-    def _get_scanners(self, hits: list[dict]) -> None:
+    def _get_scanners(self, hits: list[Hit]) -> None:
         """Extract scanner IPs from hits."""
         for ioc in iocs_from_hits(hits):
-            self.log.info(f"found IP {ioc.name} by honeypot {self.honeypot}")
-            ioc_record = self.ioc_processor.add_ioc(
-                ioc,
-                attack_type=SCANNER,
-                honeypot_name=HERALDING_HONEYPOT,
-            )
-            if ioc_record:
-                self.ioc_records.append(ioc_record)
-                threatfox_submission(ioc_record, ioc.related_urls, self.log)
+            with self.skip_on_error(f"IoC {ioc.name}"):
+                self.log.info(f"found IP {ioc.name} by honeypot {self.honeypot}")
+                ioc_record = self.ioc_processor.add_ioc(
+                    ioc,
+                    attack_type=SCANNER,
+                    honeypot_name=HERALDING_HONEYPOT,
+                )
+                if ioc_record:
+                    self.queue_threatfox(ioc_record, ioc.related_urls)
+                    self.ioc_records.append(ioc_record)
 
-    def _classify_credential_attacks(self, hits: list[dict]) -> None:
+    def _classify_credential_attacks(self, hits: list[Hit]) -> None:
         """
         Classify credential brute-force attempts by protocol and persist credentials.
 
@@ -110,20 +112,21 @@ class HeraldingExtractionStrategy(BaseExtractionStrategy):
         ioc_by_ip = {ioc.name: ioc for ioc in self.ioc_records}
 
         for (username, password, protocol), src_ips in sorted(credentials.items()):
-            credential, created = Credential.objects.get_or_create(
-                username=username,
-                password=password,
-                protocol=protocol,
-            )
-            for ip in src_ips:
-                ioc_record = ioc_by_ip.get(ip)
-                if ioc_record:
-                    credential.sources.add(ioc_record)
-            if created:
-                self.credentials_added += 1
-                self.log.info(f"stored credential for protocol={protocol}")
+            with self.skip_on_error(f"credential for protocol={protocol}"):
+                credential, created = Credential.objects.get_or_create(
+                    username=username,
+                    password=password,
+                    protocol=protocol,
+                )
+                for ip in src_ips:
+                    ioc_record = ioc_by_ip.get(ip)
+                    if ioc_record:
+                        credential.sources.add(ioc_record)
+                if created:
+                    self.credentials_added += 1
+                    self.log.info(f"stored credential for protocol={protocol}")
 
-    def _extract_protocol(self, hit: dict) -> str | None:
+    def _extract_protocol(self, hit: Hit) -> str | None:
         """
         Extract and normalise the protocol name from a hit.
 

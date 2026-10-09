@@ -97,3 +97,10 @@ SHARE_TOKEN_MAX_AGE = 86400 * 30  # 30 days
 
 # Event injection API
 APISOURCE_LOCKED_THRESHOLD = 10
+
+# Fields a hit cannot be processed without, checked when the Hit is built.
+# Elasticsearch hits need a source and a honeypot to be attributed at all.
+# Events from the collector API carry their honeypot on the sensor instead,
+# so only the source is required there.
+REQUIRED_ELASTIC_FIELDS = ("src_ip", "type")
+REQUIRED_EVENT_FIELDS = ("src_ip",)
