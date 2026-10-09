@@ -46,7 +46,7 @@ dev = [
     # hot-reload
     "django-watchfiles~=1.4",
     # tests
-    "coverage==7.16.0",
+    "coverage==7.16.2",
     "django-test-migrations==1.7.0",
     # linting
     "ruff==0.16.7",
