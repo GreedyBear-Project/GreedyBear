@@ -9,6 +9,68 @@ from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
 
+# Postgres jsonb cannot store U+0000 or unpaired surrogates. Keep the event
+# and mark those characters so analysts can still see they were sent.
+NUL_REPLACEMENT = "[NUL]"
+SURROGATE_REPLACEMENT = "[SUR]"
+
+
+def sanitize_text(value: str) -> str:
+    """Replace jsonb-illegal characters with visible markers.
+
+    NULs become ``[NUL]`` (same tag as T-Pot credential normalisation).
+    Unpaired surrogates (U+D800-U+DFFF) become ``[SUR]``. No length
+    truncation: this helper is also used on free-form JSON blobs.
+    """
+    pieces: list[str] = []
+    for char in value:
+        code = ord(char)
+        if char == "\x00":
+            pieces.append(NUL_REPLACEMENT)
+        elif 0xD800 <= code <= 0xDFFF:
+            pieces.append(SURROGATE_REPLACEMENT)
+        else:
+            pieces.append(char)
+    return "".join(pieces)
+
+
+def sanitize_json(value):
+    """Walk JSON-like structures and sanitise strings in keys and values."""
+    if isinstance(value, str):
+        return sanitize_text(value)
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            new_key = sanitize_text(key) if isinstance(key, str) else key
+            cleaned[new_key] = sanitize_json(item)
+        return cleaned
+    if isinstance(value, list):
+        return [sanitize_json(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_json(item) for item in value]
+    return value
+
+
+class SanitizingCharField(serializers.CharField):
+    """CharField that sanitises jsonb-illegal characters before DRF validators run.
+
+    ``ProhibitNullCharactersValidator`` runs before ``validate_*`` hooks, so
+    cleaning has to happen in ``to_internal_value``.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            data = sanitize_text(data)
+        return super().to_internal_value(data)
+
+
+class SanitizingJSONField(serializers.JSONField):
+    """JSONField that sanitises NULs and unpaired surrogates anywhere in the blob."""
+
+    def to_internal_value(self, data):
+        parsed = super().to_internal_value(data)
+        return sanitize_json(parsed)
+
 
 class SensorCreateSerializer(serializers.ModelSerializer):
     sensor_label = serializers.CharField(
@@ -95,15 +157,15 @@ class EventSerializer(serializers.Serializer):
     token_id = serializers.CharField(default="", max_length=100, allow_blank=True)
     protocol = serializers.CharField(default="", max_length=50, allow_blank=True)
     service_name = serializers.CharField(default="", max_length=100, allow_blank=True)
-    username = serializers.CharField(default="", max_length=255, allow_blank=True)
-    password = serializers.CharField(default="", max_length=255, allow_blank=True)
+    username = SanitizingCharField(default="", max_length=255, allow_blank=True)
+    password = SanitizingCharField(default="", max_length=255, allow_blank=True)
     cve_id = serializers.CharField(default="", max_length=50, allow_blank=True)
-    command = serializers.CharField(default="", allow_blank=True)
+    command = SanitizingCharField(default="", allow_blank=True)
     src_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
     dest_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
     related_url = serializers.URLField(default="", max_length=900, allow_blank=True)
     payload_hash = serializers.CharField(default="", max_length=64, allow_blank=True)
-    data = serializers.JSONField(default=dict)
+    data = SanitizingJSONField(default=dict)
 
     def validate_timestamp(self, value):
         if value > timezone.now():

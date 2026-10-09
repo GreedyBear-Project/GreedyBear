@@ -1,3 +1,4 @@
+import json
 import uuid
 from unittest.mock import patch
 
@@ -511,3 +512,82 @@ class TestEventStatusView(BaseEventTestCase):
         self.assertEqual(batch.status, EventStatusType.FAILED)
         self.assertIn("Background task dispatch failed", batch.last_error)
         self.assertIn("Connection refused by Redis broker", batch.last_error)
+
+
+class TestEventSanitizationKeepsBatch(BaseEventTestCase):
+    def _post_mixed(self, dirty_event, extra_clean=2):
+        events = [valid_event(self.sensor.id) for _ in range(extra_clean)]
+        events.append(dirty_event)
+        return self.client.post(EVENTS_URL, {"events": events}, format="json")
+
+    def _assert_batch_saved(self, res, expected_count):
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        task_id = res.data["task_id"]
+        self.assertEqual(RawEvent.objects.filter(batch__task_id=task_id).count(), expected_count)
+        batch = EventStatus.objects.get(task_id=task_id)
+        self.assertNotEqual(batch.status, EventStatusType.FAILED)
+
+    @patch("api.views.event.async_task", return_value="task-nul-data")
+    def test_nul_in_data_does_not_drop_siblings(self, mock_task):
+        dirty = valid_event(self.sensor.id, data={"raw_username": "admin\x00"})
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], data__has_key="raw_username")
+        self.assertEqual(stored.data["raw_username"], "admin[NUL]")
+
+    @patch("api.views.event.async_task", return_value="task-nested-nul")
+    def test_nul_in_nested_value_and_dict_key(self, mock_task):
+        dirty = valid_event(
+            self.sensor.id,
+            data={"outer": {"inner\x00": "val\x00"}},
+        )
+        res = self._post_mixed(dirty, extra_clean=1)
+        self._assert_batch_saved(res, 2)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], src_ip="1.2.3.4", data__has_key="outer")
+        self.assertEqual(stored.data["outer"], {"inner[NUL]": "val[NUL]"})
+
+    @patch("api.views.event.async_task", return_value="task-surrogate")
+    def test_unpaired_surrogate_in_data_is_stored(self, mock_task):
+        # Send the unpaired surrogate as a JSON \\u escape, matching real HTTP
+        # clients. DRF's JSON renderer cannot utf-8-encode a Python surrogate.
+        events = [valid_event(self.sensor.id) for _ in range(2)]
+        events.append(valid_event(self.sensor.id, data={"note": "PLACEHOLDER"}))
+        body = json.dumps({"events": events}).replace('"PLACEHOLDER"', '"x\\ud800y"')
+        res = self.client.post(EVENTS_URL, body, content_type="application/json")
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], data__has_key="note")
+        self.assertEqual(stored.data["note"], "x[SUR]y")
+
+    @patch("api.views.event.async_task", return_value="task-long-data")
+    def test_long_data_string_is_not_truncated(self, mock_task):
+        blob = "a" * 400
+        event = valid_event(self.sensor.id, data={"note": blob})
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self._assert_batch_saved(res, 1)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+        self.assertEqual(len(stored.data["note"]), 400)
+
+    @patch("api.views.event.async_task", return_value="task-nul-username")
+    def test_nul_in_username_is_sanitised_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, username="admin\x00")
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        self.assertNotIn("Null characters are not allowed", str(res.data))
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], username="admin[NUL]")
+        self.assertEqual(stored.username, "admin[NUL]")
+
+    @patch("api.views.event.async_task", return_value="task-nul-password")
+    def test_nul_in_password_is_sanitised_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, password="toor\x00")
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], password="toor[NUL]")
+        self.assertEqual(stored.password, "toor[NUL]")
+
+    @patch("api.views.event.async_task", return_value="task-nul-command")
+    def test_nul_in_command_is_sanitised_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, command="whoami\x00")
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], command="whoami[NUL]")
+        self.assertEqual(stored.command, "whoami[NUL]")
