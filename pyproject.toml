@@ -22,7 +22,6 @@ dependencies = [
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
     "elasticsearch==9.5.1",
-    "psycopg[c]~=3.3",
     # ML / data science
     "scikit-learn~=1.9.0",
     "pandas~=3.0",
@@ -56,12 +55,22 @@ dev = [
     "django-stubs~=6.1.1",
     "djangorestframework-stubs~=3.18.1",
 ]
+psycopg-bin = [
+    # pre-compiled psycopg
+    "psycopg[binary]~=3.3",
+]
+psycopg-c = [
+    # production version of psycopg
+    "psycopg[c]~=3.3",
+]
 
 [tool.uv]
 # necessary because certego-saas transitively depends on djangorestframework-filters 1.0.0.dev2 (dev prerelease)
 prerelease = "allow"
 # necessary because certego-saas pins Markdown <3.4, but we want a current release for security fixes
 override-dependencies = ["markdown==3.10.2"]
+# by default install dev tools and pre-compiled psycopg
+default-groups = ["dev", "psycopg-bin"]
 
 [tool.ruff]
 extend-exclude = [

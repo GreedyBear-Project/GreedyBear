@@ -53,7 +53,7 @@ RUN apt-get update \
 COPY pyproject.toml uv.lock ./
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc python3-dev libpq-dev \
-    && uv sync --no-dev --locked \
+    && uv sync --no-default-groups --group psycopg-c --locked \
     && uv cache clean \
     && apt-get purge -y gcc python3-dev libpq-dev \
     && apt-get autoremove -y \
@@ -80,7 +80,7 @@ RUN mkdir -p ${LOG_PATH}/django ${LOG_PATH}/gunicorn \
 FROM production AS development
 
 # Install dev dependencies (hot-reload, test, lint and type-checking tools)
-RUN uv sync --group dev --locked
+RUN uv sync --no-default-groups --group dev --group psycopg-c --locked
 
 
 ## ------------------------------- Default Stage ------------------------------ ##
