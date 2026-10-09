@@ -49,7 +49,7 @@ dev = [
     "coverage==7.16.0",
     "django-test-migrations==1.7.0",
     # linting
-    "ruff==0.16.7",
+    "ruff==0.16.10",
     # type checking
     "ty==0.0.83",
     "django-stubs~=6.1.1",
