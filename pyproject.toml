@@ -22,7 +22,6 @@ dependencies = [
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
     "elasticsearch==9.5.1",
-    "psycopg[c]~=3.3",
     # ML / data science
     "scikit-learn~=1.9.0",
     "pandas~=3.0",
@@ -44,14 +43,25 @@ Blog = "https://greedybear-project.github.io/"
 
 [dependency-groups]
 dev = [
+    # hot-reload
     "django-watchfiles~=1.4",
-]
-test = [
+    # tests
     "coverage==7.16.0",
-    "django-test-migrations==1.6.0",
-]
-lint = [
+    "django-test-migrations==1.7.0",
+    # linting
     "ruff==0.16.7",
+    # type checking
+    "ty==0.0.83",
+    "django-stubs~=6.1.1",
+    "djangorestframework-stubs~=3.18.1",
+]
+psycopg-bin = [
+    # pre-compiled psycopg
+    "psycopg[binary]~=3.3",
+]
+psycopg-c = [
+    # production version of psycopg
+    "psycopg[c]~=3.3",
 ]
 
 [tool.uv]
@@ -59,6 +69,8 @@ lint = [
 prerelease = "allow"
 # necessary because certego-saas pins Markdown <3.4, but we want a current release for security fixes
 override-dependencies = ["markdown==3.10.2"]
+# by default install dev tools and pre-compiled psycopg
+default-groups = ["dev", "psycopg-bin"]
 
 [tool.ruff]
 extend-exclude = [
@@ -150,3 +162,25 @@ known-first-party = [
     "configuration",
     "greedybear",
 ]
+
+# Ignore some ty rules in tests/ directory because
+# - DRF's `response.data` is invisible (unresolved-attribute, not-subscriptable),
+# - `assertIsNotNone()` does not narrow types, so Optional values stay Optional after it
+#   (not-subscriptable, invalid-argument-type, invalid-return-type, invalid-assignment)
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+unresolved-attribute = "ignore"
+not-subscriptable = "ignore"
+invalid-return-type = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+
+# DRF's @api_view returns an AsView protocol that ty doesn't treat as callable,
+# so path() never matches it
+[[tool.ty.overrides]]
+include = ["**/urls.py"]
+
+[tool.ty.overrides.rules]
+no-matching-overload = "ignore"

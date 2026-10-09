@@ -128,8 +128,8 @@ class FeedTypeAPITestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["found"])
 
-        # Should have general_honeypot list (serialized as list of strings)
-        honeypots = response.json()["ioc"]["general_honeypot"]
+        # Should have honeypots list (serialized as list of strings)
+        honeypots = response.json()["ioc"]["honeypots"]
         self.assertIsInstance(honeypots, list)
         self.assertGreater(len(honeypots), 0)
 

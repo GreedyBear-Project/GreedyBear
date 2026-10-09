@@ -81,6 +81,12 @@ on:
         type: boolean
         required: false
 
+      # Type checkers
+      use_ty:
+        description: Use ty type checker
+        type: boolean
+        required: false
+
       # Coverage configs
       use_coverage:
         description: Use coverage.py.
@@ -320,7 +326,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --frozen --all-groups
+          uv sync --locked
           echo "${{ github.workspace }}/${{ inputs.install_from }}/.venv/bin" >> $GITHUB_PATH
         shell: bash
         working-directory: ${{ inputs.install_from }}
@@ -335,7 +341,8 @@ jobs:
           inputs.use_bandit ||
           inputs.use_autoflake ||
           inputs.use_ruff_formatter ||
-          inputs.use_ruff_linter
+          inputs.use_ruff_linter ||
+          inputs.use_ty
         with:
           working_directory: ${{ inputs.working_directory }}
           use_black: ${{ inputs.use_black }}
@@ -346,6 +353,7 @@ jobs:
           use_autoflake: ${{ inputs.use_autoflake }}
           use_ruff_formatter: ${{ inputs.use_ruff_formatter }}
           use_ruff_linter: ${{ inputs.use_ruff_linter }}
+          use_ty: ${{ inputs.use_ty }}
 
       - name: Run CodeQL
         if: inputs.run_codeql

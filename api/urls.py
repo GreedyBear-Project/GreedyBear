@@ -68,7 +68,6 @@ urlpatterns = [
     path("schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path("command_sequence", command_sequence_view),
-    path("general_honeypot", HoneypotView.as_view()),
     path("news/", news_view),
     # router viewsets
     path("", include(router.urls)),

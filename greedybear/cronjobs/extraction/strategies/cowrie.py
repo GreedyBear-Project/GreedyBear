@@ -71,8 +71,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         honeypot: str,
         ioc_repo: IocRepository,
         sensor_repo: SensorRepository,
-        session_repo: CowrieSessionRepository = None,
-        payload_repo: PayloadRepository = None,
+        session_repo: CowrieSessionRepository | None = None,
+        payload_repo: PayloadRepository | None = None,
     ):
         super().__init__(honeypot, ioc_repo, sensor_repo)
         self.session_repo = session_repo or CowrieSessionRepository()
@@ -255,6 +255,16 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 if session_record.commands is None:
                     session_record.commands = CommandSequence()
                     session_record.commands.first_seen = parse_timestamp(hit["timestamp"])
+                if session_record.commands.pk is not None:
+                    # Session continues from a previous extraction run.
+                    # Its stored sequence may be shared with other sessions,
+                    # so extend a copy instead of modifying the row.
+                    stored = session_record.commands
+                    session_record.commands = CommandSequence(
+                        commands=list(stored.commands),
+                        first_seen=stored.first_seen,
+                        last_seen=stored.last_seen,
+                    )
 
                 command = normalize_command(hit["message"])
                 session_record.commands.last_seen = parse_timestamp(hit["timestamp"])
@@ -302,7 +312,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
             session.commands.commands_hash = commands_hash
             return False
 
-        last_seen = session.commands.last_seen
+        cmd_seq.last_seen = max(cmd_seq.last_seen, session.commands.last_seen)
+        cmd_seq.first_seen = min(cmd_seq.first_seen, session.commands.first_seen)
+
         session.commands = cmd_seq
-        session.commands.last_seen = last_seen
         return True

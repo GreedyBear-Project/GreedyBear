@@ -1,8 +1,10 @@
-## ------------------------------- UV Stage ------------------------------ ## 
+## ------------------------------- UV Stage ------------------------------ ##
+
+FROM ghcr.io/astral-sh/uv:0.11.1 AS uv-bin
 
 FROM python:3.13-slim-trixie AS uv
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.1 /uv /bin/uv
+COPY --from=uv-bin /uv /bin/uv
 COPY pyproject.toml .  
 
 RUN echo "VITE_GREEDYBEAR_VERSION=\"$(uv version --short)\"" > .env.local
@@ -51,7 +53,7 @@ RUN apt-get update \
 COPY pyproject.toml uv.lock ./
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc python3-dev libpq-dev \
-    && uv sync --no-dev --locked \
+    && uv sync --no-default-groups --group psycopg-c --locked \
     && uv cache clean \
     && apt-get purge -y gcc python3-dev libpq-dev \
     && apt-get autoremove -y \
@@ -77,8 +79,8 @@ RUN mkdir -p ${LOG_PATH}/django ${LOG_PATH}/gunicorn \
 
 FROM production AS development
 
-# Install dev + test dependencies (hot-reload tools + test runners)
-RUN uv sync --group dev --group test --locked
+# Install dev dependencies (hot-reload, test, lint and type-checking tools)
+RUN uv sync --no-default-groups --group dev --group psycopg-c --locked
 
 
 ## ------------------------------- Default Stage ------------------------------ ##

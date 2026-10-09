@@ -1,11 +1,8 @@
 from django.db.models import Count
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
-from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC, IocType
-
-# source name used for tagging
-SOURCE_NAME = "credential_reuse"
 
 # heuristic thresholds
 MIN_LOGIN_ATTEMPTS = 5
@@ -28,10 +25,6 @@ class CredentialReuseCron(Cronjob):
     definitive classification of attacker behavior.
     """
 
-    def __init__(self, tag_repo=None):
-        super().__init__()
-        self.tag_repo = tag_repo or TagRepository()
-
     def run(self) -> None:
         candidates = self._get_candidates()
 
@@ -41,24 +34,17 @@ class CredentialReuseCron(Cronjob):
 
         self.log.info(f"Found {len(candidates)} credential reuse candidates")
 
-        tag_entries = []
+        ioc_ids = []
         for ioc_id, name, credential_reuse in candidates:
             self.log.debug(f"credential reuse candidate: {name} (shared across {credential_reuse} IPs)")
+            ioc_ids.append(ioc_id)
 
-            tag_entries.append(
-                {
-                    "ioc_id": ioc_id,
-                    "key": "behavior",
-                    "value": "high_credential_reuse",
-                }
-            )
-        # Using add_tags instead of replace_tags_for_source because this
-        # job only processes new candidates each run and excludes ones
-        # already tagged. replace would delete previously found behavior
-        # tags just because those IPs aren't in today's batch.
-        created = self.tag_repo.add_tags(SOURCE_NAME, tag_entries)
+        # Only ever sets the flag to True. Candidates already flagged are
+        # excluded in _get_candidates, and a flag is never removed.
+        flagged = IOC.objects.filter(id__in=ioc_ids).update(high_credential_reuse=True)
 
-        self.log.info(f"Credential reuse detection complete: tagged {created} IPs")
+        self.log.info(f"Credential reuse detection complete: flagged {flagged} IPs")
+        invalidate_ioc_cache()
 
     def _get_candidates(self) -> list[tuple]:
         queryset = (
@@ -67,6 +53,7 @@ class CredentialReuseCron(Cronjob):
                 login_attempts__gte=MIN_LOGIN_ATTEMPTS,
                 number_of_days_seen__gte=MIN_DAYS_SEEN,
                 credentials__isnull=False,
+                high_credential_reuse=False,
             )
             .annotate(
                 credential_reuse=Count(
@@ -74,7 +61,6 @@ class CredentialReuseCron(Cronjob):
                     distinct=True,
                 )
             )
-            .exclude(tags__source=SOURCE_NAME)
             .filter(credential_reuse__gte=MIN_CREDENTIAL_REUSE)
             .order_by("-credential_reuse")
             .values_list("id", "name", "credential_reuse")

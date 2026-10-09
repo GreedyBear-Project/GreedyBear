@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 import django_filters
 from django.db.models import Count, QuerySet
@@ -12,7 +12,7 @@ class FeedsFilterSet(django_filters.FilterSet):
     min_score = django_filters.NumberFilter(field_name="recurrence_probability", lookup_expr="gte")
     min_expected_interactions = django_filters.NumberFilter(field_name="expected_interactions", lookup_expr="gte")
     start_date = django_filters.DateFilter(field_name="last_seen", lookup_expr="gte")
-    end_date = django_filters.DateFilter(field_name="last_seen", lookup_expr="lte")
+    end_date = django_filters.DateFilter(method="filter_end_date")
     tag_key = django_filters.CharFilter(field_name="tags__key", lookup_expr="iexact")
     tag_value = django_filters.CharFilter(field_name="tags__value", lookup_expr="icontains")
 
@@ -65,6 +65,9 @@ class FeedsFilterSet(django_filters.FilterSet):
     def _filter_by_credential_count(self, queryset: QuerySet, lookup: str, value: int) -> QuerySet:
         qualifying = IOC.objects.annotate(cc=Count("credentials", distinct=True)).filter(**{f"cc__{lookup}": value}).values("id")
         return queryset.filter(id__in=qualifying)
+
+    def filter_end_date(self, queryset: QuerySet, name: str, value: date) -> QuerySet:
+        return queryset.filter(last_seen__lt=value + timedelta(days=1))
 
     def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         # drop max_age id an explicit date range replaces is set

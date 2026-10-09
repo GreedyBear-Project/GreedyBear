@@ -19,6 +19,16 @@ from greedybear.models import CommandSequence, CowrieSession, ViewType
 from greedybear.utils import is_ip_address, is_sha256hash
 
 
+def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Sort key for IP addresses that orders IPv4 before IPv6.
+
+    Addresses of different versions are not comparable with each other,
+    so the version is used as the primary key.
+    """
+    address = ipaddress.ip_address(ip)
+    return address.version, address
+
+
 @extend_schema_view(
     get=extend_schema(
         tags=["Cowrie Session"],
@@ -51,15 +61,24 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
 
         session_id = request_serializer.validated_data.get("id")
         observable = request_serializer.validated_data.get("query")
+        start_date = request_serializer.validated_data.get("start_date")
+        end_date = request_serializer.validated_data.get("end_date")
+        has_date_filter = bool(start_date or end_date)
 
-        if session_id is not None:
-            sessions = CowrieSession.objects.filter(session_id=int(session_id, 16), duration__gt=0).prefetch_related("source", "commands", "credentials")
-            if not sessions.exists():
+        sessions_qs = CowrieSession.objects.filter(duration__gt=0)
+        if start_date:
+            sessions_qs = sessions_qs.filter(start_time__date__gte=start_date)
+        if end_date:
+            sessions_qs = sessions_qs.filter(start_time__date__lte=end_date)
+
+        if session_id:
+            sessions = sessions_qs.filter(session_id=int(session_id, 16)).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No session found with ID: {session_id}")
 
         elif is_ip_address(observable):
-            sessions = CowrieSession.objects.filter(source__name=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
-            if not sessions.exists():
+            sessions = sessions_qs.filter(source__name=observable).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for IP: {observable}")
 
         elif is_sha256hash(observable):
@@ -67,10 +86,14 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
                 commands = CommandSequence.objects.get(commands_hash=observable.lower())
             except CommandSequence.DoesNotExist as exc:
                 raise Http404(f"No command sequences found with hash: {observable}") from exc
-            sessions = CowrieSession.objects.filter(commands=commands, duration__gt=0).prefetch_related("source", "commands", "credentials")
+
+            sessions = sessions_qs.filter(commands=commands).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
+                raise Http404(f"No session found with command sequences with hash: {observable}")
+
         else:
-            sessions = CowrieSession.objects.filter(credentials__password=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
-            if not sessions.exists():
+            sessions = sessions_qs.filter(credentials__password=observable).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for password: {observable}")
 
         if request_serializer.validated_data["include_similar"]:
@@ -87,7 +110,7 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
 
         unique_commands = {s.commands for s in sessions if s.commands}
         data["commands"] = sorted("\n".join(cmd.commands) for cmd in unique_commands)
-        data["sources"] = sorted({s.source.name for s in sessions}, key=lambda ip: ipaddress.ip_address(ip))
+        data["sources"] = sorted({s.source.name for s in sessions}, key=_ip_sort_key)
         if request_serializer.validated_data["include_credentials"]:
             data["credentials"] = sorted({str(c) for s in sessions for c in s.credentials.all()})
         if request_serializer.validated_data["include_session_data"]:

@@ -169,6 +169,8 @@ class IOC(models.Model):
     payload_request = models.BooleanField(default=False)
     related_ioc = models.ManyToManyField("self", blank=True, symmetrical=True)
     related_urls = pg_fields.ArrayField(models.CharField(max_length=900, blank=True), blank=True, default=list)
+    http_attack_types = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
+    high_credential_reuse = models.BooleanField(default=False)
     ip_reputation = models.CharField(max_length=32, blank=True)
     firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
@@ -178,6 +180,9 @@ class IOC(models.Model):
     # SCORES
     recurrence_probability = models.FloatField(null=True, default=0)
     expected_interactions = models.FloatField(null=True, default=0)
+    # helper attributes, not DB fields
+    _sensors_to_add: list[Sensor]
+    _seen_honeypots: list[str]
 
     class Meta:
         indexes = [
@@ -207,7 +212,7 @@ class CommandSequence(models.Model):
 class Credential(models.Model):
     username = models.CharField(max_length=256, blank=False)
     password = models.CharField(max_length=256, blank=False)
-    protocol = models.CharField(max_length=32, blank=True, default="")
+    protocol = models.CharField(max_length=50, blank=True, default="")
     sources = models.ManyToManyField(
         "IOC",
         blank=True,
@@ -267,7 +272,7 @@ class CowrieFileTransfer(models.Model):
         constraints = [models.UniqueConstraint(fields=["shasum", "session"], name="unique_download_per_session")]
 
     def __str__(self):
-        return f"{self.shasum[:8]} from session {self.session_id}"
+        return f"{self.shasum[:8]} from session {self.session_id}"  # ty: ignore[unresolved-attribute]
 
 
 class Statistics(models.Model):
@@ -427,7 +432,7 @@ class EventStatus(models.Model):
         ]
 
     def __str__(self):
-        return f"Batch {self.id} — {self.status} (task: {self.task_id})"
+        return f"Batch {self.pk} — {self.status} (task: {self.task_id})"
 
 
 class RawEvent(models.Model):

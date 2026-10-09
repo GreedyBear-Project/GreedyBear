@@ -29,31 +29,42 @@ vi.mock("../../../src/components/feeds/MultiSelectDropdown", () => {
   return { MultiSelectDropdown };
 });
 
+// Fixture shared with the axios-hooks mock below so the REAL useDataTable and
+// the REAL DataTable render instead of a stub table.
+const feeds = vi.hoisted(() => ({
+  count: 1,
+  total_pages: 1,
+  results: {
+    license: "licenseTest",
+    iocs: [
+      {
+        value: "test",
+        SCANNER: true,
+        PAYLOAD_REQUEST: true,
+        first_seen: "2023-03-15",
+        last_seen: "2023-03-15",
+        attack_count: 1,
+        feed_type: "cowrie",
+      },
+    ],
+  },
+}));
+
+// useDataTable fetches through axios-hooks; stub the transport, not the hook,
+// so the real DataTable (and therefore TanStack Table v9) is exercised.
+// axios-hooks' default export IS the useAxios hook.
+vi.mock("axios-hooks", () => ({
+  default: vi.fn(() => [
+    { data: feeds, loading: false, error: undefined },
+    vi.fn(),
+  ]),
+}));
+
 vi.mock(
   "../../../src/components/common/gb-ui/index",
   async (importOriginal) => {
     const originalModule = await importOriginal();
 
-    const feeds = {
-      count: 1,
-      total_pages: 1,
-      results: {
-        license: "licenseTest",
-        iocs: [
-          {
-            value: "test",
-            SCANNER: true,
-            PAYLOAD_REQUEST: true,
-            first_seen: "2023-03-15",
-            last_seen: "2023-03-15",
-            attack_count: 1,
-            feed_type: "cowrie",
-          },
-        ],
-      },
-    };
-
-    const MockTableComponent = () => <div>table</div>;
     const loader = (props) => {
       return <originalModule.Loader loading={false} {...props} />;
     };
@@ -82,13 +93,8 @@ vi.mock(
         ["Honeytrap", "Glutton", "CitrixHoneypot", "Cowrie"],
         loader,
       ]),
-
-      useDataTable: vi.fn(() => [
-        feeds,
-        <MockTableComponent key="mock-table" />,
-        vi.fn(),
-        vi.fn(),
-      ]),
+      // NB: useDataTable is deliberately NOT mocked so the real DataTable
+      // (TanStack Table v9) is rendered in these tests.
     };
   },
 );
@@ -244,16 +250,15 @@ describe("Feeds component", () => {
     });
 
     test("selecting multiple types passes comma-separated feed_type to the table", async () => {
-      const { useDataTable } =
-        await import("../../../src/components/common/gb-ui/index");
+      const { default: useAxiosMock } = await import("axios-hooks");
       const { user, feedTypeSelect } = await renderFeeds();
 
       await user.selectOptions(feedTypeSelect, ["cowrie", "honeytrap"]);
 
       await waitFor(() => {
-        const lastCall =
-          useDataTable.mock.calls[useDataTable.mock.calls.length - 1];
-        const feedTypes = lastCall[0].params.feed_type.split(",");
+        const { calls } = useAxiosMock.mock;
+        const [requestConfig] = calls[calls.length - 1];
+        const feedTypes = `${requestConfig.params.feed_type}`.split(",");
 
         expect(feedTypes).toContain("cowrie");
         expect(feedTypes).toContain("honeytrap");

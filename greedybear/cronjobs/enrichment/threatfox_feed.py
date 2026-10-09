@@ -44,19 +44,19 @@ class ThreatFoxCron(HttpEnrichmentJob):
 
         return json_data.get("data", [])
 
-    def _parse_feed(self, iocs_data: list) -> dict[str, list[dict]]:
+    def _parse_feed(self, raw_data: list) -> dict[str, list[dict]]:
         """
         Parse ThreatFox IOC data into a dict keyed by validated IP address.
 
         Args:
-            iocs_data: Raw IOC data from ThreatFox API.
+            raw_data: Raw IOC data from ThreatFox API.
 
         Returns:
             Dict mapping IP address -> list of enrichment dicts.
         """
         feed_by_ip: dict[str, list[dict]] = {}
 
-        for ioc_data in iocs_data:
+        for ioc_data in raw_data:
             ioc_value = ioc_data.get("ioc", "")
             ioc_type = ioc_data.get("ioc_type", "")
 
@@ -66,8 +66,8 @@ class ThreatFoxCron(HttpEnrichmentJob):
                 continue
 
             # Validate the IP
-            is_valid, validated_ip = is_valid_ipv4(ip_addr)
-            if not is_valid:
+            _, validated_ip = is_valid_ipv4(ip_addr)
+            if validated_ip is None:
                 continue
 
             # Check if IP is global (not private, loopback, etc.)
