@@ -123,12 +123,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_in_messages_with_url(self):
         """Test extraction of URLs from login failure messages."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.login.failed",
-                "message": "Failed login with http://evil.com/malware.exe",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login with http://evil.com/malware.exe",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         scanner_mock = Mock()
@@ -153,12 +155,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_in_messages_with_ipv6_url(self):
         """Test extraction of bracketed IPv6 URLs from login failure messages."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.login.failed",
-                "message": "Failed login with http://[2001:db8::1]:8080/malware.exe",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login with http://[2001:db8::1]:8080/malware.exe",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         self.strategy._extract_possible_payload_in_messages(hits)
@@ -173,11 +177,13 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_in_messages_no_url(self):
         """Test extraction when message has no URL."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.login.failed",
-                "message": "Failed login attempt",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login attempt",
+                }
+            )
         ]
 
         self.strategy._extract_possible_payload_in_messages(hits)
@@ -188,11 +194,13 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_in_messages_invalid_ipv6_url(self):
         """Test extraction when message has an invalid URL."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.login.failed",
-                "message": "Failed login with http://[zzz]/foo",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login with http://[zzz]/foo",
+                }
+            )
         ]
 
         self.strategy._extract_possible_payload_in_messages(hits)
@@ -203,12 +211,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_different_ips(self):
         """Test that payloads from different IPs are all processed."""
         hits = [
-            {
-                "src_ip": "5.6.7.8",
-                "eventid": "cowrie.login.failed",
-                "message": "http://evil.com/malware",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "5.6.7.8",
+                    "eventid": "cowrie.login.failed",
+                    "message": "http://evil.com/malware",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         scanner_mock = Mock()
@@ -232,12 +242,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_get_url_downloads(self):
         """Test extraction of file download attempts."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.session.file_download",
-                "url": "http://malware.com/bad.exe",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.session.file_download",
+                    "url": "http://malware.com/bad.exe",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         scanner_mock = Mock()
@@ -258,11 +270,13 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_get_url_downloads_invalid_url(self):
         """Test download extraction with invalid URL."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.session.file_download",
-                "url": "not_a_valid_url",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.session.file_download",
+                    "url": "not_a_valid_url",
+                }
+            )
         ]
 
         self.strategy.ioc_processor.add_ioc.return_value = Mock()
@@ -626,9 +640,9 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         ioc.name = "1.1.1.1"
 
         hits = [
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"},
-            {"src_ip": "1.1.1.1", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:02"},
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"}),
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"}),
+            Hit({"src_ip": "1.1.1.1", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:02"}),
         ]
 
         session_s1 = Mock()

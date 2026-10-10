@@ -2,11 +2,12 @@
 # See the file 'LICENSE' for copying permission.
 import re
 from collections import defaultdict
+from datetime import datetime
 from hashlib import sha256
 from urllib.parse import urlparse
 
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
-from greedybear.cronjobs.extraction.hit import Hit
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.strategies import BaseExtractionStrategy
 from greedybear.cronjobs.extraction.utils import (
     iocs_from_hits,
@@ -20,7 +21,7 @@ from greedybear.cronjobs.repositories import (
 )
 from greedybear.models import IOC, CommandSequence, CowrieSession
 from greedybear.regex import REGEX_URL_PROTOCOL
-from greedybear.utils import clamp_to_field, get_ioc_type, parse_timestamp
+from greedybear.utils import clamp_to_field, get_ioc_type
 
 
 def parse_url_hostname(url: str) -> str | None:
@@ -135,7 +136,9 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 if not match_url:
                     continue
 
-                scanner_ip = hit["src_ip"]
+                # stripped, so _add_fks finds the scanner under the name
+                # iocs_from_hits saved it under
+                scanner_ip = hit.require_str("src_ip")
                 payload_url = match_url.group()
                 payload_hostname = parse_url_hostname(payload_url)
 
@@ -146,7 +149,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 self.log.info(f"found hidden URL {payload_url} in payload from attacker {scanner_ip}")
                 self.log.info(f"extracted hostname {payload_hostname} from {payload_url}")
 
-                hit_time = parse_timestamp(hit["@timestamp"])
+                hit_time = hit.require_time("@timestamp")
                 ioc = IOC(
                     name=payload_hostname,
                     type=get_ioc_type(payload_hostname),
@@ -175,8 +178,10 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 continue
 
             with self.skip_on_error(f"download from {hit.get('src_ip')}"):
-                scanner_ip = str(hit["src_ip"])
-                download_url = str(hit["url"])
+                scanner_ip = hit.require_str("src_ip")
+                # get_str, not str(hit["url"]): a present but null url would
+                # otherwise become the string "None" and look like a real URL
+                download_url = hit.get_str("url")
                 shasum = hit.get("shasum")
                 sha_suffix = f" (SHA256: {shasum})" if shasum else ""
                 self.log.info(f"found IP {scanner_ip} downloading from {download_url}{sha_suffix}")
@@ -188,7 +193,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                         self.log.warning(f"Failed to parse hostname from download URL: {download_url}")
                         continue
 
-                    hit_time = parse_timestamp(hit["@timestamp"])
+                    hit_time = hit.require_time("@timestamp")
                     ioc = IOC(
                         name=hostname,
                         type=get_ioc_type(hostname),
@@ -218,13 +223,26 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         hits_per_session = defaultdict(list)
 
         for hit in hits:
-            hits_per_session[hit["session"]].append(hit)
+            # grouped outside the per session guard, so a hit that cannot be
+            # placed in a session is dropped on its own here. Reading it
+            # directly would raise out of the caller's guard instead and roll
+            # back the whole IoC, losing every other session for this IP.
+            try:
+                session_id = hit.require_str("session")
+            except InvalidHitError as exc:
+                self.skipped += 1
+                self.log.debug(f"skipping hit from {ioc.name}: {exc}")
+                continue
+            hits_per_session[session_id].append(hit)
 
         for sid, session_hits in hits_per_session.items():
             with self.skip_on_error(f"session {sid} from {ioc.name}"):
                 session_record = self.session_repo.get_or_create_session(session_id=sid, source=ioc)
 
-                for hit in sorted(session_hits, key=lambda hit: hit["timestamp"]):
+                # a hit with no usable timestamp sorts first rather than raising
+                # here, since the event itself may still carry a credential or a
+                # file transfer
+                for hit in sorted(session_hits, key=lambda hit: hit.get_time("timestamp") or datetime.min):
                     self._process_session_hit(session_record, hit, ioc)
 
                 if session_record.commands is not None:

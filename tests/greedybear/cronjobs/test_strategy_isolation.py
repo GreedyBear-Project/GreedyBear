@@ -9,6 +9,7 @@ from tests import CustomTestCase
 
 HONEYPOT = "Dionaea"
 IPS = ["45.83.64.1", "45.83.64.2", "45.83.64.3"]
+TS = "2026-09-29T10:00:00.000Z"
 
 
 def hit(ip):
@@ -188,6 +189,33 @@ class MissingFieldTestCase(CustomTestCase):
         session = self._session(ioc)
         strategy._process_session_hit(session, Hit({"eventid": "cowrie.session.closed"}), ioc)
         self.assertIsNone(session.duration)
+
+    def test_hit_without_a_session_costs_one_hit_not_the_ioc(self):
+        """
+        The grouping in _get_sessions runs inside the caller's per IoC guard.
+        Read directly, a hit with no session raised there and rolled the IoC
+        back, losing the scanner and every other session for that IP.
+        """
+        from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
+        from greedybear.cronjobs.repositories import CowrieSessionRepository, IocRepository, SensorRepository
+        from greedybear.models import CowrieSession
+
+        strategy = CowrieExtractionStrategy("Cowrie", IocRepository(), SensorRepository(), session_repo=CowrieSessionRepository())
+        ip = "45.83.64.60"
+        common = {"src_ip": ip, "type": "Cowrie", "@timestamp": TS, "geoip": {}}
+        chunk = [
+            Hit({**common, "session": "a1b2", "eventid": "cowrie.session.connect", "timestamp": TS}),
+            Hit({**common, "session": "a1b2", "eventid": "cowrie.session.closed", "timestamp": TS, "duration": 1.5}),
+            Hit({**common, "eventid": "cowrie.session.connect", "timestamp": TS}),  # session absent
+        ]
+
+        with patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission"):
+            strategy.extract_from_hits(chunk)
+
+        self.assertTrue(IOC.objects.filter(name=ip).exists())
+        self.assertTrue(CowrieSession.objects.filter(session_id=0xA1B2, source__name=ip).exists())
+        self.assertEqual(len(strategy.ioc_records), 1)
+        self.assertEqual(strategy.skipped, 1)
 
     def test_a_skipped_hit_costs_only_that_hit(self):
         """The per session guard turns the InvalidHitError into one lost session, not the chunk."""

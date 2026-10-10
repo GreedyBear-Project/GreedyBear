@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime
+from math import isfinite
 from typing import Any
 
 from greedybear.consts import REQUIRED_ELASTIC_FIELDS, REQUIRED_EVENT_FIELDS
@@ -198,7 +199,9 @@ class Hit(Mapping):
             return default
         try:
             return int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError: JSON allows a literal that parses to infinity,
+            # and int(float("inf")) raises rather than returning a number
             log.debug(f"field '{key}' is not an int: {value!r}")
             return default
 
@@ -209,21 +212,30 @@ class Hit(Mapping):
         Kept separate from get_int because truncating a duration to a whole
         second would silently lose data rather than fall back to the default.
 
+        NaN and infinity are rejected like any other unusable value. Postgres
+        stores them happily in a double, and they then spread through every
+        aggregate taken over the column.
+
         Args:
             key: Name of the field.
-            default: Value to return when the field is missing or not numeric.
+            default: Value to return when the field is missing, not numeric,
+                or not finite.
 
         Returns:
-            The value as a float, or the default.
+            The value as a finite float, or the default.
         """
         value = self._data.get(key)
         if value is None:
             return default
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError):
             log.debug(f"field '{key}' is not a float: {value!r}")
             return default
+        if not isfinite(number):
+            log.debug(f"field '{key}' is not a finite float: {value!r}")
+            return default
+        return number
 
     def get_time(self, key: str, default: datetime | None = None) -> datetime | None:
         """

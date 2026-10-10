@@ -138,6 +138,15 @@ class TestGetInt(CustomTestCase):
     def test_zero_is_preserved(self):
         self.assertEqual(Hit({"dest_port": 0}).get_int("dest_port", -1), 0)
 
+    def test_default_when_not_finite(self):
+        """
+        json.loads("1e400") is inf, and int(inf) raises OverflowError rather
+        than ValueError. iocs_from_hits runs outside a per record guard, so a
+        raise there would cost the whole chunk.
+        """
+        for bad in (float("inf"), float("-inf"), float("nan")):
+            self.assertEqual(Hit({"dest_port": bad}).get_int("dest_port", -1), -1)
+
 
 class TestGetFloat(CustomTestCase):
     def test_returns_float(self):
@@ -159,6 +168,14 @@ class TestGetFloat(CustomTestCase):
 
     def test_zero_is_preserved(self):
         self.assertEqual(Hit({"duration": 0.0}).get_float("duration", -1.0), 0.0)
+
+    def test_default_when_not_finite(self):
+        """
+        Postgres stores NaN and infinity in a double without complaint, and
+        they then spread through every aggregate over the column.
+        """
+        for bad in (float("nan"), float("inf"), float("-inf"), "nan", "inf", "1e400"):
+            self.assertIsNone(Hit({"duration": bad}).get_float("duration"))
 
 
 class TestGetTime(CustomTestCase):
