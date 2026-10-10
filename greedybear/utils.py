@@ -1,6 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import re
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
@@ -231,3 +232,52 @@ def get_time_window(
     window_end = reference_time.replace(minute=rounded_minute, second=0, microsecond=0)
     window_start = window_end - timedelta(minutes=lookback_minutes)
     return (window_start, window_end)
+
+
+def get_catch_up_window(
+    reference_time: datetime,
+    watermark: datetime | None,
+    max_lookback_minutes: int,
+    extraction_interval: int = settings.EXTRACTION_INTERVAL,
+) -> tuple[datetime, datetime]:
+    """
+    Calculate a time window that continues from a watermark and ends at the
+    last extraction interval boundary.
+
+    The window never reaches further back than max_lookback_minutes, so data
+    older than that is skipped. Without a watermark, the window spans the full
+    max_lookback_minutes. If the watermark is not older than the window end,
+    the returned window is empty (start >= end).
+
+    Args:
+        reference_time: Reference point in time.
+        watermark: Point up to which data was already processed, if any.
+        max_lookback_minutes: Maximum number of minutes to look back.
+        extraction_interval: Minutes between two subsequent extraction runs.
+
+    Returns:
+        The start and end of the time window.
+    """
+    window_start, window_end = get_time_window(reference_time, max_lookback_minutes, extraction_interval)
+    if watermark is not None and watermark > window_start:
+        window_start = watermark
+    return (window_start, window_end)
+
+
+def split_time_window(window_start: datetime, window_end: datetime, chunk_minutes: int) -> Iterator[tuple[datetime, datetime]]:
+    """
+    Split a time window into consecutive chunks.
+
+    Args:
+        window_start: Start of the time window.
+        window_end: End of the time window.
+        chunk_minutes: Maximum length of a chunk in minutes.
+
+    Yields:
+        The start and end of each chunk. The last chunk may be shorter.
+    """
+    chunk_start = window_start
+    while chunk_start < window_end:
+        chunk_end = min(chunk_start + timedelta(minutes=chunk_minutes), window_end)
+        yield (chunk_start, chunk_end)
+        chunk_start = chunk_end

@@ -4,6 +4,7 @@
 Tests for hit filtering, grouping, and sensor extraction in ExtractionPipeline.
 """
 
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from tests import ExtractionTestCase, MockElasticHit
@@ -32,13 +33,16 @@ class TestHitFiltering(ExtractionPipelineTestCase):
     def test_skips_hits_without_src_ip(self, mock_factory, mock_scores):
         """Hits without src_ip should be skipped."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
+        self._mock_chunks(
+            pipeline,
             [
-                MockElasticHit({"type": "Cowrie"}),  # missing src_ip
-                MockElasticHit({"src_ip": "", "type": "Cowrie"}),  # empty src_ip
-                MockElasticHit({"src_ip": "   ", "type": "Cowrie"}),  # whitespace-only src_ip
-            ]
-        ]
+                [
+                    MockElasticHit({"type": "Cowrie"}),  # missing src_ip
+                    MockElasticHit({"src_ip": "", "type": "Cowrie"}),  # empty src_ip
+                    MockElasticHit({"src_ip": "   ", "type": "Cowrie"}),  # whitespace-only src_ip
+                ]
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -51,13 +55,16 @@ class TestHitFiltering(ExtractionPipelineTestCase):
     def test_skips_hits_without_type(self, mock_factory, mock_scores):
         """Hits without type (honeypot) should be skipped."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
+        self._mock_chunks(
+            pipeline,
             [
-                MockElasticHit({"src_ip": "1.2.3.4"}),  # missing type
-                MockElasticHit({"src_ip": "1.2.3.4", "type": ""}),  # empty type
-                MockElasticHit({"src_ip": "1.2.3.4", "type": "   "}),  # whitespace-only type
-            ]
-        ]
+                [
+                    MockElasticHit({"src_ip": "1.2.3.4"}),  # missing type
+                    MockElasticHit({"src_ip": "1.2.3.4", "type": ""}),  # empty type
+                    MockElasticHit({"src_ip": "1.2.3.4", "type": "   "}),  # whitespace-only type
+                ]
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -70,7 +77,7 @@ class TestHitFiltering(ExtractionPipelineTestCase):
     def test_handles_empty_search_result(self, mock_factory, mock_scores):
         """Should handle empty Elasticsearch response gracefully."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = []
+        self._mock_chunks(pipeline, [])
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -92,16 +99,19 @@ class TestSensorExtraction(ExtractionPipelineTestCase):
         Also verifies correct time window is passed to search().
         """
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
-            [MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1"})],
-        ]
+        self._mock_chunks(
+            pipeline,
+            [
+                [MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1"})],
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = False  # Skip strategy for this test
 
         pipeline.execute()
 
         pipeline.sensor_repo.get_or_create_sensor.assert_called_once_with("10.0.0.1")
-        pipeline.elastic_repo.search.assert_called_once_with(10)
+        pipeline.elastic_repo.search.assert_called_once_with(self.MOCK_WINDOW_START, self.MOCK_WINDOW_START + timedelta(minutes=10))
 
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
@@ -122,7 +132,7 @@ class TestSensorExtraction(ExtractionPipelineTestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
 
         pipeline.execute()
@@ -139,13 +149,16 @@ class TestHitGrouping(ExtractionPipelineTestCase):
     def test_groups_hits_by_honeypot_type(self, mock_factory, mock_scores):
         """Hits should be grouped by honeypot type before extraction."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
+        self._mock_chunks(
+            pipeline,
             [
-                MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"}),
-                MockElasticHit({"src_ip": "5.6.7.8", "type": "Cowrie"}),
-                MockElasticHit({"src_ip": "9.10.11.12", "type": "Log4pot"}),
-            ]
-        ]
+                [
+                    MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"}),
+                    MockElasticHit({"src_ip": "5.6.7.8", "type": "Cowrie"}),
+                    MockElasticHit({"src_ip": "9.10.11.12", "type": "Log4pot"}),
+                ]
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -182,7 +195,7 @@ class TestHitGrouping(ExtractionPipelineTestCase):
             MockElasticHit({"src_ip": "2.2.2.2", "type": "Cowrie"}),
             MockElasticHit({"src_ip": "3.3.3.3", "type": "Cowrie"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -222,7 +235,7 @@ class TestHitGrouping(ExtractionPipelineTestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
 
         # First honeypot disabled, second enabled
@@ -261,7 +274,7 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
             MockElasticHit({"src_ip": "5.5.5.5", "type": "Cowrie"}),
             MockElasticHit({"src_ip": "6.6.6.6", "type": "Cowrie"}),
         ]
-        pipeline.elastic_repo.search.return_value = [chunk1, chunk2, chunk3]
+        self._mock_chunks(pipeline, [chunk1, chunk2, chunk3])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -288,11 +301,14 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
             MockElasticHit({"src_ip": "1.1.1.1", "type": "Cowrie"}),
         ]
         empty_chunk = []
-        pipeline.elastic_repo.search.return_value = [
-            chunk_with_hits,
-            empty_chunk,
-            chunk_with_hits,
-        ]
+        self._mock_chunks(
+            pipeline,
+            [
+                chunk_with_hits,
+                empty_chunk,
+                chunk_with_hits,
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -311,7 +327,7 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
         pipeline = self._create_pipeline_with_mocks()
 
         chunk = [MockElasticHit({"src_ip": "1.1.1.1", "type": "Cowrie"})]
-        pipeline.elastic_repo.search.return_value = [chunk, chunk, chunk]
+        self._mock_chunks(pipeline, [chunk, chunk, chunk])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -331,7 +347,7 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
 
         chunk1 = [MockElasticHit({"src_ip": "1.1.1.1", "type": "Cowrie"})]
         chunk2 = [MockElasticHit({"src_ip": "2.2.2.2", "type": "Log4pot"})]
-        pipeline.elastic_repo.search.return_value = [chunk1, chunk2]
+        self._mock_chunks(pipeline, [chunk1, chunk2])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 

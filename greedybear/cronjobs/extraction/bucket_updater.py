@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from datetime import datetime
 from ipaddress import ip_address
 
+from django.db import transaction
+
 from greedybear.cronjobs.extraction.utils import parse_timestamp
 from greedybear.cronjobs.repositories import TrendingBucketRepository
 from greedybear.utils import is_non_global_ip
@@ -29,7 +31,9 @@ class BucketUpdater:
             return 0
 
         try:
-            update_count = TrendingBucketRepository().upsert_bucket_counts(self.counters)
+            # A savepoint keeps the enclosing chunk transaction usable if the upsert fails.
+            with transaction.atomic():
+                update_count = TrendingBucketRepository().upsert_bucket_counts(self.counters)
         except Exception:
             logger.exception("Failed to update activity buckets from hits for current chunk")
             return 0
@@ -38,7 +42,11 @@ class BucketUpdater:
             self.total_update_count += update_count
             return update_count
         finally:
-            self.counters = Counter()
+            self.discard()
+
+    def discard(self) -> None:
+        """Drop the hits collected since the last update, e.g. after their chunk was rolled back."""
+        self.counters = Counter()
 
 
 def _bucket_start(timestamp: str) -> datetime:

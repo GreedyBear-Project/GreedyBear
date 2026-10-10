@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.db import transaction
+
 from greedybear.cronjobs.repositories import SensorRepository
 from greedybear.models import Sensor
 
@@ -9,6 +11,17 @@ from . import CustomTestCase
 class TestSensorRepository(CustomTestCase):
     def setUp(self):
         self.repo = SensorRepository()
+
+    def test_refresh_cache_drops_rolled_back_sensors(self):
+        with transaction.atomic():
+            self.repo.get_or_create_sensor("192.168.1.77")
+            transaction.set_rollback(True)
+        self.assertIn("192.168.1.77", self.repo.cache)
+
+        self.repo.refresh_cache()
+
+        self.assertNotIn("192.168.1.77", self.repo.cache)
+        self.assertFalse(Sensor.objects.filter(address="192.168.1.77").exists())
 
     def test_get_or_create_sensor_creates_new_sensor(self):
         result = self.repo.get_or_create_sensor("192.168.1.3")

@@ -9,10 +9,11 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.exceptions import PayloadServerError
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories import PayloadRepository
-from greedybear.models import HoneypotPayload
-from greedybear.utils import get_time_window
+from greedybear.cronjobs.repositories import ExtractionRunRepository, PayloadRepository
+from greedybear.models import ExtractionJobName, HoneypotPayload
+from greedybear.utils import get_catch_up_window, split_time_window
 
 
 class PayloadExtractionJob(Cronjob):
@@ -22,7 +23,9 @@ class PayloadExtractionJob(Cronjob):
 
     This job:
     1. Queries the payload server's ``/api/v1/payloads/recent`` endpoint for
-       metadata of files modified within the last extraction interval.
+       metadata of files modified since the last run, one extraction interval
+       at a time. If the server cannot be reached, the next run retries the
+       same interval.
     2. Skips any payload whose SHA256 already has a downloaded file in the database.
     3. Checks quarantine disk usage against MAX_QUARANTINE_SIZE_GB before downloading.
     4. Downloads new payload files via ``/api/v1/payloads/download/{locator}``
@@ -38,9 +41,10 @@ class PayloadExtractionJob(Cronjob):
     # Timeout for individual file download requests (seconds).
     DOWNLOAD_TIMEOUT = 120
 
-    def __init__(self, payload_repo: PayloadRepository | None = None):
+    def __init__(self, payload_repo: PayloadRepository | None = None, run_repo: ExtractionRunRepository | None = None):
         super().__init__()
         self.payload_repo = payload_repo if payload_repo is not None else PayloadRepository()
+        self.run_repo = run_repo if run_repo is not None else ExtractionRunRepository()
 
     def run(self) -> None:
         server_url = settings.TPOT_PAYLOAD_SERVER_URL
@@ -48,43 +52,106 @@ class PayloadExtractionJob(Cronjob):
             self.log.info("TPOT_PAYLOAD_SERVER_URL not configured, skipping payload extraction.")
             return
 
+        window_start, window_end = self._extraction_window()
+        if window_start >= window_end:
+            self.log.info(f"Nothing to extract, payloads up to {window_start} were already extracted.")
+            return
+
         max_size_bytes = settings.MAX_QUARANTINE_SIZE_GB * (1024**3)
+        run = self.run_repo.start_run(ExtractionJobName.PAYLOAD_EXTRACTION, window_start)
+        downloaded = 0
+        skipped_count = 0
+        deferred_count = 0
 
         with HttpClient(default_timeout=self.METADATA_TIMEOUT) as client:
-            # Step 1: Fetch payload metadata from the server.
-            payloads = self._fetch_metadata(client, server_url)
-            if not payloads:
-                self.log.info("No payloads returned from server.")
-                return
+            for chunk_start, chunk_end in split_time_window(window_start, window_end, settings.EXTRACTION_INTERVAL):
+                try:
+                    payloads = self._fetch_metadata(client, server_url, chunk_start, chunk_end)
+                    chunk_downloaded, chunk_skipped, chunk_deferred = self._store_payloads(client, server_url, payloads, max_size_bytes)
+                except PayloadServerError as exc:
+                    self.log.warning(f"Payloads of {chunk_start} - {chunk_end} could not be fetched, the next run will retry them.")
+                    self.run_repo.finish(run, error=str(exc), retryable=True)
+                    raise
+                except Exception as exc:
+                    self.log.exception(f"Payload extraction of {chunk_start} - {chunk_end} failed, skipping it.")
+                    self.run_repo.skip(run, chunk_end, str(exc))
+                    continue
 
-            # Step 2: Filter out already-known payloads by SHA256.
-            new_payloads = self._deduplicate(payloads)
-            if not new_payloads:
-                self.log.info("All payloads already exist in the database.")
-                return
+                # Storing is idempotent per SHA256, so a chunk that stops halfway
+                # can safely be processed again; no transaction is needed here.
+                self.run_repo.advance(run, chunk_end, chunk_downloaded + chunk_deferred)
+                downloaded += chunk_downloaded
+                skipped_count += chunk_skipped
+                deferred_count += chunk_deferred
 
-            self.log.info(f"Found {len(new_payloads)} new payload(s) to download.")
-
-            # Step 3: Download and store each new payload.
-            downloaded = 0
-            skipped_count = 0
-            deferred_count = 0
-            for index, payload_meta in enumerate(new_payloads):
-                # Check disk usage before each download.
-                if self._quarantine_usage_bytes() >= max_size_bytes:
-                    self.log.error(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
-                    # Record what we did not get to. Every payload shows up in exactly
-                    # one /recent window, so dropping the rest of the batch here would
-                    # lose these files permanently.
-                    deferred_count = self._store_metadata_only(new_payloads[index:])
-                    break
-
-                if self._download_and_store(client, server_url, payload_meta):
-                    downloaded += 1
-                else:
-                    skipped_count += 1
-
+        self.run_repo.finish(run)
         self.log.info(f"Payload extraction complete: {downloaded} downloaded, {skipped_count} skipped/failed, {deferred_count} stored as metadata only.")
+
+    def _extraction_window(self) -> tuple[datetime, datetime]:
+        """
+        Calculate the time window for this run.
+
+        The window continues from where the last run stopped, but reaches back
+        at most INITIAL_EXTRACTION_TIMESPAN minutes. Without a previous run it
+        covers the last extraction interval only, as before runs were recorded.
+
+        Returns:
+            The start and end of the time window. The window is empty if start >= end.
+        """
+        watermark = self.run_repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION)
+        max_lookback = settings.INITIAL_EXTRACTION_TIMESPAN if watermark is not None else settings.EXTRACTION_INTERVAL
+        return get_catch_up_window(
+            reference_time=datetime.now(),
+            watermark=watermark,
+            max_lookback_minutes=max_lookback,
+            extraction_interval=settings.EXTRACTION_INTERVAL,
+        )
+
+    def _store_payloads(self, client: HttpClient, server_url: str, payloads: list[dict], max_size_bytes: int) -> tuple[int, int, int]:
+        """
+        Download and store the new payloads of one time window.
+
+        Args:
+            client: HttpClient instance.
+            server_url: Base URL of the payload server.
+            payloads: Payload metadata dicts returned by the server.
+            max_size_bytes: Quarantine size limit in bytes.
+
+        Returns:
+            tuple[int, int, int]: Number of downloaded, skipped/failed and metadata-only payloads.
+        """
+        if not payloads:
+            self.log.info("No payloads returned from server.")
+            return 0, 0, 0
+
+        # Filter out already-known payloads by SHA256.
+        new_payloads = self._deduplicate(payloads)
+        if not new_payloads:
+            self.log.info("All payloads already exist in the database.")
+            return 0, 0, 0
+
+        self.log.info(f"Found {len(new_payloads)} new payload(s) to download.")
+
+        # Download and store each new payload.
+        downloaded = 0
+        skipped_count = 0
+        deferred_count = 0
+        for index, payload_meta in enumerate(new_payloads):
+            # Check disk usage before each download.
+            if self._quarantine_usage_bytes() >= max_size_bytes:
+                self.log.error(f"Quarantine directory has reached the {settings.MAX_QUARANTINE_SIZE_GB} GB limit. Stopping downloads.")
+                # Record what we did not get to. Every payload shows up in exactly
+                # one /recent window, so dropping the rest of the batch here would
+                # lose these files permanently.
+                deferred_count = self._store_metadata_only(new_payloads[index:])
+                break
+
+            if self._download_and_store(client, server_url, payload_meta):
+                downloaded += 1
+            else:
+                skipped_count += 1
+
+        return downloaded, skipped_count, deferred_count
 
     def _build_auth_headers(self) -> dict:
         """
@@ -98,39 +165,38 @@ class PayloadExtractionJob(Cronjob):
             return {"X-API-Key": api_key}
         return {}
 
-    def _fetch_metadata(self, client: HttpClient, server_url: str) -> list[dict]:
+    def _fetch_metadata(self, client: HttpClient, server_url: str, window_start: datetime, window_end: datetime) -> list[dict]:
         """
-        Fetch the list of recently modified payloads from the tpot-payload-server.
+        Fetch the list of payloads modified within a time window from the tpot-payload-server.
 
-        Queries the ``/api/v1/payloads/recent`` endpoint with a time window
-        spanning the last ``EXTRACTION_INTERVAL`` minutes.
+        Queries the ``/api/v1/payloads/recent`` endpoint.
+
+        Args:
+            client: HttpClient instance.
+            server_url: Base URL of the payload server.
+            window_start: Start of the time window.
+            window_end: End of the time window.
 
         Returns:
-            list[dict]: List of payload metadata dicts, or empty list on error.
-        """
-        window_start, window_end = get_time_window(
-            reference_time=datetime.now(),
-            lookback_minutes=settings.EXTRACTION_INTERVAL,
-            extraction_interval=settings.EXTRACTION_INTERVAL,
-        )
+            list[dict]: List of payload metadata dicts.
 
+        Raises:
+            PayloadServerError: If the server cannot be reached or answers with an error.
+            ValueError: If the response is not valid JSON.
+            TypeError: If the response is not a list of payloads.
+        """
         url = f"{server_url.rstrip('/')}/api/v1/payloads/recent"
         params = {"start_ts": window_start.timestamp(), "end_ts": window_end.timestamp()}
         headers = self._build_auth_headers()
 
         try:
             response = client.get(url, params=params, headers=headers, verify=False)
-            data = response.json()
-        except requests.RequestException:
-            self.log.exception("Failed to fetch payload metadata from server.")
-            return []
-        except (ValueError, KeyError):
-            self.log.exception("Failed to parse payload metadata response.")
-            return []
+        except requests.RequestException as exc:
+            raise PayloadServerError(f"failed to fetch payload metadata from server: {exc}") from exc
 
+        data = response.json()
         if not isinstance(data, list):
-            self.log.error("Payload metadata response is not a list, skipping.")
-            return []
+            raise TypeError("payload metadata response is not a list")
         return data
 
     def _deduplicate(self, payloads: list[dict]) -> list[dict]:

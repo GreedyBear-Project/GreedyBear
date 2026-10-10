@@ -82,6 +82,9 @@ RAW_EVENT_RETENTION = 7
 # Days to keep EventStatus data before deletion
 EVENT_STATUS_RETENTION = 30
 
+# Days to keep the run history of the extraction jobs before deletion
+EXTRACTION_RUN_RETENTION = 30
+
 # ThreatFox API key.
 # Once added, your payload request domains will be submitted to ThreatFox.
 # Also used to download ThreatFox indicators for enrichment.

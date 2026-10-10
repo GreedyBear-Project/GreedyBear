@@ -1,7 +1,7 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from ipaddress import ip_address
 
 from django.test import SimpleTestCase
@@ -11,6 +11,7 @@ from greedybear.utils import (
     PAYLOAD_REQUEST,
     SCANNER,
     get_attack_type,
+    get_catch_up_window,
     get_ioc_type,
     get_nested_value,
     get_time_window,
@@ -21,6 +22,7 @@ from greedybear.utils import (
     is_valid_domain,
     is_valid_ipv4,
     is_valid_url,
+    split_time_window,
 )
 
 from . import CustomTestCase
@@ -535,3 +537,82 @@ class TestTimeWindowCalculation(SimpleTestCase):
 
         self.assertEqual(start, expected_start)
         self.assertEqual(end, expected_end)
+
+
+class TestCatchUpWindow(SimpleTestCase):
+    def test_without_watermark_uses_max_lookback(self):
+        """Without a watermark the window spans the full max lookback"""
+        reference = datetime(2024, 1, 10, 14, 23)
+        start, end = get_catch_up_window(reference, None, max_lookback_minutes=60, extraction_interval=10)
+
+        self.assertEqual(start, datetime(2024, 1, 10, 13, 20))
+        self.assertEqual(end, datetime(2024, 1, 10, 14, 20))
+
+    def test_continues_from_watermark(self):
+        """The window starts at the watermark, however many intervals were missed"""
+        reference = datetime(2024, 1, 10, 14, 23)
+        watermark = datetime(2024, 1, 10, 11, 30)
+        start, end = get_catch_up_window(reference, watermark, max_lookback_minutes=60 * 24 * 3, extraction_interval=10)
+
+        self.assertEqual(start, watermark)
+        self.assertEqual(end, datetime(2024, 1, 10, 14, 20))
+
+    def test_watermark_older_than_max_lookback_is_capped(self):
+        """Data older than the max lookback is skipped"""
+        reference = datetime(2024, 1, 10, 14, 23)
+        watermark = datetime(2024, 1, 1, 0, 0)
+        start, end = get_catch_up_window(reference, watermark, max_lookback_minutes=60 * 24 * 3, extraction_interval=10)
+
+        self.assertEqual(start, datetime(2024, 1, 7, 14, 20))
+        self.assertEqual(end, datetime(2024, 1, 10, 14, 20))
+
+    def test_up_to_date_watermark_gives_empty_window(self):
+        """A second run within the same interval has nothing to do"""
+        reference = datetime(2024, 1, 10, 14, 23)
+        watermark = datetime(2024, 1, 10, 14, 20)
+        start, end = get_catch_up_window(reference, watermark, max_lookback_minutes=60, extraction_interval=10)
+
+        self.assertGreaterEqual(start, end)
+
+    def test_watermark_in_the_future_gives_empty_window(self):
+        """A watermark ahead of the clock (e.g. after a clock change) never widens the window"""
+        reference = datetime(2024, 1, 10, 14, 23)
+        watermark = datetime(2024, 1, 10, 16, 0)
+        start, end = get_catch_up_window(reference, watermark, max_lookback_minutes=60, extraction_interval=10)
+
+        self.assertGreaterEqual(start, end)
+
+
+class TestSplitTimeWindow(SimpleTestCase):
+    def test_produces_correct_chunks(self):
+        """A 30-minute window with 10-minute chunks yields 3 chunks"""
+        start = datetime(2025, 1, 1, 12, 0)
+        end = datetime(2025, 1, 1, 12, 30)
+
+        chunks = list(split_time_window(start, end, 10))
+
+        self.assertEqual(
+            chunks,
+            [
+                (start, start + timedelta(minutes=10)),
+                (start + timedelta(minutes=10), start + timedelta(minutes=20)),
+                (start + timedelta(minutes=20), end),
+            ],
+        )
+
+    def test_last_chunk_shorter_when_not_divisible(self):
+        """A 25-minute window with 10-minute chunks yields 3 chunks, the last covering only 5 minutes"""
+        start = datetime(2025, 1, 1, 12, 0)
+        end = datetime(2025, 1, 1, 12, 25)
+
+        chunks = list(split_time_window(start, end, 10))
+
+        self.assertEqual(len(chunks), 3)
+        self.assertEqual(chunks[-1], (start + timedelta(minutes=20), end))
+
+    def test_empty_window_yields_no_chunks(self):
+        """When window_start >= window_end, no chunks are yielded"""
+        same_time = datetime(2025, 1, 1, 12, 0)
+
+        self.assertEqual(list(split_time_window(same_time, same_time, 10)), [])
+        self.assertEqual(list(split_time_window(same_time, same_time - timedelta(minutes=10), 10)), [])

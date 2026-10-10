@@ -208,7 +208,7 @@ class FeedsCacheInvalidationPipelineTest(E2ETestCase):
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     def test_execute_does_not_bump_version_when_no_iocs(self, _mock_scores):
         pipeline = self._create_pipeline_with_real_factory()
-        pipeline.elastic_repo.search.return_value = []  # no chunks -> 0 IOCs -> no invalidation
+        self._mock_chunks(pipeline, [])  # no chunks -> 0 IOCs -> no invalidation
 
         before = self._data_version()
         count = pipeline.execute()
@@ -221,7 +221,7 @@ class FeedsCacheInvalidationPipelineTest(E2ETestCase):
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     def test_execute_bumps_version_when_iocs_processed(self, _mock_scores, mock_factory_cls, mock_bucket_cls):
         pipeline = self._create_pipeline_with_real_factory()
-        pipeline.elastic_repo.search.return_value = [[MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"})]]
+        self._mock_chunks(pipeline, [[MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"})]])
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
         # Strategy yields one IOC record -> invalidation
