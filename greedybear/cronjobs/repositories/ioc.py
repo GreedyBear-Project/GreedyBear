@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import F
 
 from greedybear.models import IOC, Honeypot
@@ -20,6 +20,15 @@ class IocRepository:
     def __init__(self):
         """Initialize the repository and populate the honeypot cache from the database."""
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.refresh_cache()
+
+    def refresh_cache(self) -> None:
+        """
+        Reload the honeypot cache from the database.
+
+        Needed after a rolled back transaction, which may have removed
+        honeypots that were already added to the cache.
+        """
         self._honeypot_cache = {self._normalize_name(hp.name): hp for hp in Honeypot.objects.all()}
 
     def _normalize_name(self, name: str) -> str:
@@ -72,10 +81,13 @@ class IocRepository:
         normalized = self._normalize_name(honeypot_name)
 
         try:
-            honeypot = Honeypot.objects.create(
-                name=honeypot_name,
-                active=True,
-            )
+            # A savepoint keeps an enclosing transaction usable if the insert fails,
+            # so the existing honeypot can still be looked up below.
+            with transaction.atomic():
+                honeypot = Honeypot.objects.create(
+                    name=honeypot_name,
+                    active=True,
+                )
         except IntegrityError:
             self.log.exception(f"IntegrityError creating honeypot '{honeypot_name}'")
             honeypot = self.get_hp_by_name(honeypot_name)

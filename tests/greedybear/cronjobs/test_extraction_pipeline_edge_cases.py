@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
 from greedybear.cronjobs.repositories import ElasticRepository
+from greedybear.models import ExtractionRun
 from tests import E2ETestCase, MockElasticHit
 
 
@@ -42,7 +43,7 @@ class TestEdgeCases(E2ETestCase):
             MockElasticHit({"src_ip": "1.1.1.1", "type": "FailingHoneypot"}),
             MockElasticHit({"src_ip": "2.2.2.2", "type": "SuccessHoneypot"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -73,7 +74,7 @@ class TestEdgeCases(E2ETestCase):
         hits = [
             MockElasticHit({"src_ip": "2.2.2.2", "type": "SuccessHoneypot"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -103,7 +104,7 @@ class TestEdgeCases(E2ETestCase):
         hits = [
             MockElasticHit({"src_ip": "2.2.2.2", "type": "SuccessHoneypot"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -136,7 +137,7 @@ class TestEdgeCases(E2ETestCase):
             MockElasticHit({"src_ip": "1.1.1.1", "type": "DisabledHoneypot"}),
             MockElasticHit({"src_ip": "2.2.2.2", "type": "EnabledHoneypot"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.side_effect = lambda hp: hp == "EnabledHoneypot"
 
@@ -170,7 +171,7 @@ class TestEdgeCases(E2ETestCase):
             MockElasticHit({"src_ip": "1.1.1.1", "type": "DisabledA"}),
             MockElasticHit({"src_ip": "2.2.2.2", "type": "DisabledB"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = False
 
@@ -208,7 +209,7 @@ class TestLargeBatches(E2ETestCase):
             )
             for i in range(100)
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -231,16 +232,31 @@ class TestNoElasticsearch(E2ETestCase):
     @patch("greedybear.cronjobs.extraction.pipeline.SensorRepository")
     @patch("greedybear.cronjobs.extraction.pipeline.IocRepository")
     @patch("greedybear.cronjobs.extraction.pipeline.ElasticRepository")
-    def test_execute_returns_zero_when_search_yields_nothing(self, mock_elastic, mock_ioc, mock_sensor):
-        """execute() must return 0 when search yields no chunks (unavailable ES)."""
-        mock_elastic.return_value.search.return_value = iter([])
+    def test_execute_returns_zero_when_search_returns_nothing(self, mock_elastic, mock_ioc, mock_sensor):
+        """execute() must return 0 when a chunk contains no hits."""
+        pipeline = ExtractionPipeline()
+        pipeline.log = MagicMock()
+        self._mock_chunks(pipeline, [[]])
+
+        result = pipeline.execute()
+
+        self.assertEqual(result, 0)
+        mock_elastic.return_value.search.assert_called_once()
+
+    @patch("greedybear.cronjobs.extraction.pipeline.SensorRepository")
+    @patch("greedybear.cronjobs.extraction.pipeline.IocRepository")
+    @patch("greedybear.cronjobs.extraction.pipeline.ElasticRepository")
+    def test_execute_does_not_search_or_record_runs_when_elasticsearch_unavailable(self, mock_elastic, mock_ioc, mock_sensor):
+        """Without Elasticsearch there is no window to extract, so no run is recorded."""
+        mock_elastic.return_value.is_available = False
         pipeline = ExtractionPipeline()
         pipeline.log = MagicMock()
 
         result = pipeline.execute()
 
         self.assertEqual(result, 0)
-        mock_elastic.return_value.search.assert_called_once()
+        mock_elastic.return_value.search.assert_not_called()
+        self.assertFalse(ExtractionRun.objects.exists())
 
     @patch("greedybear.cronjobs.repositories.elastic.settings")
     def test_execute_returns_zero_with_real_repository_when_elasticsearch_unavailable(self, mock_settings):
