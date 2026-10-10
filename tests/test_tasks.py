@@ -1,73 +1,53 @@
-from datetime import datetime
 from unittest.mock import patch
+
+from greedybear.cronjobs.exceptions import ElasticServerDownError
 
 from . import CustomTestCase
 
 
 class TestExtractAllTrainingTrigger(CustomTestCase):
-    """Test that extract_all triggers training only on the first run after midnight."""
+    """Test that extract_all triggers training once the extraction has completed the previous day."""
 
     @patch("greedybear.tasks.extract_honeypot_payloads")
     @patch("greedybear.tasks.train_and_update")
     @patch("greedybear.cronjobs.extract.ExtractionJob")
-    @patch("greedybear.tasks.datetime")
-    def test_triggers_training_at_midnight(self, mock_datetime, mock_job, mock_train, mock_payload):
-        mock_datetime.now.return_value = datetime(2026, 1, 1, 0, 0)
+    def test_triggers_training_when_day_completed(self, mock_job, mock_train, mock_payload):
+        mock_job.return_value.pipeline.day_completed = True
 
         from greedybear.tasks import extract_all
 
         extract_all()
 
-        mock_job().execute.assert_called_once()
+        mock_job.return_value.execute.assert_called_once()
         mock_train.assert_called_once()
         mock_payload.assert_called_once()
 
     @patch("greedybear.tasks.extract_honeypot_payloads")
     @patch("greedybear.tasks.train_and_update")
     @patch("greedybear.cronjobs.extract.ExtractionJob")
-    @patch("greedybear.tasks.datetime")
-    @patch("greedybear.tasks.EXTRACTION_INTERVAL", 2)
-    def test_triggers_training_shortly_after_midnight(self, mock_datetime, mock_job, mock_train, mock_payload):
-        mock_datetime.now.return_value = datetime(2026, 1, 1, 0, 1)
+    def test_does_not_trigger_training_when_day_not_completed(self, mock_job, mock_train, mock_payload):
+        mock_job.return_value.pipeline.day_completed = False
 
         from greedybear.tasks import extract_all
 
         extract_all()
 
-        mock_job().execute.assert_called_once()
-        mock_train.assert_called_once()
-        mock_payload.assert_called_once()
-
-    @patch("greedybear.tasks.extract_honeypot_payloads")
-    @patch("greedybear.tasks.train_and_update")
-    @patch("greedybear.cronjobs.extract.ExtractionJob")
-    @patch("greedybear.tasks.datetime")
-    @patch("greedybear.tasks.EXTRACTION_INTERVAL", 2)
-    def test_does_not_trigger_training_on_next_extraction(self, mock_datetime, mock_job, mock_train, mock_payload):
-        mock_datetime.now.return_value = datetime(2026, 1, 1, 0, 2)
-
-        from greedybear.tasks import extract_all
-
-        extract_all()
-
-        mock_job().execute.assert_called_once()
+        mock_job.return_value.execute.assert_called_once()
         mock_train.assert_not_called()
         mock_payload.assert_called_once()
 
     @patch("greedybear.tasks.extract_honeypot_payloads")
     @patch("greedybear.tasks.train_and_update")
     @patch("greedybear.cronjobs.extract.ExtractionJob")
-    @patch("greedybear.tasks.datetime")
-    def test_does_not_trigger_training_outside_midnight(self, mock_datetime, mock_job, mock_train, mock_payload):
-        mock_datetime.now.return_value = datetime(2026, 1, 1, 10, 55)
+    def test_does_not_trigger_training_when_extraction_fails(self, mock_job, mock_train, mock_payload):
+        mock_job.return_value.execute.side_effect = ElasticServerDownError("elastic is down")
 
         from greedybear.tasks import extract_all
 
-        extract_all()
+        with self.assertRaises(ElasticServerDownError):
+            extract_all()
 
-        mock_job().execute.assert_called_once()
         mock_train.assert_not_called()
-        mock_payload.assert_called_once()
 
 
 class TestTasks(CustomTestCase):

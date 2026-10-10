@@ -43,6 +43,15 @@ class SensorRepository:
             self.log.info(f"added sensor {ip} to the database")
         return sensor
 
+    def refresh_cache(self) -> None:
+        """
+        Reload the sensor cache from the database.
+
+        Needed after a rolled back transaction, which may have removed
+        sensors that were already added to the cache.
+        """
+        self._fill_cache()
+
     def _fill_cache(self) -> None:
         """Load sensor objects from the database into the cache."""
         self.log.debug("populating sensor cache")

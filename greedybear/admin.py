@@ -16,6 +16,7 @@ from greedybear.models import (
     Credential,
     DashboardConfig,
     EventStatus,
+    ExtractionRun,
     FireHolList,
     Honeypot,
     HoneypotPayload,
@@ -338,6 +339,38 @@ class EventStatusAdmin(GreedyBearModelAdmin):
         "created_at",
         "started_at",
         "processed_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ExtractionRun)
+class ExtractionRunAdmin(GreedyBearModelAdmin):
+    list_display = [
+        "id",
+        "job_name",
+        "window_start",
+        "window_end",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "finished_at",
+    ]
+    list_filter = ["job_name", "status"]
+    readonly_fields = [
+        "job_name",
+        "window_start",
+        "window_end",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "finished_at",
     ]
 
     def has_add_permission(self, request):

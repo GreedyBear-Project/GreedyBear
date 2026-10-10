@@ -230,6 +230,29 @@ class TestIocRepository(CustomTestCase):
         self.assertEqual(hp.name, "Log4PotTest123")
         self.assertEqual(Honeypot.objects.count(), initial_count + 1)
 
+    def test_create_honeypot_recovers_existing_honeypot_inside_transaction(self):
+        """The IntegrityError must not break an enclosing transaction, so the existing honeypot can be returned."""
+        existing = Honeypot.objects.create(name="Log4PotTest789", active=True)
+
+        with transaction.atomic():
+            hp = self.repo.create_honeypot("log4pottest789")
+            # the transaction is still usable afterwards
+            self.assertTrue(Honeypot.objects.filter(pk=existing.pk).exists())
+
+        self.assertEqual(hp.pk, existing.pk)
+        self.assertEqual(self.repo._honeypot_cache["log4pottest789"].pk, existing.pk)
+
+    def test_refresh_cache_drops_rolled_back_honeypots(self):
+        with transaction.atomic():
+            self.repo.create_honeypot("RolledBackPot")
+            transaction.set_rollback(True)
+        self.assertIn("rolledbackpot", self.repo._honeypot_cache)
+
+        self.repo.refresh_cache()
+
+        self.assertNotIn("rolledbackpot", self.repo._honeypot_cache)
+        self.assertIn("cowrie", self.repo._honeypot_cache)
+
     def test_create_new_honeypot_creates_and_updates_cache(self):
         self.repo._honeypot_cache.clear()
         hp = self.repo.create_honeypot("UniqueNewPot123")

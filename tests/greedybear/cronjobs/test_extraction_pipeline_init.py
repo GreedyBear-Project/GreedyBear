@@ -4,8 +4,10 @@
 Tests for ExtractionPipeline initialization and time window calculation.
 """
 
+from datetime import datetime
 from unittest.mock import patch
 
+from greedybear.models import ExtractionJobName, ExtractionRun
 from tests import ExtractionTestCase
 
 
@@ -27,36 +29,105 @@ class TestExtractionPipelineInit(ExtractionTestCase):
         self.assertIsNotNone(pipeline.log)
 
 
-class TestMinutesBackToLookup(ExtractionTestCase):
-    """Tests for the _minutes_back_to_lookup property."""
+@patch("greedybear.cronjobs.extraction.pipeline.EXTRACTION_INTERVAL", 10)
+@patch("greedybear.cronjobs.extraction.pipeline.INITIAL_EXTRACTION_TIMESPAN", 60 * 24 * 3)
+@patch("greedybear.cronjobs.extraction.pipeline.SensorRepository")
+@patch("greedybear.cronjobs.extraction.pipeline.IocRepository")
+@patch("greedybear.cronjobs.extraction.pipeline.ElasticRepository")
+class TestExtractionWindow(ExtractionTestCase):
+    """Tests for the _extraction_window method."""
 
-    @patch("greedybear.cronjobs.extraction.pipeline.EXTRACTION_INTERVAL", 5)
-    @patch("greedybear.cronjobs.extraction.pipeline.INITIAL_EXTRACTION_TIMESPAN", 120)
-    @patch("greedybear.cronjobs.extraction.pipeline.SensorRepository")
-    @patch("greedybear.cronjobs.extraction.pipeline.IocRepository")
-    @patch("greedybear.cronjobs.extraction.pipeline.ElasticRepository")
-    def test_returns_initial_timespan_when_empty(self, mock_elastic, mock_ioc, mock_sensor):
-        """Should return INITIAL_EXTRACTION_TIMESPAN on first run (empty DB)."""
+    NOW = datetime(2025, 1, 10, 14, 23)
+
+    def _create_pipeline(self, ioc_db_empty=False):
         from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
 
         pipeline = ExtractionPipeline()
-        pipeline.ioc_repo.is_empty.return_value = True
+        pipeline.ioc_repo.is_empty.return_value = ioc_db_empty
+        return pipeline
 
-        result = pipeline._minutes_back_to_lookup
+    def _set_watermark(self, watermark, job_name=ExtractionJobName.EXTRACTION):
+        ExtractionRun.objects.create(job_name=job_name, window_start=watermark, window_end=watermark)
 
-        self.assertEqual(result, 120)
+    def test_first_run_backfills_initial_timespan(self, *mocks):
+        """Without a watermark and without IOCs, the first run backfills INITIAL_EXTRACTION_TIMESPAN."""
+        pipeline = self._create_pipeline(ioc_db_empty=True)
 
-    @patch("greedybear.cronjobs.extraction.pipeline.EXTRACTION_INTERVAL", 5)
-    @patch("greedybear.cronjobs.extraction.pipeline.SensorRepository")
-    @patch("greedybear.cronjobs.extraction.pipeline.IocRepository")
-    @patch("greedybear.cronjobs.extraction.pipeline.ElasticRepository")
-    def test_returns_extraction_interval_when_not_empty(self, mock_elastic, mock_ioc, mock_sensor):
-        """Should return EXTRACTION_INTERVAL for subsequent runs."""
-        from greedybear.cronjobs.extraction.pipeline import ExtractionPipeline
+        start, end = pipeline._extraction_window(datetime(2025, 1, 10, 0, 3))
 
-        pipeline = ExtractionPipeline()
-        pipeline.ioc_repo.is_empty.return_value = False
+        self.assertEqual(start, datetime(2025, 1, 7, 0, 0))
+        self.assertEqual(end, datetime(2025, 1, 10, 0, 0))
 
-        result = pipeline._minutes_back_to_lookup
+    def test_existing_instance_without_watermark_looks_back_one_interval(self, *mocks):
+        """An instance that extracted before runs were recorded must not extract the same data twice."""
+        pipeline = self._create_pipeline(ioc_db_empty=False)
 
-        self.assertEqual(result, 5)
+        start, end = pipeline._extraction_window(self.NOW)
+
+        self.assertEqual(start, datetime(2025, 1, 10, 14, 10))
+        self.assertEqual(end, datetime(2025, 1, 10, 14, 20))
+
+    def test_continues_from_watermark(self, *mocks):
+        """After downtime, the window covers everything since the watermark."""
+        self._set_watermark(datetime(2025, 1, 10, 9, 40))
+        pipeline = self._create_pipeline()
+
+        start, end = pipeline._extraction_window(self.NOW)
+
+        self.assertEqual(start, datetime(2025, 1, 10, 9, 40))
+        self.assertEqual(end, datetime(2025, 1, 10, 14, 20))
+
+    def test_uses_latest_watermark(self, *mocks):
+        self._set_watermark(datetime(2025, 1, 10, 9, 40))
+        self._set_watermark(datetime(2025, 1, 10, 13, 50))
+        self._set_watermark(datetime(2025, 1, 10, 11, 0))
+        pipeline = self._create_pipeline()
+
+        start, _ = pipeline._extraction_window(self.NOW)
+
+        self.assertEqual(start, datetime(2025, 1, 10, 13, 50))
+
+    def test_ignores_watermark_of_other_jobs(self, *mocks):
+        self._set_watermark(datetime(2025, 1, 10, 13, 50), job_name=ExtractionJobName.PAYLOAD_EXTRACTION)
+        pipeline = self._create_pipeline(ioc_db_empty=False)
+
+        start, _ = pipeline._extraction_window(self.NOW)
+
+        self.assertEqual(start, datetime(2025, 1, 10, 14, 10))
+
+    def test_catch_up_is_capped(self, *mocks):
+        """Data older than INITIAL_EXTRACTION_TIMESPAN is not fetched, however long the downtime was."""
+        self._set_watermark(datetime(2024, 12, 1, 0, 0))
+        pipeline = self._create_pipeline()
+
+        start, end = pipeline._extraction_window(datetime(2025, 1, 10, 0, 3))
+
+        self.assertEqual(start, datetime(2025, 1, 7, 0, 0))
+        self.assertEqual(end, datetime(2025, 1, 10, 0, 0))
+
+    def test_window_crossing_midnight_ends_at_midnight(self, *mocks):
+        """A late or catching-up run on day d never extracts data from day d before the training."""
+        self._set_watermark(datetime(2025, 1, 9, 22, 0))
+        pipeline = self._create_pipeline()
+
+        start, end = pipeline._extraction_window(datetime(2025, 1, 10, 10, 7))
+
+        self.assertEqual(start, datetime(2025, 1, 9, 22, 0))
+        self.assertEqual(end, datetime(2025, 1, 10, 0, 0))
+
+    def test_window_after_midnight_is_not_cut(self, *mocks):
+        self._set_watermark(datetime(2025, 1, 10, 0, 0))
+        pipeline = self._create_pipeline()
+
+        start, end = pipeline._extraction_window(datetime(2025, 1, 10, 10, 7))
+
+        self.assertEqual(start, datetime(2025, 1, 10, 0, 0))
+        self.assertEqual(end, datetime(2025, 1, 10, 10, 0))
+
+    def test_up_to_date_watermark_gives_empty_window(self, *mocks):
+        self._set_watermark(datetime(2025, 1, 10, 14, 20))
+        pipeline = self._create_pipeline()
+
+        start, end = pipeline._extraction_window(self.NOW)
+
+        self.assertGreaterEqual(start, end)
