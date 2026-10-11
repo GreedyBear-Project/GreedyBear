@@ -21,7 +21,19 @@ def sanitize_text(value: str) -> str:
     NULs become ``[NUL]`` (same tag as T-Pot credential normalisation).
     Unpaired surrogates (U+D800-U+DFFF) become ``[SUR]``. No length
     truncation: this helper is also used on free-form JSON blobs.
+
+    Clean strings return immediately. ``encode("utf-8")`` fails on unpaired
+    surrogates, and the membership check catches NULs, so the per-character
+    walk only runs when a replacement is actually required.
     """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        pass
+    else:
+        if "\x00" not in value:
+            return value
+
     pieces: list[str] = []
     for char in value:
         code = ord(char)
@@ -34,14 +46,32 @@ def sanitize_text(value: str) -> str:
     return "".join(pieces)
 
 
+def _unique_json_key(cleaned: dict, key):
+    """Return ``key``, or ``key~2``, ``key~3``, ... if that name is already taken."""
+    if not isinstance(key, str) or key not in cleaned:
+        return key
+    suffix = 2
+    candidate = f"{key}~{suffix}"
+    while candidate in cleaned:
+        suffix += 1
+        candidate = f"{key}~{suffix}"
+    return candidate
+
+
 def sanitize_json(value):
-    """Walk JSON-like structures and sanitise strings in keys and values."""
+    """Walk JSON-like structures and sanitise strings in keys and values.
+
+    If two keys sanitise to the same string, the first value keeps that name
+    and later ones are stored under ``name~2``, ``name~3``, and so on, so a
+    crafted key cannot drop a sibling field.
+    """
     if isinstance(value, str):
         return sanitize_text(value)
     if isinstance(value, dict):
         cleaned = {}
         for key, item in value.items():
             new_key = sanitize_text(key) if isinstance(key, str) else key
+            new_key = _unique_json_key(cleaned, new_key)
             cleaned[new_key] = sanitize_json(item)
         return cleaned
     if isinstance(value, list):

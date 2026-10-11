@@ -37,6 +37,17 @@ class SanitizeJsonTests(SimpleTestCase):
         result = sanitize_json({"bad\x00key": "ok"})
         self.assertEqual(result, {f"bad{NUL_REPLACEMENT}key": "ok"})
 
+    def test_colliding_sanitised_keys_keep_both_values(self):
+        result = sanitize_json({"a\x00": "first", "a[NUL]": "second"})
+        self.assertEqual(result["a[NUL]"], "first")
+        self.assertEqual(result["a[NUL]~2"], "second")
+
+    def test_suffix_itself_colliding_is_not_overwritten(self):
+        result = sanitize_json({"a\x00": "first", "a[NUL]": "second", "a[NUL]~2": "third"})
+        self.assertEqual(result["a[NUL]"], "first")
+        self.assertEqual(result["a[NUL]~2"], "second")
+        self.assertEqual(result["a[NUL]~2~2"], "third")
+
     def test_long_string_in_data_not_truncated(self):
         blob = "x" * 400
         result = sanitize_json({"note": blob})
