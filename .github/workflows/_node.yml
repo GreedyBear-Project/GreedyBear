@@ -66,12 +66,6 @@ on:
         type: boolean
         required: false
 
-      run_codeql:
-        description: Run codeql
-        default: false
-        type: boolean
-        required: false
-
       custom_command:
         description: String of custom command to run
         type: string
@@ -152,13 +146,6 @@ jobs:
           fail: 'StrongCopyleft,NetworkCopyleft,Error'
           fails-only: true
 
-      - name: Run CodeQL
-        if: inputs.run_codeql
-        uses: ./.github/actions/codeql
-        with:
-          language: javascript
-          working_directory: ${{ inputs.working_directory }}
-
       - name: Run custom command
         if: inputs.custom_command
         run: |
@@ -224,4 +211,3 @@ jobs:
       - name: Run production build
         run: npm run build
         working-directory: ${{ inputs.working_directory }}
-

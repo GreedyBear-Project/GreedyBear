@@ -33,7 +33,7 @@ It is composed of five steps:
 
 This sub workflow install node dependencies and run frontend linters and tests.
 
-It is composed of nine steps:
+It is composed of eight steps:
 
 1. **Check out latest commit for current branch** - This step checks out the latest commit for the current branch of the repository. To do so, it uses GitHub's [**checkout**](https://github.com/actions/checkout) action with no parameters.
 2. **Set up Node.js** - This step sets Node.js up downloading binaries and project's dependencies. This is done using the GitHub's [**setup-node**](https://github.com/actions/setup-node) action which also allows to cache and restore the project dependencies. It's used with the following parameters:
@@ -49,9 +49,8 @@ It is composed of nine steps:
 4. **Install packages** - This step install all missing packages from the dependency file in the directory specified by the *working_directory* input variable.
 5. **Run linters** - This step uses [**node_linter**](../actions/node_linter/action.yml) action to run linters against the frontend source code.
 6. **Check packages licenses** - This step uses [**pilosus/action-pip-license-checker**](https://github.com/pilosus/action-pip-license-checker) to check the licenses used by the project requirements.
-7. **Run CodeQL** - This step uses [**codeql**](../actions/codeql/action.yml) action to run CodeQL to discover vulnerabilities across the codebase.
-8. **Run custom command** - This step is performed only if the input variable *custom_command* is not empty. The step simply run the bash command described in the previously mentioned input variable in the working directory specified by the *working_directory* input variable.
-9. **Run jest tests** - This step runs Jest tests if the input variable *use_jest* is set to true. Finally, if *use_coverage* and *upload_coverage* are set to true, a coverage report is generated and uploaded.
+7. **Run custom command** - This step is performed only if the input variable *custom_command* is not empty. The step simply run the bash command described in the previously mentioned input variable in the working directory specified by the *working_directory* input variable.
+8. **Run jest tests** - This step runs Jest tests if the input variable *use_jest* is set to true. Finally, if *use_coverage* and *upload_coverage* are set to true, a coverage report is generated and uploaded.
 
 ### Documentation
 
@@ -67,7 +66,6 @@ It is composed of nine steps:
 * **use_stylelint** - Optional - Whether to use Stylelint linter or not. By default it is set to true.
 * **use_coverage** - Optional - Whether to use Coverage or not. To work, it also require *use_jest* to be true. By default it is set to false.
 * **upload_coverage** - Optional - Whether to upload coverage report to GitHub. By default it is set to false
-* **run_codeql** - Optional - Whether to run CodeQL against the codebase. By default it is set to false.
 * **custom_command** - Optional - A custom bash command to be run by the workflow. By default it is set to an empty string.
 * **max_timeout** - Optional - A maximum amount of minutes allowed for the workflow to run. By default it is set to 30.
 * **ubuntu_version** - Optional - The Ubuntu version to run the workflow against. By default it is set to `latest`.
@@ -78,13 +76,12 @@ This sub workflow runs Python linters and tests against the codebase.
 
 It is composed of one job:
 
-1. **python** - This job is composed of thirty-one steps:
+1. **python** - This job is composed of thirty steps:
    1. **Check out latest commit** - Checks out the latest commit on the current branch of the repository using the GitHub's [**checkout**](https://github.com/actions/checkout) action.
    2. **Set up Python** - Sets up Python on the runner machine using GitHub's [**setup-python**](https://github.com/actions/setup-python) action with the following parameter:
       1. **python-version** - Which Python version to use - It is set according to the *python_versions* input variable.
    3. **Inject stuff to environment** - This step adds a few environment variables to the system's environment. Specifically:
       1. If *django_settings_module* is set, **PYTHONPATH** and **DJANGO_SETTINGS_MODULE** will be added to the runner's environment.
-      2. If *run_codeql* is true, **CODEQL_PYTHON** will be added to the runner's environment.
    4. **Restore APT cache related to PR event** - This step will try to restore the APT cache related to the PR event using [**restore_apt_cache**](../actions/apt_requirements/restore_apt_cache/README.md) with the following parameter:
       1. **apt_requirements_file_path** - Path to the APT requirements file - It is set to the *packages_path* input variable.
    5. **Restore APT cache related to target branch** - This step will try to restore the APT cache related related to the target branch (of the PR) using [**restore_apt_cache**](../actions/apt_requirements/restore_apt_cache/README.md) only if **Restore APT cache related to PR event** produces a cache miss. It is run with the following parameter:
@@ -110,14 +107,13 @@ It is composed of one job:
        1. **requirements_paths** - A space separated list of requirements file paths - It is set to the combination of *requirements_path*, `requirements-linters.txt`, `requirements-dev.txt` and `requirements-docs.txt` joined by spaces.
    22. **Save pip cache related to PR event** - If both attempts to restore the Python virtual environment and the pip cache related to the PR resulted in a cache miss, the pip cache is saved for the PR event using the [*save_pip_cache*](../actions/python_requirements/save_pip_cache/README.md) action.
    23. **Run linters** - If one of the following input variables: *use_black*, *use_isort*, *use_flake8*, *use_pylint*, *use_bandit* and *use_autoflake* is true, this step executes the linters against the codebase in the working directory specified by the *working_directory* variable.
-   24. **Run CodeQL** - If the *run_codeql* input variable is true, this step runs CodeQL against the codebase using the [**codeql**](../actions/codeql/action.yml) action in the working directory specified by the *working_directory* variable.
-   25. **Build Docs** - If the *check_docs_directory* input variable is set, this step executes `rstcheck` to ensure that the documentation in *check_docs_directory* is valid. Finally, the documentation is built using `sphinx`.
-   26. **Start services** - If one or more of the following input variables: *use_postgres*, *use_elastic_search*, *use_memcached*, *use_redis*, *use_rabbitmq* and *use_mongo* are true, this step creates the Docker container for the service using the [**services**](../actions/services/action.yml) action. Additional parameters, such as *postgres_db* or *elasticsearch_version* can also be provided to the aforementioned action.
-   27. **Start celery worker** - If the *use_celery* input variable is true, a Celery worker is created for the *celery_app* application. The `celery` command is executed in the working directory specified by the *working_directory* input variable.
-   28. **Run custom command** - If the *custom_command* input variable is not empty, the command defined by the variable is executed in the working directory specified by the *working_directory* input variable.
-   29. **Check migrations** - If *check_migrations* is true and *django_settings_module* is not empty, this step will perform a dry run of `django-admin makemigrations` to ensure that the migrations are valid.
-   30. **Run unittest** - This step runs Python tests against the codebase in the directory described by the *working_directory* input variable. Additionally, according to *tags_for_manual_tests* and *tags_for_slow_tests* variables, some tests will be excluded from the run.
-   31. **Create coverage output** - If *use_coverage* and *upload_coverage* are set to true, this step produces a coverage report of the codebase and uploads it to GitHub. The *working_directory* input variable is used to determines the directory in which coverage should be run.
+   24. **Build Docs** - If the *check_docs_directory* input variable is set, this step executes `rstcheck` to ensure that the documentation in *check_docs_directory* is valid. Finally, the documentation is built using `sphinx`.
+   25. **Start services** - If one or more of the following input variables: *use_postgres*, *use_elastic_search*, *use_memcached*, *use_redis*, *use_rabbitmq* and *use_mongo* are true, this step creates the Docker container for the service using the [**services**](../actions/services/action.yml) action. Additional parameters, such as *postgres_db* or *elasticsearch_version* can also be provided to the aforementioned action.
+   26. **Start celery worker** - If the *use_celery* input variable is true, a Celery worker is created for the *celery_app* application. The `celery` command is executed in the working directory specified by the *working_directory* input variable.
+   27. **Run custom command** - If the *custom_command* input variable is not empty, the command defined by the variable is executed in the working directory specified by the *working_directory* input variable.
+   28. **Check migrations** - If *check_migrations* is true and *django_settings_module* is not empty, this step will perform a dry run of `django-admin makemigrations` to ensure that the migrations are valid.
+   29. **Run unittest** - This step runs Python tests against the codebase in the directory described by the *working_directory* input variable. Additionally, according to *tags_for_manual_tests* and *tags_for_slow_tests* variables, some tests will be excluded from the run.
+   30. **Create coverage output** - If *use_coverage* and *upload_coverage* are set to true, this step produces a coverage report of the codebase and uploads it to GitHub. The *working_directory* input variable is used to determines the directory in which coverage should be run.
 
 ### Documentation
 
@@ -143,7 +139,6 @@ It is composed of one job:
 * **use_coverage** - Optional - Whether to use coverage. By default, it is set to `false`.
 * **coverage_config_path** - Optional - Path to the coverage configuration file. By default, it is set to `.coveragerc`.
 * **upload_coverage** - Optional - Whether to upload coverage report to GitHub. To work, it needs *use_coverage* to be true. By default, it is set to `false`.
-* **run_codeql** - Optional - Whether to run CodeQL against codebase. By default, it is set to `false`.
 * **use_celery** - Optional - Whether to create a Celery container. By default, it is set to `false`.
 * **use_elastic_search** - Optional - Whether to create an Elasticsearch container. By default, it is set to `false`.
 * **use_memcached** - Optional - Whether to create a Memcached container. By default, it is set to `false`.

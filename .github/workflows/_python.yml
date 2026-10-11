@@ -102,12 +102,6 @@ on:
         type: boolean
         required: false
 
-      # CodeQL configs
-      run_codeql:
-        description: Run codeql
-        type: boolean
-        required: false
-      
       # Services
       use_celery:
         description: Create a celery worker
@@ -278,9 +272,6 @@ jobs:
             echo "PYTHONPATH=${{ github.workspace }}/${{ inputs.working_directory }}" >> $GITHUB_ENV
             echo "DJANGO_SETTINGS_MODULE=${{ inputs.django_settings_module }}" >> $GITHUB_ENV
           fi
-          if [[ '${{ inputs.run_codeql}}' != 'false' ]]; then
-            echo "CODEQL_PYTHON=$(which python)" >> $GITHUB_ENV
-          fi
         shell:
           bash
 
@@ -354,13 +345,6 @@ jobs:
           use_ruff_formatter: ${{ inputs.use_ruff_formatter }}
           use_ruff_linter: ${{ inputs.use_ruff_linter }}
           use_ty: ${{ inputs.use_ty }}
-
-      - name: Run CodeQL
-        if: inputs.run_codeql
-        uses: ./.github/actions/codeql
-        with:
-          language: python
-          working_directory: ${{ inputs.working_directory }}
 
       - name: Build Docs
         if: inputs.check_docs_directory
