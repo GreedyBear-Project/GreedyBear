@@ -1,11 +1,11 @@
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
-from ipaddress import ip_network
 
+from django.db import connection
 from django.db.models.functions import Now
 
-from greedybear.models import FireHolList
+from greedybear.models import FireHolList, IocType
 
 
 class FireHolRepository:
@@ -20,6 +20,10 @@ class FireHolRepository:
     def get_or_create(self, ip_address: str, source: str) -> tuple[FireHolList, bool]:
         """
         Get an existing FireHol entry or create a new one.
+
+        Refreshes `added` on entries that already exist, so it tracks when
+        the entry was last seen on the blocklist. Cleanup deletes by `added`,
+        so without this an entry still on the list would be dropped.
 
         Args:
             ip_address: IP address or CIDR block.
@@ -51,22 +55,44 @@ class FireHolRepository:
                 entries_by_ip[ip_address_value].append(source)
         return dict(entries_by_ip)
 
-    def get_cidr_entries(self) -> list[tuple]:
+    def get_cidr_matches(self) -> list[tuple[int, str]]:
         """
-        Get all stored CIDR entries as parsed networks.
+        Find IOCs that sit inside a stored CIDR range.
+
+        Uses Postgres network containment, so the comparison happens in the
+        database. In Python this means loading every IP-type IOC and testing
+        each one against every range, which does not scale.
+
+        `pg_input_is_valid` replaces the try/except this used to need. A row
+        that cannot be read as an address is skipped instead of aborting the
+        whole query.
 
         Returns:
-            List of (ip_network, source) tuples. Unparseable entries are skipped.
+            List of (ioc_id, source) tuples, one per match.
         """
-        cidr_entries = []
-        for ip_address_value, source in FireHolList.objects.filter(ip_address__contains="/").values_list("ip_address", "source"):
-            if not source:
-                continue
-            try:
-                cidr_entries.append((ip_network(ip_address_value, strict=False), source))
-            except (ValueError, IndexError):
-                self.log.debug(f"Skipping unparseable CIDR entry: {ip_address_value}")
-        return cidr_entries
+        query = """
+            SELECT ioc.id, fh.source
+            FROM greedybear_ioc ioc
+            JOIN greedybear_firehollist fh
+              ON ioc.name::inet <<= fh.ip_address::inet
+            WHERE ioc.type = %s
+              AND fh.source <> ''
+              AND fh.ip_address LIKE %s
+              AND pg_input_is_valid(ioc.name, 'inet')
+              AND pg_input_is_valid(fh.ip_address, 'inet')
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(query, [IocType.IP, "%/%"])
+            return cursor.fetchall()
+
+    def has_entries(self) -> bool:
+        """
+        Whether any blocklist entries are stored.
+
+        Returns:
+            True if the table holds at least one row.
+        """
+        return FireHolList.objects.exists()
 
     def save(self, entry: FireHolList) -> FireHolList:
         """
