@@ -28,10 +28,10 @@ class FireHolRepository:
         Returns:
             Tuple of (FireHolList object, created_flag) where created_flag is True if new.
         """
-        entry, created = FireHolList.objects.update_or_create(  # changed
+        entry, created = FireHolList.objects.update_or_create(
             ip_address=ip_address,
             source=source,
-            defaults={"added": Now()},  # added
+            defaults={"added": Now()},
         )
         return entry, created
 

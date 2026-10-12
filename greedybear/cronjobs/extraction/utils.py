@@ -16,6 +16,7 @@ from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, Credential, MassScanner
 from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip
+
 log = logging.getLogger(__name__)
 
 
@@ -105,7 +106,6 @@ def iocs_from_hits(hits: Sequence[Hit]) -> list[IOC]:
     Convert Elasticsearch hits into IOC objects with associated sensors.
     Groups hits by source IP, filters out non-global addresses, and
     constructs IOC objects with aggregated data.
-
 
     Performs bulk prefetching before the main loop to eliminate N+1 queries
     by injecting the bulk data into the helper evaluation functions.
