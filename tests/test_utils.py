@@ -24,6 +24,7 @@ from greedybear.utils import (
     is_valid_domain,
     is_valid_ipv4,
     is_valid_url,
+    normalize_ip,
 )
 
 from . import CustomTestCase
@@ -275,6 +276,21 @@ class TestIsValidIpv4(CustomTestCase):
         is_valid, ip = is_valid_ipv4("1.-2.3.4")
         self.assertFalse(is_valid)
         self.assertIsNone(ip)
+
+
+class TestNormalizeIp(CustomTestCase):
+    def test_normalize_ip(self):
+        cases = {
+            "2001:DB8::1": "2001:db8::1",
+            "2001:0db8:0:0:0:0:0:0001": "2001:db8::1",
+            "::ffff:1.2.3.4": "1.2.3.4",
+            "1.2.3.4": "1.2.3.4",
+            " 1.2.3.4 ": "1.2.3.4",
+            "not-an-ip": "not-an-ip",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_ip(raw), expected)
 
 
 class TestGetIocType(CustomTestCase):

@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from django.db.models import F
 
 from greedybear.models import IOC, Honeypot
+from greedybear.utils import normalize_ip
 
 BULK_UPDATE_BATCH_SIZE = 2000
 
@@ -123,8 +124,9 @@ class IocRepository:
         Returns:
             The matching IOC, or None if not found.
         """
+        normalized_name = normalize_ip(name)
         try:
-            return IOC.objects.prefetch_related("honeypots").get(name=name)
+            return IOC.objects.prefetch_related("honeypots").get(name=normalized_name)
         except IOC.DoesNotExist:
             return None
 
@@ -295,8 +297,9 @@ class IocRepository:
         Returns:
             True if IOC was found and updated, False otherwise.
         """
+        normalized_ip = normalize_ip(ip_address)
         try:
-            ioc = IOC.objects.get(name=ip_address)
+            ioc = IOC.objects.get(name=normalized_ip)
         except IOC.DoesNotExist:
             return False
         else:
@@ -318,4 +321,5 @@ class IocRepository:
         """
         if not ip_addresses:
             return 0
-        return IOC.objects.filter(name__in=ip_addresses).update(ip_reputation=reputation)
+        normalized_ips = [normalize_ip(ip) for ip in ip_addresses]
+        return IOC.objects.filter(name__in=normalized_ips).update(ip_reputation=reputation)
