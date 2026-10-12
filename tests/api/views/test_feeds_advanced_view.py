@@ -464,7 +464,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_shareable_feeds_flow(self):
         """Full flow: share → consume unauthenticated returns correct IOCs."""
-        share_response = self.client.get("/api/feeds/share?asn=11111&port=9001")
+        share_response = self.client.post("/api/feeds/share?asn=11111&port=9001")
         self.assertEqual(share_response.status_code, 200)
         share_data = share_response.json()
         share_url = share_data["url"]
@@ -549,7 +549,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_consume_token_deleted_from_db_is_rejected(self):
         """A token whose DB record has been deleted is rejected even though the signature is valid."""
-        share_response = self.client.get("/api/feeds/share?asn=11111")
+        share_response = self.client.post("/api/feeds/share?asn=11111")
         self.assertEqual(share_response.status_code, 200)
         token = share_response.json()["url"].split("/")[-1]
 
@@ -571,7 +571,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         then verifies the second request within the window returns 429.
         cache.clear() is scoped to this test to avoid leaking throttle state.
         """
-        share_response = self.client.get("/api/feeds/share")
+        share_response = self.client.post("/api/feeds/share")
         token = share_response.json()["url"].split("/")[-1]
         anon = APIClient()
 
@@ -586,11 +586,11 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_token_revocation(self):
         """Revoking a token makes subsequent consume calls return 400."""
-        share_response = self.client.get("/api/feeds/share?asn=11111")
+        share_response = self.client.post("/api/feeds/share?asn=11111")
         self.assertEqual(share_response.status_code, 200)
         token = share_response.json()["url"].split("/")[-1]
 
-        revoke_response = self.client.get(f"/api/feeds/revoke/{token}")
+        revoke_response = self.client.post(f"/api/feeds/revoke/{token}")
         self.assertEqual(revoke_response.status_code, 200)
 
         self.client.logout()
@@ -600,17 +600,17 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_token_revoke_already_revoked(self):
         """Revoking an already-revoked token returns 200 (idempotent)."""
-        share_response = self.client.get("/api/feeds/share?asn=11111")
+        share_response = self.client.post("/api/feeds/share?asn=11111")
         token = share_response.json()["url"].split("/")[-1]
 
-        self.client.get(f"/api/feeds/revoke/{token}")
-        second = self.client.get(f"/api/feeds/revoke/{token}")
+        self.client.post(f"/api/feeds/revoke/{token}")
+        second = self.client.post(f"/api/feeds/revoke/{token}")
         self.assertEqual(second.status_code, 200)
         self.assertIn("already revoked", second.json()["detail"])
 
     def test_token_revoke_invalid_token(self):
         """Revoking an invalid/expired token returns 400."""
-        revoke_response = self.client.get("/api/feeds/revoke/not-a-valid-token")
+        revoke_response = self.client.post("/api/feeds/revoke/not-a-valid-token")
         self.assertEqual(revoke_response.status_code, 400)
         self.assertIn("errors", revoke_response.json())
 
@@ -700,7 +700,7 @@ class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
 
     def test_payload_hashes_in_consumed_shared_feed(self):
         """A shared token replays the advanced feed, so a verbose share carries the hashes too."""
-        share_response = self.client.get("/api/feeds/share?verbose=true")
+        share_response = self.client.post("/api/feeds/share?verbose=true")
         token = share_response.json()["url"].split("/")[-1]
 
         self.client.logout()

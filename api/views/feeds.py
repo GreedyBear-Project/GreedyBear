@@ -460,9 +460,12 @@ class ConsumeFeedView(AdvancedFeedView):
 class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
     """Create, list and revoke shareable feed tokens.
 
-    Share/revoke are intentionally GET-able so the links can be opened directly
-    in a browser. Share stores the raw query params in the signed token so
-    FeedsConsumeView can replay them through AdvancedFeedRequestSerializer.
+    Share and revoke are both POST, consistent with the other mutating feed
+    endpoints; revoke isn't DELETE because it only flips a flag on the token
+    rather than deleting it. Only the public, rate-limited ConsumeFeedView stays
+    GET so a shared link can be opened directly in a browser. Share stores the
+    raw query params in the signed token so ConsumeFeedView can replay them
+    through AdvancedFeedRequestSerializer.
     """
 
     permission_classes = [IsAuthenticated]
