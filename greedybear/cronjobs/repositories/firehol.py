@@ -3,6 +3,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from ipaddress import ip_network
 
+from django.db.models.functions import Now
+
 from greedybear.models import FireHolList
 
 
@@ -26,7 +28,11 @@ class FireHolRepository:
         Returns:
             Tuple of (FireHolList object, created_flag) where created_flag is True if new.
         """
-        entry, created = FireHolList.objects.get_or_create(ip_address=ip_address, source=source)
+        entry, created = FireHolList.objects.update_or_create(  # changed
+            ip_address=ip_address,
+            source=source,
+            defaults={"added": Now()},  # added
+        )
         return entry, created
 
     def get_entries_by_ip(self) -> dict[str, list[str]]:
