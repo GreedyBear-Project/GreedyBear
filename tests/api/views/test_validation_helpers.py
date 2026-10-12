@@ -58,6 +58,17 @@ class ValidationHelpersTestCase(CustomTestCase):
         )
         self.assertEqual(get_request_source_ip(request), "2001:db8::1")
 
+    def test_get_request_source_ip_normalizes_ip(self):
+        """Equivalent IP forms in the forwarded header should be normalized."""
+        cases = {
+            "2001:DB8:0:0:0:0:0:1": "2001:db8::1",
+            "::ffff:203.0.113.5": "203.0.113.5",
+        }
+        for header, expected in cases.items():
+            with self.subTest(header=header):
+                request = SimpleNamespace(META={"HTTP_X_FORWARDED_FOR": header})
+                self.assertEqual(get_request_source_ip(request), expected)
+
     def test_get_request_source_ip_raises_exception_when_invalid(self):
         """Raise UnableToExtractSourceIPError when no valid source IP can be extracted."""
         request = SimpleNamespace(

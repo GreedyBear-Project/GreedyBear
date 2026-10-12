@@ -61,6 +61,18 @@ class TestGroupValidHitsByIp(CustomTestCase):
     def test_empty_input_returns_empty_dict(self):
         self.assertEqual(group_valid_hits_by_ip([]), {})
 
+    def test_equivalent_ip_forms_are_grouped_together(self):
+        grouped = group_valid_hits_by_ip(
+            [
+                self._hit("2001:DB8::1"),
+                self._hit("2001:db8::1"),
+                self._hit("2001:0db8:0:0:0:0:0:0001"),
+                self._hit("::ffff:1.2.3.4"),
+            ]
+        )
+        self.assertEqual(set(grouped), {"2001:db8::1", "1.2.3.4"})
+        self.assertEqual(len(grouped["2001:db8::1"]), 3)
+
 
 class IocsFromHitsTestCase(CustomTestCase):
     def _create_hit(
