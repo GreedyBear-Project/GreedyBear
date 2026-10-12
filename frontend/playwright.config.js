@@ -5,6 +5,11 @@ export default defineConfig({
   fullyParallel: true,
   reporter: "html",
   snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
+  expect: {
+    // Absorb sub-pixel font/AA drift across OSes and Chromium versions;
+    // layout-level regressions (missing panels, size changes) still fail.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.05 },
+  },
   use: {
     baseURL: "http://127.0.0.1:3002",
     trace: "on-first-retry",

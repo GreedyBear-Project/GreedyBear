@@ -226,6 +226,55 @@ describe("Enrichment Lookup Integration Tests", () => {
     });
   });
 
+  test("look up an IPv6 address with authentication - not found scenario", async () => {
+    const user = userEvent.setup();
+
+    // Mock authenticated state
+    mockUseAuthStore.mockImplementation((selector) =>
+      selector({ isAuthenticated: AUTHENTICATION_STATUSES.TRUE }),
+    );
+
+    // Mock API response - IP not found in database
+    axios.get.mockResolvedValue({
+      data: {
+        found: false,
+        query: "2001:db8::1",
+        ioc: null,
+      },
+    });
+
+    render(
+      <BrowserRouter>
+        <Dashboard />
+      </BrowserRouter>,
+    );
+
+    // Get form elements
+    const inputElement = screen.getByLabelText("IP Address or Domain:");
+    const submitButton = screen.getByRole("button", { name: /Search/i });
+
+    // Search for an IPv6 address that doesn't exist in the database
+    await user.type(inputElement, "2001:db8::1");
+    await user.click(submitButton);
+
+    // Verify API was called
+    await waitFor(() => {
+      expect(axios.get).toHaveBeenCalledWith(ENRICHMENT_URI, {
+        params: { query: "2001:db8::1" },
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    // Verify "not found" message is displayed
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /No data available for "2001:db8::1" in our database/i,
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
   test("client-side validation prevents obvious invalid queries", async () => {
     const user = userEvent.setup();
 

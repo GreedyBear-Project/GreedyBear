@@ -10,6 +10,7 @@ from django.db.models import CharField, Q
 from django.utils import timezone
 
 from greedybear.cache import invalidate_ioc_cache
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, PayloadRepository, SensorRepository
@@ -28,9 +29,12 @@ DEFAULT_EXTERNAL_HONEYPOT = "External"
 HONEYPOT_NAME_MAX_LENGTH = cast("CharField", Honeypot._meta.get_field("name")).max_length
 
 
-def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
+def _normalize_raw_event_to_hit(raw: RawEvent) -> Hit:
     """
-    Convert a RawEvent into the hit-dict format expected by iocs_from_hits.
+    Convert a RawEvent into the Hit format expected by iocs_from_hits.
+
+    Raises:
+        InvalidHitError: If the event has no source address.
     """
     hit: dict = {
         "src_ip": raw.src_ip,
@@ -65,10 +69,10 @@ def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
     if raw.payload_hash:
         hit["_payload_hash"] = raw.payload_hash
 
-    return hit
+    return Hit.from_event(hit)
 
 
-def _process_credentials(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_credentials(saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Linking all credentials data to ioc
     """
@@ -93,7 +97,7 @@ def _process_credentials(saved_ioc: IOC, ip_hits: list[dict]) -> None:
         logger.debug(f"linked credential '{credential}' → IOC {saved_ioc.name}")
 
 
-def _process_related_urls(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_related_urls(saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Extracts, filters, and appends unique related URLs from raw hits to an IOC instance.
 
@@ -114,7 +118,7 @@ def _process_related_urls(saved_ioc: IOC, ip_hits: list[dict]) -> None:
         logger.debug(f"added {len(to_add)} related_url(s) → IOC {saved_ioc.name}")
 
 
-def _process_commands(ip_hits: list[dict]) -> None:
+def _process_commands(ip_hits: list[Hit]) -> None:
     """
     Deduplicates and registers order-preserving sequences of executed commands from raw hits.
 
@@ -155,7 +159,7 @@ def _process_commands(ip_hits: list[dict]) -> None:
         logger.debug(f"created CommandSequence hash={commands_hash[:12]}…")
 
 
-def _process_array_field(saved_ioc: IOC, ip_hits: list[dict], hit_key: str, field_name: str) -> None:
+def _process_array_field(saved_ioc: IOC, ip_hits: list[Hit], hit_key: str, field_name: str) -> None:
     """
     Aggregates unique string values from raw hits into an IOC ArrayField.
 
@@ -179,7 +183,7 @@ def _process_array_field(saved_ioc: IOC, ip_hits: list[dict], hit_key: str, fiel
     logger.debug(f"added {len(to_add)} {field_name[:-1]}(s) → IOC {saved_ioc.name}")
 
 
-def _process_payload_hashes(payload_repo: PayloadRepository, saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_payload_hashes(payload_repo: PayloadRepository, saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Links observed payload hashes to HoneypotPayload rows.
 
@@ -198,7 +202,7 @@ def _process_payload_hashes(payload_repo: PayloadRepository, saved_ioc: IOC, ip_
         logger.debug(f"linked payload {sha256_hash[:12]}… → IOC {saved_ioc.name}")
 
 
-def _sensor_honeypot_names(ip_hits: list[dict]) -> list[str]:
+def _sensor_honeypot_names(ip_hits: list[Hit]) -> list[str]:
     """
     Collect the honeypot names advertised by the sensors that reported these hits.
 
@@ -213,7 +217,7 @@ def _sensor_honeypot_names(ip_hits: list[dict]) -> list[str]:
     return sorted(names)
 
 
-def _link_sensor_honeypots(ioc_repo: IocRepository, saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _link_sensor_honeypots(ioc_repo: IocRepository, saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Associate an externally reported IOC with the honeypots its sensors run.
 
@@ -297,7 +301,13 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         logger.debug(f"[task={task_id}] {len(raw_events)} RawEvents fetched")
 
         # normaizing hit dicts
-        hits = [_normalize_raw_event_to_hit(raw) for raw in raw_events]
+        hits = []
+        for raw in raw_events:
+            try:
+                hits.append(_normalize_raw_event_to_hit(raw))
+            except InvalidHitError as exc:
+                # one unusable event costs itself, not the batch
+                logger.warning(f"[task={task_id}] skipping event {raw.pk}: {exc}")
 
         if not hits:
             error_msg = f"All {len(raw_events)} RawEvents invalid after normalization"
@@ -320,7 +330,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         logger.debug(f"[task_id={task_id}] {len(ioc_objects)} unique IOCs")
 
         # grouping hits by src_ip for post-processing lookup
-        hits_by_ip: dict[str, list[dict]] = defaultdict(list)
+        hits_by_ip: dict[str, list[Hit]] = defaultdict(list)
         for hit in hits:
             hits_by_ip[hit["src_ip"]].append(hit)
 

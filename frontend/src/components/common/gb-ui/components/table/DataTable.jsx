@@ -203,6 +203,10 @@ function DataTable({
     features: dataTableFeatures,
     data,
     columns: tanstackColumns,
+    // v9: rows without subRows are not expandable by default; opt in so
+    // expandable tables (e.g. alerts with a SubComponent) behave like v8.
+    enableExpanding: config?.enableExpanded,
+    getRowCanExpand: () => true,
     state: tableState,
     pageCount,
     manualPagination,

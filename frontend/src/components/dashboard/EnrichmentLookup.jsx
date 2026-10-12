@@ -37,11 +37,13 @@ const PAYLOAD_HASHES_PREVIEW = 5;
 const validCharRegex = /^[a-zA-Z0-9.:_-]+$/;
 
 const looksLikeIp = (value) => {
-  // digits, dots and/or colons, and at least one dot or colon
-  if (!/^[0-9.:]+$/.test(value)) return false;
-  return /[.:]/.test(value);
+  //IPv6: contains a colon; hex digits, colons and dots (for IPv4 mapped forms)
+  if (value.includes(":")) {
+    return /^[0-9a-fA-F:.]+$/.test(value);
+  }
+  //IPv4: digits and dots, with at least one dot
+  return /^[0-9.]+$/.test(value) && value.includes(".");
 };
-
 const looksLikeDomain = (value) => {
   // letters/digits/dot/hyphen/underscore, at least one dot, and no leading/trailing dot or hyphen
   if (!/^[a-zA-Z0-9._-]+$/.test(value)) return false;

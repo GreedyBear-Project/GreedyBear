@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.test import override_settings
 
+from greedybear.consts import IP
+from greedybear.cronjobs.extraction.hit import Hit
 from greedybear.cronjobs.extraction.strategies.cowrie import (
     CowrieExtractionStrategy,
     normalize_command,
@@ -35,6 +37,11 @@ class TestHelperFunctions(ExtractionTestCase):
         """Test URL parsing with port number."""
         result = parse_url_hostname("http://evil.com:8080/download")
         self.assertEqual(result, "evil.com")
+
+    def test_parse_url_hostname_ipv6(self):
+        """Test URL parsing with IPv6 address."""
+        result = parse_url_hostname("http://[2001:db8::1]/foo")
+        self.assertEqual(result, "2001:db8::1")
 
     def test_parse_url_hostname_invalid_url(self):
         """Test URL parsing with invalid URL."""
@@ -116,12 +123,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_in_messages_with_url(self):
         """Test extraction of URLs from login failure messages."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.login.failed",
-                "message": "Failed login with http://evil.com/malware.exe",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login with http://evil.com/malware.exe",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         scanner_mock = Mock()
@@ -143,14 +152,55 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         # Verify honeypot is set via honeypot_name argument
         self.assertEqual(call_args.kwargs.get("honeypot_name"), "Cowrie")
 
+    def test_extract_payload_in_messages_with_ipv6_url(self):
+        """Test extraction of bracketed IPv6 URLs from login failure messages."""
+        hits = [
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login with http://[2001:db8::1]:8080/malware.exe",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
+        ]
+
+        self.strategy._extract_possible_payload_in_messages(hits)
+
+        self.assertEqual(self.strategy.ioc_processor.add_ioc.call_count, 1)
+        ioc_arg = self.strategy.ioc_processor.add_ioc.call_args[0][0]
+
+        self.assertEqual(ioc_arg.name, "2001:db8::1")
+        self.assertEqual(ioc_arg.type, IP)
+        self.assertIn("http://[2001:db8::1]:8080/malware.exe", ioc_arg.related_urls)
+
     def test_extract_payload_in_messages_no_url(self):
         """Test extraction when message has no URL."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.login.failed",
-                "message": "Failed login attempt",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login attempt",
+                }
+            )
+        ]
+
+        self.strategy._extract_possible_payload_in_messages(hits)
+
+        # Should not add any IOC
+        self.strategy.ioc_processor.add_ioc.assert_not_called()
+
+    def test_extract_payload_in_messages_invalid_ipv6_url(self):
+        """Test extraction when message has an invalid URL."""
+        hits = [
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.login.failed",
+                    "message": "Failed login with http://[zzz]/foo",
+                }
+            )
         ]
 
         self.strategy._extract_possible_payload_in_messages(hits)
@@ -161,12 +211,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_extract_payload_different_ips(self):
         """Test that payloads from different IPs are all processed."""
         hits = [
-            {
-                "src_ip": "5.6.7.8",
-                "eventid": "cowrie.login.failed",
-                "message": "http://evil.com/malware",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "5.6.7.8",
+                    "eventid": "cowrie.login.failed",
+                    "message": "http://evil.com/malware",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         scanner_mock = Mock()
@@ -190,12 +242,14 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_get_url_downloads(self):
         """Test extraction of file download attempts."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.session.file_download",
-                "url": "http://malware.com/bad.exe",
-                "@timestamp": "2025-01-01T00:00:00",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.session.file_download",
+                    "url": "http://malware.com/bad.exe",
+                    "@timestamp": "2025-01-01T00:00:00",
+                }
+            )
         ]
 
         scanner_mock = Mock()
@@ -216,11 +270,13 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
     def test_get_url_downloads_invalid_url(self):
         """Test download extraction with invalid URL."""
         hits = [
-            {
-                "src_ip": "1.2.3.4",
-                "eventid": "cowrie.session.file_download",
-                "url": "not_a_valid_url",
-            }
+            Hit(
+                {
+                    "src_ip": "1.2.3.4",
+                    "eventid": "cowrie.session.file_download",
+                    "url": "not_a_valid_url",
+                }
+            )
         ]
 
         self.strategy.ioc_processor.add_ioc.return_value = Mock()
@@ -240,7 +296,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertEqual(session_record.start_time, datetime(2023, 1, 1, 10, 0, 0))
         self.assertIsNone(session_record.start_time.tzinfo)
@@ -261,7 +317,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertTrue(session_record.login_attempt)
         self.mock_session_repo.add_credential.assert_called_once_with(session_record, "root", "password123")
@@ -279,7 +335,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertTrue(session_record.command_execution)
         self.assertIsInstance(session_record.commands, CommandSequence)
@@ -300,7 +356,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.assertEqual(session_record.duration, 10.5)
 
@@ -318,7 +374,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_called_once_with(
             session=session_record,
@@ -349,7 +405,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        strategy._process_session_hit(self.cowrie_session, hit, ioc)
+        strategy._process_session_hit(self.cowrie_session, Hit(hit), ioc)
 
         self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
         self.assertIn(self.cowrie_session.source, payload.iocs.all())
@@ -368,7 +424,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_called_once_with(
             session=session_record,
@@ -394,7 +450,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         }
         ioc = Mock(name="1.2.3.4")
 
-        self.strategy._process_session_hit(session_record, hit, ioc)
+        self.strategy._process_session_hit(session_record, Hit(hit), ioc)
 
         self.mock_session_repo.get_or_create_file_transfer.assert_not_called()
         self.mock_payload_repo.link_payload_to_session.assert_not_called()
@@ -510,7 +566,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
             "timestamp": "2025-06-01T12:00:00.000000+00:00",
         }
 
-        self.strategy._process_session_hit(session_record, hit, Mock())
+        self.strategy._process_session_hit(session_record, Hit(hit), Mock())
 
         self.assertIsInstance(session_record.start_time, datetime)
         self.assertIsNone(session_record.start_time.tzinfo)
@@ -527,7 +583,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         mock_ioc_record.payload_request = False
         self.strategy.ioc_processor.add_ioc.return_value = mock_ioc_record
 
-        hits = [{"src_ip": "1.2.3.4", "session": "s1", "eventid": "cowrie.session.connect"}]
+        hits = [Hit({"src_ip": "1.2.3.4", "session": "s1", "eventid": "cowrie.session.connect"})]
 
         with patch.object(self.strategy, "_get_sessions"), patch.object(self.strategy, "_extract_possible_payload_in_messages"):
             self.strategy.extract_from_hits(hits)
@@ -550,9 +606,9 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         mock_iocs_from_hits.return_value = [ioc1, ioc2]
 
         hits = [
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"},
-            {"src_ip": "2.2.2.2", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"}),
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"}),
+            Hit({"src_ip": "2.2.2.2", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"}),
         ]
 
         mock_ioc_record1 = Mock()
@@ -584,9 +640,9 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         ioc.name = "1.1.1.1"
 
         hits = [
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"},
-            {"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"},
-            {"src_ip": "1.1.1.1", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:02"},
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"}),
+            Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.closed", "timestamp": "2023-01-01T10:00:05"}),
+            Hit({"src_ip": "1.1.1.1", "session": "s2", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:02"}),
         ]
 
         session_s1 = Mock()
@@ -616,8 +672,8 @@ class TestCowrieCommandSequenceAcrossRuns(CustomTestCase):
         self.source = IOC.objects.create(name="10.0.0.1", type="ip")
 
     @staticmethod
-    def _command_hit(session_id: str, command: str, timestamp: str) -> dict:
-        return {"src_ip": "10.0.0.1", "session": session_id, "eventid": "cowrie.command.input", "message": command, "timestamp": timestamp}
+    def _command_hit(session_id: str, command: str, timestamp: str) -> Hit:
+        return Hit({"src_ip": "10.0.0.1", "session": session_id, "eventid": "cowrie.command.input", "message": command, "timestamp": timestamp})
 
     def test_continued_session_does_not_modify_shared_command_sequence(self):
         """Commands from a later run must not be appended to a CommandSequence row shared with other sessions."""
