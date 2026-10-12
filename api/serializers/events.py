@@ -13,18 +13,60 @@ logger = logging.getLogger(__name__)
 # and mark those characters so analysts can still see they were sent.
 NUL_REPLACEMENT = "[NUL]"
 SURROGATE_REPLACEMENT = "[SUR]"
+_MARKERS = (NUL_REPLACEMENT, SURROGATE_REPLACEMENT)
 
 
-def sanitize_text(value: str) -> str:
+def _fit_to_max_length(pieces: list[str], max_length: int) -> str:
+    """Keep a sanitised string inside ``max_length`` without slicing a marker.
+
+    Markers are kept ahead of plain characters, in their original order.
+    A ``[NUL]`` or ``[SUR]`` is 5 characters, so it is dropped whole when it
+    cannot fit, and never cut down to something like ``[NU``.
+    """
+    if max_length <= 0:
+        return ""
+
+    total = sum(len(piece) for piece in pieces)
+    if total <= max_length:
+        return "".join(pieces)
+
+    marker_count = sum(piece in _MARKERS for piece in pieces)
+    markers_to_keep = min(marker_count, max_length // len(NUL_REPLACEMENT))
+    plain_room = max_length - markers_to_keep * len(NUL_REPLACEMENT)
+
+    fitted: list[str] = []
+    for piece in pieces:
+        if piece in _MARKERS:
+            if markers_to_keep:
+                fitted.append(piece)
+                markers_to_keep -= 1
+            continue
+        if plain_room <= 0:
+            continue
+        if len(piece) <= plain_room:
+            fitted.append(piece)
+            plain_room -= len(piece)
+        else:
+            fitted.append(piece[:plain_room])
+            plain_room = 0
+    return "".join(fitted)
+
+
+def sanitize_text(value: str, max_length: int | None = None) -> str:
     """Replace jsonb-illegal characters with visible markers.
 
     NULs become ``[NUL]`` (same tag as T-Pot credential normalisation).
-    Unpaired surrogates (U+D800-U+DFFF) become ``[SUR]``. No length
-    truncation: this helper is also used on free-form JSON blobs.
+    Unpaired surrogates (U+D800-U+DFFF) become ``[SUR]``.
 
-    Clean strings return immediately. ``encode("utf-8")`` fails on unpaired
-    surrogates, and the membership check catches NULs, so the per-character
-    walk only runs when a replacement is actually required.
+    Clean strings return immediately, including ones already over
+    ``max_length``, so a normal too-long credential still fails validation.
+    ``encode("utf-8")`` fails on unpaired surrogates, and the membership
+    check catches NULs, so the per-character walk only runs when a
+    replacement is actually required.
+
+    Each marker replaces 1 character with 5. When ``max_length`` is set
+    (username and password), the result is fitted to that limit so cleaning
+    itself cannot 400 the batch. JSON blobs pass no limit and stay whole.
     """
     try:
         value.encode("utf-8")
@@ -43,12 +85,14 @@ def sanitize_text(value: str) -> str:
             pieces.append(SURROGATE_REPLACEMENT)
         else:
             pieces.append(char)
-    return "".join(pieces)
+    if max_length is None:
+        return "".join(pieces)
+    return _fit_to_max_length(pieces, max_length)
 
 
-def _unique_json_key(cleaned: dict, key):
+def _unique_json_key(cleaned: dict, key: str) -> str:
     """Return ``key``, or ``key~2``, ``key~3``, ... if that name is already taken."""
-    if not isinstance(key, str) or key not in cleaned:
+    if key not in cleaned:
         return key
     suffix = 2
     candidate = f"{key}~{suffix}"
@@ -59,24 +103,23 @@ def _unique_json_key(cleaned: dict, key):
 
 
 def sanitize_json(value):
-    """Walk JSON-like structures and sanitise strings in keys and values.
+    """Walk a parsed JSON value and sanitise every string.
 
-    If two keys sanitise to the same string, the first value keeps that name
-    and later ones are stored under ``name~2``, ``name~3``, and so on, so a
-    crafted key cannot drop a sibling field.
+    Object keys from ``json.loads`` are always strings. If two keys sanitise
+    to the same string, the first value keeps that name and later ones are
+    stored under ``name~2``, ``name~3``, and so on, so a crafted key cannot
+    drop a sibling field. Strings are not truncated: ``data`` has no
+    ``max_length``.
     """
     if isinstance(value, str):
         return sanitize_text(value)
     if isinstance(value, dict):
         cleaned = {}
         for key, item in value.items():
-            new_key = sanitize_text(key) if isinstance(key, str) else key
-            new_key = _unique_json_key(cleaned, new_key)
+            new_key = _unique_json_key(cleaned, sanitize_text(key))
             cleaned[new_key] = sanitize_json(item)
         return cleaned
     if isinstance(value, list):
-        return [sanitize_json(item) for item in value]
-    if isinstance(value, tuple):
         return [sanitize_json(item) for item in value]
     return value
 
@@ -90,7 +133,9 @@ class SanitizingCharField(serializers.CharField):
 
     def to_internal_value(self, data):
         if isinstance(data, str):
-            data = sanitize_text(data)
+            # max_length is None on command (TextField). username and password
+            # are 255, and [NUL]/[SUR] would otherwise push a legal value over it.
+            data = sanitize_text(data, max_length=self.max_length)
         return super().to_internal_value(data)
 
 

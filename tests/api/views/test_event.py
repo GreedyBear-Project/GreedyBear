@@ -567,6 +567,16 @@ class TestEventSanitizationKeepsBatch(BaseEventTestCase):
         stored = RawEvent.objects.get(batch__task_id=res.data["task_id"])
         self.assertEqual(len(stored.data["note"]), 400)
 
+    @patch("api.views.event.async_task", return_value="task-nul-username-max")
+    def test_username_nul_near_max_length_keeps_batch(self, mock_task):
+        # 254 chars + NUL expands to 258, past CharField(max_length=255).
+        dirty = valid_event(self.sensor.id, username="a" * 254 + "\x00")
+        res = self._post_mixed(dirty, extra_clean=1)
+        self._assert_batch_saved(res, 2)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], username__contains="[NUL]")
+        self.assertEqual(stored.username, "a" * 250 + "[NUL]")
+        self.assertEqual(len(stored.username), 255)
+
     @patch("api.views.event.async_task", return_value="task-nul-username")
     def test_nul_in_username_is_sanitised_not_400(self, mock_task):
         dirty = valid_event(self.sensor.id, username="admin\x00")
