@@ -134,7 +134,7 @@ class MLModel(Scorer):
         x = df[self.features].copy()
         for feature in MULTI_VAL_FEATURES:
             x = multi_label_encode(x, feature)
-            x = self.add_missing_features(x)
+        x = self.add_missing_features(x)
 
         result_df = df.copy()
         result_df[self.score_name] = self.predict(x)
