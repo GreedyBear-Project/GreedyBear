@@ -5,7 +5,7 @@ from math import isfinite
 from typing import Any
 
 from greedybear.consts import REQUIRED_ELASTIC_FIELDS, REQUIRED_EVENT_FIELDS
-from greedybear.utils import parse_timestamp
+from greedybear.utils import normalize_ip, parse_timestamp
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,11 @@ class Hit(Mapping):
         self._data = data
         for key in required:
             self.require(key)
+
+        # equivalent IP spellings must map to one canonical form everywhere downstream
+        src_ip = self._data.get("src_ip")
+        if isinstance(src_ip, str) and src_ip.strip():
+            self._data["src_ip"] = normalize_ip(src_ip)
 
     @classmethod
     def from_elastic(cls, raw: dict) -> "Hit":

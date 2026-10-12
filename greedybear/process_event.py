@@ -16,7 +16,7 @@ from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, PayloadRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
 from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, RawEvent
-from greedybear.utils import get_attack_type, is_valid_url
+from greedybear.utils import get_attack_type, is_valid_url, normalize_ip
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _normalize_raw_event_to_hit(raw: RawEvent) -> Hit:
         InvalidHitError: If the event has no source address.
     """
     hit: dict = {
-        "src_ip": raw.src_ip,
+        "src_ip": normalize_ip(raw.src_ip),
         # loaded via a selected_realted
         "_sensor": raw.sensor,
     }

@@ -66,6 +66,20 @@ class TestSensorRepository(CustomTestCase):
         self.assertEqual(result.address, "2001:db8::1")
         self.assertTrue(Sensor.objects.filter(address="2001:db8::1").exists())
 
+    def test_get_or_create_sensor_normalizes_ip(self):
+        """IPv4-mapped IPv6 and plain IPv4 resolve to the same sensor."""
+        mapped = self.repo.get_or_create_sensor("::ffff:8.8.8.8")
+        plain = self.repo.get_or_create_sensor("8.8.8.8")
+        self.assertEqual(mapped.address, "8.8.8.8")
+        self.assertEqual(mapped.pk, plain.pk)
+
+    def test_get_or_create_sensor_normalizes_ipv6(self):
+        """Uppercase and lowercase IPv6 spellings resolve to the same sensor."""
+        upper = self.repo.get_or_create_sensor("2001:DB8::1")
+        lower = self.repo.get_or_create_sensor("2001:db8::1")
+        self.assertEqual(upper.address, "2001:db8::1")
+        self.assertEqual(upper.pk, lower.pk)
+
     def test_get_or_create_sensor_has_empty_label(self):
         """get_or_create_sensor should create a sensor with an empty label."""
         result = self.repo.get_or_create_sensor("192.168.1.10")

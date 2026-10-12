@@ -14,6 +14,11 @@ class TestIocRepository(CustomTestCase):
     def setUp(self):
         self.repo = IocRepository()
 
+    def test_get_ioc_by_name_normalizes_ip(self):
+        ioc = IOC.objects.create(name="2001:db8::1", type="ip")
+        result = self.repo.get_ioc_by_name("2001:DB8:0:0:0:0:0:1")
+        self.assertEqual(result.pk, ioc.pk)
+
     def test_get_ioc_by_name_returns_existing(self):
         result = self.repo.get_ioc_by_name("140.246.171.141")
         self.assertIsNotNone(result)
@@ -703,6 +708,19 @@ class TestIocRepositoryCleanup(CustomTestCase):
         deleted_count = self.repo.delete_old_iocs(cutoff)
 
         self.assertEqual(deleted_count, 0)
+
+    def test_update_ioc_reputation_normalizes_ip(self):
+        ioc = IOC.objects.create(name="2001:db8::1", type="ip", ip_reputation="")
+        self.assertTrue(self.repo.update_ioc_reputation("2001:DB8::1", IpReputation.MASS_SCANNER))
+        ioc.refresh_from_db()
+        self.assertEqual(ioc.ip_reputation, IpReputation.MASS_SCANNER)
+
+    def test_bulk_update_ioc_reputation_normalizes_ips(self):
+        ioc = IOC.objects.create(name="2001:db8::1", type="ip", ip_reputation="")
+        result = self.repo.bulk_update_ioc_reputation(["2001:DB8:0:0:0:0:0:1"], IpReputation.MASS_SCANNER.value)
+        self.assertEqual(result, 1)
+        ioc.refresh_from_db()
+        self.assertEqual(ioc.ip_reputation, IpReputation.MASS_SCANNER.value)
 
     def test_update_ioc_reputation_updates_existing(self):
         IOC.objects.create(name="1.2.3.4", type="ip", ip_reputation="")

@@ -33,6 +33,25 @@ def is_ip_address(string: str) -> bool:
     return True
 
 
+def normalize_ip(ip_str: str) -> str:
+    """
+    Normalizes an IP address string.
+    IPv4 addresses are returned unchanged, IPv4-mapped IPv6 addresses are
+    converted back to IPv4 and other IPv6 addresses are returned in
+    lower-case compressed format while invalid input is stripped.
+    """
+    ip_str = ip_str.strip()
+    try:
+        ip = ip_address(ip_str)
+    except ValueError:
+        return ip_str
+
+    if ip.version == 6 and ip.ipv4_mapped:
+        return str(ip.ipv4_mapped)
+
+    return ip.compressed
+
+
 def is_non_global_ip(value) -> bool:
     """
     Return True when an IP should be treated as non-global/unroutable.

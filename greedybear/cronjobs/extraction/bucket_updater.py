@@ -5,7 +5,7 @@ from datetime import datetime
 from ipaddress import ip_address
 
 from greedybear.cronjobs.repositories import TrendingBucketRepository
-from greedybear.utils import is_non_global_ip, parse_timestamp
+from greedybear.utils import is_non_global_ip, normalize_ip, parse_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _bucket_key_from_hit(hit: dict) -> BucketKey | None:
     if not attacker_ip or not feed_type or not timestamp:
         return None
 
-    normalized_ip = str(attacker_ip)
+    normalized_ip = normalize_ip(str(attacker_ip))
     try:
         parsed_ip = ip_address(normalized_ip)
     except ValueError:

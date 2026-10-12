@@ -35,6 +35,14 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertNotIn("sessions", response.data)
         self.assertEqual(len(response.data["sources"]), 2)
 
+    def test_ipv6_query_is_normalized(self):
+        """Test that equivalent IPv6 spellings find the session stored in normalized form."""
+        ioc = IOC.objects.create(name="2001:db8::1", type=IocType.IP.value)
+        CowrieSession.objects.create(session_id=0xABC123, source=ioc, duration=10, start_time=self.current_time)
+        response = self.client.get("/api/cowrie_session?query=2001:DB8:0:0:0:0:0:1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sources"], ["2001:db8::1"])
+
     def test_include_similar_excludes_non_positive_duration_sessions(self):
         """Test that include_similar only returns sessions with duration > 0."""
         CowrieSession.objects.create(
