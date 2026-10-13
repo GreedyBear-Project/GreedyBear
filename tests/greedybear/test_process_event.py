@@ -11,6 +11,7 @@ from django.utils import timezone
 from api.serializers.events import EventSerializer
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+from greedybear.cronjobs.extraction.hit import InvalidHitError
 from greedybear.cronjobs.repositories import IocRepository, PayloadRepository
 from greedybear.models import IOC, CommandSequence, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
@@ -386,6 +387,17 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.assertIn("0 IOCs", self.batch.last_error)
 
     @patch(PATCH_UPDATE_SCORES)
+    def test_non_global_source_ip_is_kept(self, mock_scores_cls):
+        self._make_raw(src_ip="192.168.1.50")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.ioc_count, 1)
+        self.assertTrue(IOC.objects.filter(name="192.168.1.50").exists())
+
+    @patch(PATCH_UPDATE_SCORES)
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
     @patch(PATCH_IOC_PROCESSOR)
     @patch(PATCH_IOCS_FROM_HITS)
@@ -603,7 +615,7 @@ class TestProcessIncomingEvent(CustomTestCase):
         raw_event = RawEvent.objects.filter(batch=self.batch).first()
         self.assertFalse(raw_event.processed)
 
-    @patch("greedybear.process_event._normalize_raw_event_to_hit", return_value={"src_ip": "192.168.1.1"})
+    @patch("greedybear.process_event._normalize_raw_event_to_hit", side_effect=InvalidHitError("no source address"))
     def test_eliminated_raise_all_events_invalid_graceful_return(self, mock_normalize):
         """
         Verifies that when all events fail normalization, the function
@@ -623,6 +635,7 @@ class TestProcessIncomingEvent(CustomTestCase):
 
         # Assert that control flow handled it perfectly
         self.assertEqual(self.batch.status, "failed")
+        self.assertIn("invalid after normalization", self.batch.last_error)
 
         self.assertEqual(self.batch.ioc_count, 0)
 

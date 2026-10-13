@@ -233,6 +233,16 @@ class IocsFromHitsTestCase(CustomTestCase):
         ioc = iocs[0]
         self.assertEqual(ioc.name, "8.8.8.8")
 
+    def test_keeps_non_global_addresses_when_allowed(self):
+        hits = [
+            self._create_hit(src_ip="192.168.1.1"),
+            self._create_hit(src_ip="127.0.0.1"),
+            self._create_hit(src_ip="fc00::1"),
+            self._create_hit(src_ip="8.8.8.8"),
+        ]
+        iocs = iocs_from_hits(hits, allow_non_global=True)
+        self.assertEqual({ioc.name for ioc in iocs}, {"192.168.1.1", "127.0.0.1", "fc00::1", "8.8.8.8"})
+
     def test_filters_multicast_addresses(self):
         hits = [
             self._create_hit(src_ip="224.0.0.1"),
