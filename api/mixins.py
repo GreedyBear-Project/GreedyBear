@@ -26,13 +26,16 @@ class CachedResponseMixin(APIView):
     def cache_key(self) -> str | None:
         """Versioned cache key for this request, or None when caching is disabled.
         Computed once on first access (during the read)
-        and memoized on the per-request view instance."""
+        and memoized on the per-request view instance.
+        The negotiated media type is part of the key material,
+        because a view may select its output format from the Accept header."""
         if self.cache_namespace is None or not self._cache_enabled():
             return None
         version = self.cache.get_data_version(self.cache_version_key)
         sorted_params = sorted(self.request.query_params.lists())
         params_string = urllib.parse.urlencode(sorted_params, doseq=True)
-        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}"
+        media_type = getattr(self.request, "accepted_media_type", None) or ""
+        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}|{media_type}"
         return build_versioned_key(self.cache_namespace, version, key_material)
 
     def get_cached_response(self) -> HttpResponse | None:
