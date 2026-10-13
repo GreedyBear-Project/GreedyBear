@@ -66,6 +66,8 @@ class CachedResponseMixin(APIView):
             return False
         if not response.is_rendered:
             response.render()
+        if not response.rendered_content:
+            return False
         self.cache.set(
             self.cache_key,
             {

@@ -198,6 +198,54 @@ class FeedsCacheInvalidationEndpointTest(CustomTestCase):
         self.assertEqual(self._get_ioc_names(fresh), baseline | {new_ip})
 
 
+@override_settings(CACHES=TEST_CACHES, FEEDS_LICENSE="")
+class EmptyFeedResponseCachingTest(CustomTestCase):
+    """Ensure empty TXT and CSV feeds succeed without being cached."""
+
+    URLS = (
+        "/api/feeds/all/all/recent.txt",
+        "/api/feeds/all/all/recent.csv",
+    )
+
+    def setUp(self):
+        super().setUp()
+
+        # CustomTestCase creates sample IOCs.
+        # Remove them so the feed is genuinely empty.
+        IOC.objects.all().delete()
+
+        self.cache = Cache(API_CACHE_ALIAS)
+        self.cache.clear()
+
+        # Allow the test to inspect HTTP 500 responses.
+        self.client.raise_request_exception = False
+
+    def test_empty_txt_and_csv_feeds_are_not_cached(self):
+        for url in self.URLS:
+            with self.subTest(url=url):
+                cache_key = build_versioned_key(
+                    "feeds",
+                    self.cache.get_data_version(IOC_DATA_VERSION_KEY),
+                    f"SimpleFeedView|{url}|",
+                )
+
+                # Request the empty feed twice.
+                for _ in range(2):
+                    response = self.client.get(url)
+
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.content, b"")
+
+                    content_type = response.get("Content-Type", "")
+                    self.assertNotEqual(
+                        content_type.split(";")[0].lower(),
+                        "text/html",
+                    )
+
+                    # An empty response must never enter the cache.
+                    self.assertIsNone(self.cache.get(cache_key))
+
+
 class FeedsCacheInvalidationPipelineTest(E2ETestCase):
     """Ensures a working pipeline invalidation trigger."""
 
