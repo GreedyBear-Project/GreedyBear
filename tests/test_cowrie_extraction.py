@@ -322,6 +322,35 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         self.assertTrue(session_record.login_attempt)
         self.mock_session_repo.add_credential.assert_called_once_with(session_record, "root", "password123")
 
+    def test_process_session_hit_login_without_credentials(self):
+        """A login event with no username and no password stores no credential."""
+        for fields in ({}, {"username": "", "password": ""}, {"username": None, "password": None}):
+            with self.subTest(fields=fields):
+                self.mock_session_repo.add_credential.reset_mock()
+                session_record = Mock(login_attempt=False, interaction_count=0)
+                hit = {"eventid": "cowrie.login.failed", "timestamp": "2023-01-01T10:00:01", **fields}
+
+                self.strategy._process_session_hit(session_record, Hit(hit), Mock(name="1.2.3.4"))
+
+                self.assertTrue(session_record.login_attempt)
+                self.mock_session_repo.add_credential.assert_not_called()
+
+    def test_process_session_hit_login_with_one_empty_field(self):
+        """A login event with only a username or only a password is still stored."""
+        for fields, expected in (
+            ({"username": "root", "password": ""}, ("root", "")),
+            ({"username": "", "password": "password123"}, ("", "password123")),
+            ({"username": "root"}, ("root", "")),
+        ):
+            with self.subTest(fields=fields):
+                self.mock_session_repo.add_credential.reset_mock()
+                session_record = Mock(interaction_count=0)
+                hit = {"eventid": "cowrie.login.success", "timestamp": "2023-01-01T10:00:01", **fields}
+
+                self.strategy._process_session_hit(session_record, Hit(hit), Mock(name="1.2.3.4"))
+
+                self.mock_session_repo.add_credential.assert_called_once_with(session_record, *expected)
+
     def test_process_session_hit_command_input(self):
         """Test processing of command input event."""
         session_record = Mock()

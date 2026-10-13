@@ -274,7 +274,9 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 session_record.login_attempt = True
                 username = normalize_credential_field(hit.get("username"))
                 password = normalize_credential_field(hit.get("password"))
-                self.session_repo.add_credential(session_record, username, password)
+                # still a login attempt, but nothing to store if both are empty
+                if username or password:
+                    self.session_repo.add_credential(session_record, username, password)
 
             case "cowrie.command.input":
                 self.log.info(f"found a command execution from {ioc.name}")
