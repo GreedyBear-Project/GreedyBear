@@ -318,10 +318,11 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
 
         logger.debug(f"[task={task_id}] {len(hits)} valid hits")
 
-        ioc_objects = iocs_from_hits(hits)
+        # sensors may sit in a LAN and be attacked from it, so keep non-global sources
+        ioc_objects = iocs_from_hits(hits, allow_non_global=True)
 
         if not ioc_objects:
-            error_msg = "iocs_from_hits returned 0 IOCs, all source IPs may be non-global or filtered"
+            error_msg = "iocs_from_hits returned 0 IOCs, all source IPs may be malformed"
             logger.error(f"[task={task_id}] {error_msg}")
             batch.status = EventStatusType.FAILED
             batch.last_error = error_msg

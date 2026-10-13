@@ -101,17 +101,18 @@ def group_valid_hits_by_ip(hits: Sequence[Hit]) -> dict[str, list[Hit]]:
     return valid_hits_by_ip
 
 
-def iocs_from_hits(hits: Sequence[Hit]) -> list[IOC]:
+def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[IOC]:
     """
     Convert Elasticsearch hits into IOC objects with associated sensors.
-    Groups hits by source IP, filters out non-global addresses, and
-    constructs IOC objects with aggregated data.
+    Groups hits by source IP, filters out non-global addresses unless allowed,
+    and constructs IOC objects with aggregated data.
 
     Performs bulk prefetching before the main loop to eliminate N+1 queries
     by injecting the bulk data into the helper evaluation functions.
 
     Args:
         hits: List of Elasticsearch hit dictionaries.
+        allow_non_global: Keep IOCs for non-global addresses.
 
     Returns:
         List of IOC instances, one per unique source IP.
@@ -131,7 +132,7 @@ def iocs_from_hits(hits: Sequence[Hit]) -> list[IOC]:
     as_repository = ASRepository()  # single instance for this batch
     for ip, ip_hits in valid_hits_by_ip.items():
         extracted_ip = ip_address(ip)  # infallible: validated above
-        if is_non_global_ip(extracted_ip):
+        if not allow_non_global and is_non_global_ip(extracted_ip):
             continue
 
         # Single pass over ip_hits to accumulate all derived data
