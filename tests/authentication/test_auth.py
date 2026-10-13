@@ -237,20 +237,41 @@ class TestUserAuth(CustomOAuthTestCase):
         self.assertEqual(200, response.status_code, msg=msg)
         self.assertEqual(self.testregisteruser["email"], content["email"], msg=msg)
 
+
     def test_password_reset_flow_200(self):
-        # register new user
+        # Register a new user.
         self.__register_user(body=self.testregisteruser)
         user = User.objects.get(username=self.testregisteruser["username"])
+
+        # Activate the test user so the login endpoint accepts the account.
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+
         email_obj = user.email_addresses.first()
-        email_obj.is_verified = True  # cant request pwd reset if email not verified
+        email_obj.is_verified = True  # Password reset requires a verified email.
         email_obj.save()
 
-        # step 1: request password reset email
+        # Log in to obtain a valid authentication token.
+        response = self.client.post(
+            login_uri,
+            {
+                "username": user.username,
+                "password": self.testregisteruser["password"],
+            },
+        )
+        self.assertEqual(200, response.status_code, msg=response.content)
+
+        # Retrieve the token created by the login endpoint.
+        old_token = AuthToken.objects.get(user=user)
+
+        # Verify that the existing token works before the password reset.
+        response = self.client.get("/api/auth/authentication")
+        self.assertEqual(200, response.status_code, msg=response.content)
+
+        # Step 1: Request a password reset email.
         response = self.client.post(
             request_pwd_reset_uri,
-            {
-                "email": self.testregisteruser["email"],
-            },
+            {"email": self.testregisteruser["email"]},
         )
         content = response.json()
         msg = (response, content)
@@ -261,11 +282,11 @@ class TestUserAuth(CustomOAuthTestCase):
         pwd_reset_obj = PasswordResetToken.objects.get(email=email_obj)
         new_password = "new_password_for_test_1234"
 
-        # step 2: reset-password submission
+        # Step 2: Reset the password.
         response = self.client.post(
             reset_pwd_uri,
             {
-                "key": pwd_reset_obj.key,
+                "key": str(pwd_reset_obj.key),
                 "password": new_password,
             },
         )
@@ -273,8 +294,20 @@ class TestUserAuth(CustomOAuthTestCase):
         msg = (response, content, "check_password should return True")
 
         self.assertEqual(200, response.status_code, msg=msg)
+
+        # Verify that the password was changed.
         user.refresh_from_db()
         self.assertTrue(user.check_password(new_password), msg=msg)
+
+        # Verify that the old authentication token has been deleted.
+        self.assertFalse(
+            AuthToken.objects.filter(pk=old_token.pk).exists(),
+            "Existing authentication token should be revoked after password reset.",
+        )
+
+        # Verify that the old token can no longer access the protected endpoint.
+        response = self.client.get("/api/auth/authentication")
+        self.assertEqual(401, response.status_code)
 
     def test_min_password_lenght_400(self):
         self.assertEqual(User.objects.count(), 1)

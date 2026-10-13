@@ -8,6 +8,8 @@ from django.conf import settings
 from django.contrib.auth import login
 from durin import views as durin_views
 from durin.models import AuthToken
+from rest_email_auth import models as rest_email_auth_models
+from rest_email_auth.serializers import PasswordResetSerializer
 from rest_framework import status
 from rest_framework.decorators import (
     action,
@@ -49,12 +51,22 @@ class PasswordResetRequestView(rest_email_auth.views.PasswordResetRequestView):
     permission_classes: list = []
     throttle_classes: list = [POSTUserRateThrottle]
 
+class GreedyBearPasswordResetSerializer(PasswordResetSerializer):
+    def save(self):
+        token = rest_email_auth_models.PasswordResetToken.objects.select_related(
+            "email__user"
+        ).get(key=self.validated_data["key"])
+
+        user = token.email.user
+        result = super().save()
+        revoke_other_tokens(user=user)
+        return result
 
 class PasswordResetView(rest_email_auth.views.PasswordResetView):
     authentication_classes: list = []
     permission_classes: list = []
     throttle_classes: list = [POSTUserRateThrottle]
-
+    serializer_class = GreedyBearPasswordResetSerializer
 
 class EmailVerificationView(rest_email_auth.views.EmailVerificationView):
     authentication_classes: list = []
