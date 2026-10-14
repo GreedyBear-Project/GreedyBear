@@ -237,7 +237,6 @@ class TestUserAuth(CustomOAuthTestCase):
         self.assertEqual(200, response.status_code, msg=msg)
         self.assertEqual(self.testregisteruser["email"], content["email"], msg=msg)
 
-
     def test_password_reset_flow_200(self):
         # Register a new user.
         self.__register_user(body=self.testregisteruser)
