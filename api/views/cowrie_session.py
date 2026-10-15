@@ -12,7 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.mixins import RequestLoggingMixin
+from api.mixins import QueryParamValidationMixin, RequestLoggingMixin
 from api.serializers import CowrieSessionRequestSerializer, CowrieSessionSerializer
 from api.views.utils import save_request_source
 from greedybear.models import CommandSequence, CowrieSession, ViewType
@@ -44,18 +44,19 @@ def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Ad
         parameters=[CowrieSessionRequestSerializer],
         responses={
             200: CowrieSessionSerializer,
-            400: OpenApiResponse(description="Missing or invalid `query`/`id` parameter, or both were given."),
+            400: OpenApiResponse(description="Missing or invalid `query`/`id` parameter, both were given, or an unknown query parameter was given."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
             404: OpenApiResponse(description="No matching sessions found."),
         },
     )
 )
-class CowrieSessionView(RequestLoggingMixin, APIView):
+class CowrieSessionView(RequestLoggingMixin, QueryParamValidationMixin, APIView):
     authentication_classes = [CookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
+    serializer_class = CowrieSessionRequestSerializer
 
     def get(self, request: Request, *args, **kwargs):
-        request_serializer = CowrieSessionRequestSerializer(data=request.query_params.dict())
+        request_serializer = self.serializer_class(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
         save_request_source(request, ViewType.COWRIE_SESSION_VIEW.value)
 

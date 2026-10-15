@@ -7,14 +7,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.mixins import RequestLoggingMixin
+from api.mixins import QueryParamValidationMixin, RequestLoggingMixin
 from api.serializers import HoneypotRequestSerializer
 from greedybear.models import Honeypot
 
 
-class HoneypotView(RequestLoggingMixin, APIView):
+class HoneypotView(RequestLoggingMixin, QueryParamValidationMixin, APIView):
     authentication_classes = [CookieTokenAuthentication]
     permission_classes = [AllowAny]
+    serializer_class = HoneypotRequestSerializer
 
     @extend_schema(
         tags=["Honeypots"],
@@ -27,11 +28,11 @@ class HoneypotView(RequestLoggingMixin, APIView):
                 response={"type": "array", "items": {"type": "string"}},
                 description="A JSON response containing the names of the honeypots.",
             ),
-            400: OpenApiResponse(description="Invalid query parameter value."),
+            400: OpenApiResponse(description="Invalid or unknown query parameter."),
         },
     )
     def get(self, request: Request, *args, **kwargs):
-        request_serializer = HoneypotRequestSerializer(data=request.query_params.dict())
+        request_serializer = self.serializer_class(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
         honeypots = Honeypot.objects.all()
         if request_serializer.validated_data["only_active"]:
