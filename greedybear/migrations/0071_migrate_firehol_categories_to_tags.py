@@ -19,7 +19,7 @@ def noop(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("greedybear", "0069_migrate_credential_reuse_tags"),
+        ("greedybear", "0070_alter_credential_password_alter_credential_username"),
     ]
 
     operations = [

@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("greedybear", "0071_remove_ioc_firehol_categories"),
+        ("greedybear", "0072_remove_ioc_firehol_categories"),
     ]
 
     operations = [

@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('greedybear', '0070_migrate_firehol_categories_to_tags'),
+        ('greedybear', '0071_migrate_firehol_categories_to_tags'),
     ]
 
     operations = [

@@ -503,8 +503,8 @@ class TestMigrateCredentialReuseTags(MigrationTestCase):
 class TestMigrateFireHolCategories(MigrationTestCase):
     """Tests that IOC.firehol_categories becomes blocklist tags."""
 
-    migrate_from = "0069_migrate_credential_reuse_tags"
-    migrate_to = "0070_migrate_firehol_categories_to_tags"
+    migrate_from = "0070_alter_credential_password_alter_credential_username"
+    migrate_to = "0071_migrate_firehol_categories_to_tags"
 
     def test_each_category_becomes_a_tag(self):
         """One IOC with two categories produces two tags."""
