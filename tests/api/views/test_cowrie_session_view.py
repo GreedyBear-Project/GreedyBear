@@ -158,6 +158,12 @@ class CowrieSessionViewTestCase(CustomTestCase):
 
     # # # # # Parameter Validation Tests # # # # #
 
+    def test_unknown_param_is_rejected(self):
+        """Test that view returns BadRequest for an unknown query parameter."""
+        response = self.client.get("/api/cowrie_session?query=140.246.171.141&include_commands=true")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"include_commands": ["Unknown query parameter."]})
+
     def test_invalid_query_parameter(self):
         """Test that non-IP, non-hash queries are treated as password lookups."""
         response = self.client.get("/api/cowrie_session?query=invalid-input}")

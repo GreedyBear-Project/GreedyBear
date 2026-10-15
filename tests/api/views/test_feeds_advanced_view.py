@@ -60,7 +60,7 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertEqual(firehol_values, ["greensnow"])
 
     def test_delimeter(self):
-        response = self.client.get("/api/feeds/advanced/?format=ndjson&include_mass_scanners")
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
         body = b"".join(response.streaming_content).decode("utf-8")
         lines = [line for line in body.split("\n") if line.strip()]
         value = 1
@@ -90,6 +90,12 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
     def test_400_feeds(self):
         response = self.client.get("/api/feeds/advanced/?attack_type=test")
         self.assertEqual(response.status_code, 400)
+
+    def test_400_feeds_unknown_param(self):
+        # include_mass_scanners belongs to the public feeds; the advanced feed filters with include_reputation/exclude_reputation
+        response = self.client.get("/api/feeds/advanced/?include_mass_scanners")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"include_mass_scanners": ["Unknown query parameter."]})
 
     def test_200_feeds_pagination(self):
         response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1")
@@ -499,6 +505,41 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/consume/invalid-token-123")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
+
+    def test_consume_feed_params_in_query_are_rejected(self):
+        """A consumed feed takes its params from the token, so feed params in the query string are rejected."""
+        share_response = self.client.post("/api/feeds/share?asn=11111")
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        # format_ too: the consume view inherits from the advanced feed, which accepts it
+        response = self.client.get(f"/api/feeds/consume/{token}?min_score=0.5&format_=txt")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.json()["errors"]), {"min_score", "format_"})
+
+    def test_consume_page_params_are_accepted(self):
+        """Page params still work on a consumed paginated feed."""
+        share_response = self.client.post("/api/feeds/share?paginate=true")
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        response = self.client.get(f"/api/feeds/consume/{token}?page=1&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]["iocs"]), 1)
+
+    def test_share_unknown_param_is_rejected(self):
+        """Params the advanced feed does not know are rejected instead of being stored in the token."""
+        response = self.client.post("/api/feeds/share?asn=11111&page=2")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
+
+    def test_share_legacy_format_name_is_accepted(self):
+        """format_, the legacy name of format, still selects the format of the consumed feed."""
+        share_response = self.client.post("/api/feeds/share?format_=txt")
+        self.assertEqual(share_response.status_code, 200)
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        consume_response = self.client.get(f"/api/feeds/consume/{token}")
+        self.assertEqual(consume_response.status_code, 200)
+        self.assertTrue(consume_response["Content-Type"].startswith("text/plain"))
 
     def test_shareable_feed_expired_token(self):
         """Consuming a tampered/expired token returns 400."""
