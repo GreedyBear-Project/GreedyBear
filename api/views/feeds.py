@@ -477,6 +477,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
             "Encode the supplied advanced-feed query parameters into a signed share token and "
             "return its public consume/revoke URLs. The optional `reason` is stored for auditing only."
         ),
+        request=None,
         parameters=[ShareFeedRequestSerializer],
         responses={
             200: ShareTokenResponseSerializer,
@@ -512,6 +513,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
     @extend_schema(
         summary="Revoke a shared feed token",
         description="Revoke a previously shared token (`token` path param). Only the creator or a staff user may revoke it.",
+        request=None,
         responses={
             200: OpenApiResponse(description="Confirmation that the token was revoked."),
             400: OpenApiResponse(description="Token is missing or has an invalid signature."),
