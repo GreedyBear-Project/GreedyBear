@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from django.db import connection
+from django.db import DataError, connection, transaction
 from django.db.models.functions import Now
 
 from greedybear.models import FireHolList, IocType
@@ -17,7 +17,7 @@ class FireHolRepository:
         """Initialize the repository."""
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def get_or_create(self, ip_address: str, source: str) -> tuple[FireHolList, bool]:
+    def get_or_create(self, ip_address: str, source: str) -> tuple[FireHolList | None, bool]:
         """
         Get an existing FireHol entry or create a new one.
 
@@ -25,18 +25,29 @@ class FireHolRepository:
         the entry was last seen on the blocklist. Cleanup deletes by `added`,
         so without this an entry still on the list would be dropped.
 
+        The CIDR index means Postgres now parses every stored value, and it
+        is stricter than the validators used before this point. A value they
+        accept can still be refused here, so it is skipped rather than
+        allowed to abort the whole download.
+
         Args:
             ip_address: IP address or CIDR block.
             source: Source name (e.g., 'blocklist_de', 'greensnow').
 
         Returns:
-            Tuple of (FireHolList object, created_flag) where created_flag is True if new.
+            Tuple of (FireHolList object or None, created_flag). The object is
+            None when the value could not be stored.
         """
-        entry, created = FireHolList.objects.update_or_create(
-            ip_address=ip_address,
-            source=source,
-            defaults={"added": Now()},
-        )
+        try:
+            with transaction.atomic():
+                entry, created = FireHolList.objects.update_or_create(
+                    ip_address=ip_address,
+                    source=source,
+                    defaults={"added": Now()},
+                )
+        except DataError:
+            self.log.warning(f"Skipping entry Postgres cannot store as an address: {ip_address}")
+            return None, False
         return entry, created
 
     def get_entries_by_ip(self) -> dict[str, list[str]]:

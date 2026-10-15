@@ -29,6 +29,14 @@ class TestFireHolRepository(CustomTestCase):
         self.assertEqual(entry.ip_address, "5.6.7.8")
         self.assertEqual(FireHolList.objects.filter(ip_address="5.6.7.8", source="greensnow").count(), 1)
 
+    def test_get_or_create_skips_unstorable_value(self):
+        """A value Postgres cannot parse is skipped, not raised."""
+        entry, created = self.repo.get_or_create("not-an-ip/24", "greensnow")
+
+        self.assertIsNone(entry)
+        self.assertFalse(created)
+        self.assertFalse(FireHolList.objects.filter(ip_address="not-an-ip/24").exists())
+
     def test_get_or_create_refreshes_added(self):
         """An entry seen again has its added timestamp moved forward."""
         old_date = datetime.now() - timedelta(days=20)

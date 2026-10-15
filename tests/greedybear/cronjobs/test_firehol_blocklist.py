@@ -34,16 +34,6 @@ class FireHolBlocklistCronTestCase(CustomTestCase):
         self.assertEqual(tags.count(), 1)
         self.assertEqual(tags[0].value, "dshield")
 
-    def test_malformed_cidr_entry_is_skipped(self):
-        """A junk entry does not abort the containment query."""
-        FireHolList.objects.create(ip_address="not-an-ip/24", source="greensnow")
-        FireHolList.objects.create(ip_address="140.246.171.0/24", source="dshield")
-
-        self._run_tagging()
-
-        values = sorted(Tag.objects.filter(ioc=self.ioc, source="firehol").values_list("value", flat=True))
-        self.assertEqual(values, ["dshield"])
-
     def test_ip_on_two_lists_gets_two_tags(self):
         """Each blocklist an IOC appears on becomes its own tag."""
         FireHolList.objects.create(ip_address=self.ioc.name, source="greensnow")
