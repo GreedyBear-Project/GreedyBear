@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import tag
 
 from . import MigrationTestCase
@@ -544,3 +544,25 @@ class TestMigrateFireHolCategories(MigrationTestCase):
         Tag = new_state.apps.get_model(self.app_name, "Tag")
 
         self.assertEqual(Tag.objects.get(ioc_id=ioc.id, source="firehol").added, seen_at)
+
+
+@tag("migration")
+class TestFireHolCidrIndex(MigrationTestCase):
+    """Tests that the CIDR lookup index is created with a usable predicate."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_firehollist_cidr_gist"
+
+    def test_index_is_created(self):
+        """A wrong predicate would leave the index covering no rows."""
+        self.apply_tested_migration()
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'firehollist_cidr_gist'")
+            rows = cursor.fetchall()
+
+        self.assertEqual(len(rows), 1)
+        definition = rows[0][0]
+        self.assertIn("gist", definition)
+        self.assertIn("inet_ops", definition)
+        self.assertIn("'%/%'", definition)

@@ -25,10 +25,10 @@ class FireHolRepository:
         the entry was last seen on the blocklist. Cleanup deletes by `added`,
         so without this an entry still on the list would be dropped.
 
-        The CIDR index means Postgres now parses every stored value, and it
-        is stricter than the validators used before this point. A value they
-        accept can still be refused here, so it is skipped rather than
-        allowed to abort the whole download.
+        The CIDR index means Postgres now parses every stored value, and its
+        parser is not the same one the validators use. A value they accept
+        can still be refused here, so it is skipped rather than allowed to
+        abort the whole download.
 
         Args:
             ip_address: IP address or CIDR block.
