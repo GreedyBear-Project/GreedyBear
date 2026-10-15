@@ -139,6 +139,44 @@ class TestModelUnavailable(CustomTestCase):
         self.assertTrue((df["mock_score"] == 0).all())
 
 
+class TestScoreMultipleMultiValueFeatures(CustomTestCase):
+    """score() must encode every multi-value feature, not only the first one."""
+
+    ENCODED_FEATURES = ["feature1", "has_A", "has_B", "has_80", "has_443"]
+    DATA = pd.DataFrame(
+        {
+            "feature1": [1, 2, 3],
+            "honeypots": [["A"], ["B"], ["A", "B"]],
+            "ports": [[80], [443], [80, 443]],
+        }
+    )
+
+    class MockRFClassifier(RFModel, Classifier):
+        def __init__(self):
+            super().__init__("Mock Random Forest Classifier", "mock_score")
+
+        @property
+        def features(self) -> list[str]:
+            return ["feature1", "honeypots", "ports"]
+
+        @property
+        def untrained_model(self):
+            return Mock()
+
+    @patch("greedybear.cronjobs.scoring.ml_model.MULTI_VAL_FEATURES", ["honeypots", "ports"])
+    def test_score_encodes_all_multi_value_features(self):
+        classifier = self.MockRFClassifier()
+        classifier.model = Mock()
+        classifier.model.feature_names_in_ = self.ENCODED_FEATURES
+        classifier.model.predict_proba.return_value = np.array([[0.1, 0.9], [0.2, 0.8], [0.3, 0.7]])
+
+        df = classifier.score(self.DATA)
+
+        scored_input = classifier.model.predict_proba.call_args.args[0]
+        self.assertEqual(list(scored_input.columns), self.ENCODED_FEATURES)
+        self.assertEqual(list(df["mock_score"]), [0.9, 0.8, 0.7])
+
+
 class TestRecallAucZeroPositives(CustomTestCase):
     """Test that recall_auc handles zero positive samples without crashing."""
 

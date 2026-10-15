@@ -351,7 +351,7 @@ class ShareTokenResponseSerializer(serializers.Serializer):
     """Response for the share endpoint: the public consume and revoke URLs."""
 
     url = serializers.URLField(help_text="Public URL that consumes the shared feed.")
-    revoke_url = serializers.URLField(help_text="URL that revokes the share token.")
+    revoke_url = serializers.URLField(help_text="URL to send an authenticated POST request to in order to revoke the share token.")
 
 
 class ShareTokenListItemSerializer(serializers.Serializer):

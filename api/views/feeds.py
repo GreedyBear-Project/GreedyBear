@@ -460,9 +460,12 @@ class ConsumeFeedView(AdvancedFeedView):
 class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
     """Create, list and revoke shareable feed tokens.
 
-    Share/revoke are intentionally GET-able so the links can be opened directly
-    in a browser. Share stores the raw query params in the signed token so
-    FeedsConsumeView can replay them through AdvancedFeedRequestSerializer.
+    Share and revoke are both POST, consistent with the other mutating feed
+    endpoints; revoke isn't DELETE because it only flips a flag on the token
+    rather than deleting it. Only the public, rate-limited ConsumeFeedView stays
+    GET so a shared link can be opened directly in a browser. Share stores the
+    raw query params in the signed token so ConsumeFeedView can replay them
+    through AdvancedFeedRequestSerializer.
     """
 
     permission_classes = [IsAuthenticated]
@@ -474,6 +477,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
             "Encode the supplied advanced-feed query parameters into a signed share token and "
             "return its public consume/revoke URLs. The optional `reason` is stored for auditing only."
         ),
+        request=None,
         parameters=[ShareFeedRequestSerializer],
         responses={
             200: ShareTokenResponseSerializer,
@@ -509,6 +513,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
     @extend_schema(
         summary="Revoke a shared feed token",
         description="Revoke a previously shared token (`token` path param). Only the creator or a staff user may revoke it.",
+        request=None,
         responses={
             200: OpenApiResponse(description="Confirmation that the token was revoked."),
             400: OpenApiResponse(description="Token is missing or has an invalid signature."),

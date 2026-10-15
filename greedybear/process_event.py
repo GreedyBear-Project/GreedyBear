@@ -51,7 +51,7 @@ def _normalize_raw_event_to_hit(raw: RawEvent) -> Hit:
     if raw.password:
         hit["password"] = raw.password
 
-    if raw.username and raw.password:
+    if raw.username or raw.password:
         hit["_credential"] = {
             "username": raw.username,
             "password": raw.password,

@@ -93,13 +93,20 @@ class TestNormalizeRawEventToHit(CustomTestCase):
         self.assertEqual(result["_credential"]["username"], "admin")
         self.assertEqual(result["_credential"]["password"], "secret")
 
-    def test_no_credential_key_without_password(self):
+    def test_credential_key_added_without_password(self):
         raw = self._raw(src_ip="1.2.3.4", username="admin", password="")
         result = _normalize_raw_event_to_hit(raw)
-        self.assertNotIn("_credential", result)
+        self.assertEqual(result["_credential"]["username"], "admin")
+        self.assertEqual(result["_credential"]["password"], "")
 
-    def test_no_credential_key_without_username(self):
+    def test_credential_key_added_without_username(self):
         raw = self._raw(src_ip="1.2.3.4", username="", password="secret")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertEqual(result["_credential"]["username"], "")
+        self.assertEqual(result["_credential"]["password"], "secret")
+
+    def test_no_credential_key_without_username_and_password(self):
+        raw = self._raw(src_ip="1.2.3.4", username="", password="")
         result = _normalize_raw_event_to_hit(raw)
         self.assertNotIn("_credential", result)
 

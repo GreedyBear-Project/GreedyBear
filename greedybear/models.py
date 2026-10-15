@@ -209,8 +209,8 @@ class CommandSequence(models.Model):
 
 
 class Credential(models.Model):
-    username = models.CharField(max_length=256, blank=False)
-    password = models.CharField(max_length=256, blank=False)
+    username = models.CharField(max_length=256, blank=True)
+    password = models.CharField(max_length=256, blank=True)
     protocol = models.CharField(max_length=50, blank=True, default="")
     sources = models.ManyToManyField(
         "IOC",

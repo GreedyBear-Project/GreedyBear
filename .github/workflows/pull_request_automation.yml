@@ -31,8 +31,6 @@ jobs:
       use_prettier: true
       use_stylelint: false
 
-      run_codeql: true
-
       use_react: true
       check_packages_licenses: false
       use_vitest: true
