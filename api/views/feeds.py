@@ -318,10 +318,6 @@ class AdvancedFeedView(BaseFeedView):
     pagination_class = CustomPageNumberPagination
     include_sensors = True
 
-    def get_allowed_query_params(self) -> set[str]:
-        """Also accept format_, the legacy name of format that the wiki still documents."""
-        return super().get_allowed_query_params() | {"format_"}
-
     def get_queryset(self) -> QuerySet:
         """Overrides base class to include credential count,
         sensor information and, when verbose, the hashes of the payloads seen from each IOC."""
@@ -499,10 +495,9 @@ class ShareTokenViewSet(RequestLoggingMixin, QueryParamValidationMixin, ViewSet)
     throttle_classes = [FeedsAdvancedThrottle]
 
     def get_allowed_query_params(self) -> set[str]:
-        """Only the share action reads query params: the share serializer's fields,
-        plus format_, the legacy name of format that the wiki still documents."""
+        """Only the share action reads query params: the fields of ShareFeedRequestSerializer."""
         if getattr(self, "action", None) == "share":
-            return set(ShareFeedRequestSerializer().fields.keys()) | {"format_"}
+            return set(ShareFeedRequestSerializer().fields.keys())
         return set()
 
     @extend_schema(
