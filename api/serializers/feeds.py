@@ -93,15 +93,10 @@ class BaseFeedRequestSerializer(serializers.Serializer):
     format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21", "ndjson"], default="json", help_text="Output representation.")
 
     def to_internal_value(self, data: Mapping) -> dict:
-        """Normalize raw query params before field validation:
-        - lower-case all string values
-        - accept format_ (legacy name) as an alias for format
-        """
+        """Normalize raw query params before field validation by lower-casing all string values."""
         logger.debug("Normalizing raw query")
         if isinstance(data, Mapping):
             data = {key: value.lower() if isinstance(value, str) else value for key, value in data.items()}
-            if "format_" in data and "format" not in data:
-                data["format"] = data["format_"]
         return super().to_internal_value(data)
 
     def validate_ordering(self, ordering: str) -> str:

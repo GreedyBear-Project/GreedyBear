@@ -174,12 +174,6 @@ class FeedsViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"], {"feed_size": ["Unknown query parameter."]})
 
-    def test_400_feeds_pagination_rejects_legacy_format_name(self):
-        # format_, the legacy name of format, is only accepted by the advanced feed
-        response = self.client.get("/api/feeds/?page_size=10&page=1&format_=csv")
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["errors"], {"format_": ["Unknown query parameter."]})
-
     def test_400_feeds_pagination_rejects_format(self):
         # the paginated feed is always JSON
         response = self.client.get("/api/feeds/?page_size=10&page=1&format=csv")
