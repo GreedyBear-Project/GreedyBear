@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from greedybear.models import EventStatus, Sensor
-from greedybear.utils import is_ip_address
+from greedybear.utils import is_ip_address, normalize_ip
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ class SensorCreateSerializer(serializers.ModelSerializer):
         """
         if not is_ip_address(value):
             raise serializers.ValidationError("Invalid IP address")
-        return value
+        return normalize_ip(value)
 
 
 class SensorCreateResponseSerializer(serializers.Serializer):
@@ -241,6 +241,9 @@ class EventSerializer(serializers.Serializer):
     related_url = serializers.URLField(default="", max_length=900, allow_blank=True)
     payload_hash = serializers.CharField(default="", max_length=64, allow_blank=True)
     data = SanitizingJSONField(default=dict)
+
+    def validate_src_ip(self, value):
+        return normalize_ip(value)
 
     def validate_timestamp(self, value):
         if value > timezone.now():

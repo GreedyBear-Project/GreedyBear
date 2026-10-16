@@ -15,7 +15,7 @@ from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, Credential, FireHolList, MassScanner
-from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip
+from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip, normalize_ip
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def group_valid_hits_by_ip(hits: Sequence[Hit]) -> dict[str, list[Hit]]:
     hits_by_ip: dict[str, list[Hit]] = defaultdict(list)
     for hit in hits:
         try:
-            hits_by_ip[hit.require_str("src_ip")].append(hit)
+            hits_by_ip[normalize_ip(hit.require_str("src_ip"))].append(hit)
         except InvalidHitError as exc:
             log.debug(f"skipping hit: {exc}")
 
