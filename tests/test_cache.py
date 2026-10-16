@@ -1,12 +1,18 @@
+import json
 from hashlib import sha256
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import caches
 from django.test import override_settings
+from rest_framework.request import Request
+from rest_framework.test import APIClient, APIRequestFactory
 
-from greedybear.cache import Cache, build_versioned_key
+from api.views.feeds import AdvancedFeedView
+from greedybear.cache import Cache, build_versioned_key, invalidate_ioc_cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
-from greedybear.models import IOC, IocType
+from greedybear.cronjobs.enrichment.base_enrichment import BaseEnrichmentJob
+from greedybear.cronjobs.repositories.tag import TagRepository
+from greedybear.models import IOC, IocType, Tag
 from tests import CustomTestCase, E2ETestCase, MockElasticHit
 
 TEST_CACHES = {
@@ -102,6 +108,29 @@ class TestCache(CustomTestCase):
         self.cache.bump_data_version("ver")  # -> 4
         self.assertEqual(self.cache.get_data_version("ver"), 4)
 
+    def test_invalidate_ioc_cache_bumps_version(self):
+        before = self.cache.get_data_version(IOC_DATA_VERSION_KEY)
+        invalidate_ioc_cache()
+        self.assertEqual(self.cache.get_data_version(IOC_DATA_VERSION_KEY), before + 1)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class EnrichmentWriteInvalidationTestCase(CustomTestCase):
+    """Tag writes through the shared enrichment funnel must orphan cached feeds."""
+
+    def test_write_tags_bumps_version(self):
+        class ProbeJob(BaseEnrichmentJob):
+            SOURCE_NAME = "probe-source"
+
+            def run(self) -> None:
+                pass
+
+        cache = Cache(API_CACHE_ALIAS)
+        before = cache.get_data_version(IOC_DATA_VERSION_KEY)
+        ProbeJob(tag_repo=TagRepository())._write_tags([{"ioc_id": self.ioc.id, "key": "k", "value": "v"}])
+        self.assertEqual(cache.get_data_version(IOC_DATA_VERSION_KEY), before + 1)
+        self.assertTrue(Tag.objects.filter(source="probe-source").exists())
+
 
 @override_settings(CACHES=DB_CACHES)
 class TestCacheDataVersionOnDatabaseCache(CustomTestCase):
@@ -171,6 +200,91 @@ class FeedsCacheInvalidationEndpointTest(CustomTestCase):
         self.assertEqual(fresh.status_code, 200)
         self.assertIn(new_ip, self._get_ioc_names(fresh))
         self.assertEqual(self._get_ioc_names(fresh), baseline | {new_ip})
+
+
+@override_settings(CACHES=TEST_CACHES)
+class CacheKeyMediaTypeTest(CustomTestCase):
+    """The negotiated media type has to reach the key material."""
+
+    def _cache_key(self, accepted_media_type: str | None = None) -> str | None:
+        """Build the cache key a feed view would use for the given negotiated media type.
+        Leave accepted_media_type unset to model a request that never reached negotiation."""
+        view = AdvancedFeedView()
+        request = Request(APIRequestFactory().get("/api/feeds/advanced/"))
+        if accepted_media_type is not None:
+            request.accepted_media_type = accepted_media_type
+        view.request = request
+        return view.cache_key
+
+    def test_different_media_types_yield_different_keys(self):
+        self.assertNotEqual(
+            self._cache_key("application/json"),
+            self._cache_key("application/x-ndjson"),
+        )
+
+    def test_same_media_type_yields_the_same_key(self):
+        self.assertEqual(
+            self._cache_key("application/json"),
+            self._cache_key("application/json"),
+        )
+
+    def test_unnegotiated_request_still_gets_a_key(self):
+        self.assertIsNotNone(self._cache_key())
+
+
+@override_settings(CACHES=TEST_CACHES)
+class FeedsCacheMediaTypeTest(CustomTestCase):
+    """AdvancedFeedView picks NDJSON off the Accept header, so an NDJSON client
+    must not be served the entry a JSON client warmed for the same URL."""
+
+    URL = "/api/feeds/advanced/"
+    NDJSON_HEADER = {"HTTP_ACCEPT": "application/x-ndjson"}
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.superuser)
+        caches[API_CACHE_ALIAS].clear()
+        self.expected_values = {self.ioc.name, self.ioc_2.name, self.ioc_3.name, self.ioc_domain.name}
+
+    def _json_values(self, response) -> set:
+        """Extract the IOC values from a JSON feed envelope."""
+        return {ioc["value"] for ioc in response.json()["iocs"]}
+
+    def _ndjson_values(self, response) -> set:
+        """Extract the IOC values from an NDJSON feed, one record per line."""
+        body = b"".join(response.streaming_content).decode("utf-8")
+        return {json.loads(line)["value"] for line in body.splitlines() if line.strip()}
+
+    def test_ndjson_client_is_not_served_the_cached_json_response(self):
+        warm = self.client.get(self.URL)
+        self.assertEqual(warm.status_code, 200)
+        self.assertEqual(warm["content-type"], "application/json")
+        self.assertEqual(self._json_values(warm), self.expected_values)
+
+        ndjson = self.client.get(self.URL, **self.NDJSON_HEADER)
+        self.assertEqual(ndjson.status_code, 200)
+        self.assertEqual(ndjson["content-type"], "application/x-ndjson")
+        self.assertEqual(self._ndjson_values(ndjson), self.expected_values)
+
+    def test_json_client_is_not_affected_by_an_ndjson_request(self):
+        self.client.get(self.URL, **self.NDJSON_HEADER)
+
+        response = self.client.get(self.URL)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["content-type"], "application/json")
+        self.assertEqual(self._json_values(response), self.expected_values)
+
+    def test_json_response_is_still_cached(self):
+        first = self.client.get(self.URL)
+        self.assertEqual(first.status_code, 200)
+
+        with patch.object(AdvancedFeedView, "get_queryset") as mocked_queryset:
+            second = self.client.get(self.URL)
+
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(self._json_values(second), self.expected_values)
+        mocked_queryset.assert_not_called()
 
 
 class FeedsCacheInvalidationPipelineTest(E2ETestCase):

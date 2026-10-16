@@ -5,6 +5,7 @@ from functools import cached_property
 from django.http import HttpResponse
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from greedybear.cache import Cache, build_versioned_key
 from greedybear.consts import API_CACHE_ALIAS, API_CACHE_TIMEOUT_SECONDS, IOC_DATA_VERSION_KEY
@@ -12,7 +13,7 @@ from greedybear.consts import API_CACHE_ALIAS, API_CACHE_TIMEOUT_SECONDS, IOC_DA
 logger = logging.getLogger(__name__)
 
 
-class CachedResponseMixin:
+class CachedResponseMixin(APIView):
     """Adds versioned response caching to an APIView.
     Subclasses opt in by setting cache_namespace."""
 
@@ -25,13 +26,16 @@ class CachedResponseMixin:
     def cache_key(self) -> str | None:
         """Versioned cache key for this request, or None when caching is disabled.
         Computed once on first access (during the read)
-        and memoized on the per-request view instance."""
-        if not self._cache_enabled():
+        and memoized on the per-request view instance.
+        The negotiated media type is part of the key material,
+        because a view may select its output format from the Accept header."""
+        if self.cache_namespace is None or not self._cache_enabled():
             return None
         version = self.cache.get_data_version(self.cache_version_key)
         sorted_params = sorted(self.request.query_params.lists())
         params_string = urllib.parse.urlencode(sorted_params, doseq=True)
-        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}"
+        media_type = getattr(self.request, "accepted_media_type", None) or ""
+        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}|{media_type}"
         return build_versioned_key(self.cache_namespace, version, key_material)
 
     def get_cached_response(self) -> HttpResponse | None:
@@ -51,9 +55,9 @@ class CachedResponseMixin:
         return response
 
     def _cache_enabled(self) -> bool:
-        """Determines if cache was enabled
-        by checking if cache_namespace is set."""
-        return self.cache_namespace is not None
+        """Hook for subclasses to disable caching per request.
+        Only consulted when cache_namespace is set."""
+        return True
 
     def _store_api_response(self, response: Response) -> bool:
         """Store a successful (200) and rendered DRF Response under cache_key."""
@@ -68,7 +72,7 @@ class CachedResponseMixin:
         self.cache.set(
             self.cache_key,
             {
-                "content": response.rendered_content,
+                "content": response.content,
                 "content_type": response["content-type"],
                 "status": response.status_code,
             },
@@ -77,7 +81,7 @@ class CachedResponseMixin:
         return True
 
 
-class RequestLoggingMixin:
+class RequestLoggingMixin(APIView):
     """Emit a access-log line per request for any APIView/ViewSet it is mixed into."""
 
     EXCLUDED_LOG_PARAMS = frozenset({"reason"})

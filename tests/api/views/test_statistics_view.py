@@ -122,6 +122,38 @@ class StatisticsViewTestCase(CustomTestCase):
         self.assertEqual(data["MixControlHp"], 1)
         self.assertNotIn("MixInactiveHp", data)
 
+    def test_400_overflow_range_countries(self):
+        response = self.client.get("/api/statistics/countries?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_feeds_types(self):
+        response = self.client.get("/api/statistics/feeds_types?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_enrichment_sources(self):
+        response = self.client.get("/api/statistics/sources/enrichment?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_countries(self):
+        response = self.client.get("/api/statistics/countries?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_feeds_types(self):
+        response = self.client.get("/api/statistics/feeds_types?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_enrichment_sources(self):
+        response = self.client.get("/api/statistics/sources/enrichment?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
 
 @override_settings(CACHES=TEST_CACHES)
 class StatisticsIocCacheTestCase(CustomTestCase):

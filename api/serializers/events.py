@@ -9,6 +9,143 @@ from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
 
+# Postgres jsonb cannot store U+0000 or unpaired surrogates. Keep the event
+# and mark those characters so analysts can still see they were sent.
+NUL_REPLACEMENT = "[NUL]"
+SURROGATE_REPLACEMENT = "[SUR]"
+_MARKERS = (NUL_REPLACEMENT, SURROGATE_REPLACEMENT)
+
+
+def _fit_to_max_length(pieces: list[str], max_length: int) -> str:
+    """Keep a sanitised string inside ``max_length`` without slicing a marker.
+
+    Markers are kept ahead of plain characters, in their original order.
+    A ``[NUL]`` or ``[SUR]`` is 5 characters, so it is dropped whole when it
+    cannot fit, and never cut down to something like ``[NU``.
+    """
+    if max_length <= 0:
+        return ""
+
+    total = sum(len(piece) for piece in pieces)
+    if total <= max_length:
+        return "".join(pieces)
+
+    marker_count = sum(piece in _MARKERS for piece in pieces)
+    markers_to_keep = min(marker_count, max_length // len(NUL_REPLACEMENT))
+    plain_room = max_length - markers_to_keep * len(NUL_REPLACEMENT)
+
+    fitted: list[str] = []
+    for piece in pieces:
+        if piece in _MARKERS:
+            if markers_to_keep:
+                fitted.append(piece)
+                markers_to_keep -= 1
+            continue
+        if plain_room <= 0:
+            continue
+        if len(piece) <= plain_room:
+            fitted.append(piece)
+            plain_room -= len(piece)
+        else:
+            fitted.append(piece[:plain_room])
+            plain_room = 0
+    return "".join(fitted)
+
+
+def sanitize_text(value: str, max_length: int | None = None) -> str:
+    """Replace jsonb-illegal characters with visible markers.
+
+    NULs become ``[NUL]`` (same tag as T-Pot credential normalisation).
+    Unpaired surrogates (U+D800-U+DFFF) become ``[SUR]``.
+
+    Clean strings return immediately, including ones already over
+    ``max_length``, so a normal too-long credential still fails validation.
+    ``encode("utf-8")`` fails on unpaired surrogates, and the membership
+    check catches NULs, so the per-character walk only runs when a
+    replacement is actually required.
+
+    Each marker replaces 1 character with 5. When ``max_length`` is set
+    (username and password), the result is fitted to that limit so cleaning
+    itself cannot 400 the batch. JSON blobs pass no limit and stay whole.
+    """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        pass
+    else:
+        if "\x00" not in value:
+            return value
+
+    pieces: list[str] = []
+    for char in value:
+        code = ord(char)
+        if char == "\x00":
+            pieces.append(NUL_REPLACEMENT)
+        elif 0xD800 <= code <= 0xDFFF:
+            pieces.append(SURROGATE_REPLACEMENT)
+        else:
+            pieces.append(char)
+    if max_length is None:
+        return "".join(pieces)
+    return _fit_to_max_length(pieces, max_length)
+
+
+def _unique_json_key(cleaned: dict, key: str) -> str:
+    """Return ``key``, or ``key~2``, ``key~3``, ... if that name is already taken."""
+    if key not in cleaned:
+        return key
+    suffix = 2
+    candidate = f"{key}~{suffix}"
+    while candidate in cleaned:
+        suffix += 1
+        candidate = f"{key}~{suffix}"
+    return candidate
+
+
+def sanitize_json(value):
+    """Walk a parsed JSON value and sanitise every string.
+
+    Object keys from ``json.loads`` are always strings. If two keys sanitise
+    to the same string, the first value keeps that name and later ones are
+    stored under ``name~2``, ``name~3``, and so on, so a crafted key cannot
+    drop a sibling field. Strings are not truncated: ``data`` has no
+    ``max_length``.
+    """
+    if isinstance(value, str):
+        return sanitize_text(value)
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            new_key = _unique_json_key(cleaned, sanitize_text(key))
+            cleaned[new_key] = sanitize_json(item)
+        return cleaned
+    if isinstance(value, list):
+        return [sanitize_json(item) for item in value]
+    return value
+
+
+class SanitizingCharField(serializers.CharField):
+    """CharField that sanitises jsonb-illegal characters before DRF validators run.
+
+    ``ProhibitNullCharactersValidator`` runs before ``validate_*`` hooks, so
+    cleaning has to happen in ``to_internal_value``.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            # max_length is None on command (TextField). username and password
+            # are 255, and [NUL]/[SUR] would otherwise push a legal value over it.
+            data = sanitize_text(data, max_length=self.max_length)
+        return super().to_internal_value(data)
+
+
+class SanitizingJSONField(serializers.JSONField):
+    """JSONField that sanitises NULs and unpaired surrogates anywhere in the blob."""
+
+    def to_internal_value(self, data):
+        parsed = super().to_internal_value(data)
+        return sanitize_json(parsed)
+
 
 class SensorCreateSerializer(serializers.ModelSerializer):
     sensor_label = serializers.CharField(
@@ -95,15 +232,15 @@ class EventSerializer(serializers.Serializer):
     token_id = serializers.CharField(default="", max_length=100, allow_blank=True)
     protocol = serializers.CharField(default="", max_length=50, allow_blank=True)
     service_name = serializers.CharField(default="", max_length=100, allow_blank=True)
-    username = serializers.CharField(default="", max_length=255, allow_blank=True)
-    password = serializers.CharField(default="", max_length=255, allow_blank=True)
+    username = SanitizingCharField(default="", max_length=255, allow_blank=True)
+    password = SanitizingCharField(default="", max_length=255, allow_blank=True)
     cve_id = serializers.CharField(default="", max_length=50, allow_blank=True)
-    command = serializers.CharField(default="", allow_blank=True)
+    command = SanitizingCharField(default="", allow_blank=True)
     src_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
     dest_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
     related_url = serializers.URLField(default="", max_length=900, allow_blank=True)
     payload_hash = serializers.CharField(default="", max_length=64, allow_blank=True)
-    data = serializers.JSONField(default=dict)
+    data = SanitizingJSONField(default=dict)
 
     def validate_timestamp(self, value):
         if value > timezone.now():

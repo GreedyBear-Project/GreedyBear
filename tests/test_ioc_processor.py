@@ -366,6 +366,15 @@ class TestMergeIocs(ExtractionTestCase):
 
         self.assertEqual(result.cves, ["CVE-2021-44228", "CVE-2022-0001"])
 
+    def test_merges_http_attack_types(self):
+        """HTTP attack types from both IOCs are merged and deduplicated."""
+        existing = self._create_mock_ioc(http_attack_types=["lfi", "sqli"])
+        new = self._create_mock_ioc(http_attack_types=["sqli", "xss"])
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertEqual(result.http_attack_types, ["lfi", "sqli", "xss"])
+
     def test_handles_empty_protocols_and_cves(self):
         """Empty protocols and cves on both sides stay empty after merge."""
         existing = self._create_mock_ioc(protocols=[], cves=[])
@@ -375,6 +384,33 @@ class TestMergeIocs(ExtractionTestCase):
 
         self.assertEqual(result.protocols, [])
         self.assertEqual(result.cves, [])
+
+    def test_preserves_high_credential_reuse_when_new_is_false(self):
+        """A flagged IOC stays flagged when merged with an unflagged one."""
+        existing = self._create_mock_ioc(high_credential_reuse=True)
+        new = self._create_mock_ioc(high_credential_reuse=False)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, True)
+
+    def test_sets_high_credential_reuse_when_new_is_true(self):
+        """An unflagged IOC becomes flagged when merged with a flagged one."""
+        existing = self._create_mock_ioc(high_credential_reuse=False)
+        new = self._create_mock_ioc(high_credential_reuse=True)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, True)
+
+    def test_keeps_high_credential_reuse_false_when_both_false(self):
+        """Merging two unflagged IOCs does not flag the result."""
+        existing = self._create_mock_ioc(high_credential_reuse=False)
+        new = self._create_mock_ioc(high_credential_reuse=False)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, False)
 
 
 class TestUpdateDaysSeen(ExtractionTestCase):

@@ -14,7 +14,11 @@ import { MdSearch } from "react-icons/md";
 import { Form, Formik } from "formik";
 import axios from "axios";
 
-import { addToast, BooleanIcon } from "../common/gb-ui/index";
+import {
+  addToast,
+  BooleanIcon,
+  CopyToClipboardButton,
+} from "../common/gb-ui/index";
 import { ENRICHMENT_URI } from "../../constants/api";
 import { useAuthStore } from "../../stores";
 import { AUTHENTICATION_STATUSES } from "../../constants";
@@ -23,6 +27,9 @@ const initialValues = {
   query: "",
 };
 
+// number of payload hashes shown before the "Show all" toggle
+const PAYLOAD_HASHES_PREVIEW = 5;
+
 // Very simple, human-readable checks:
 // - only allow characters that make sense for IPs/domains
 // - and make sure the value at least "looks like" an IP or a domain.
@@ -30,11 +37,13 @@ const initialValues = {
 const validCharRegex = /^[a-zA-Z0-9.:_-]+$/;
 
 const looksLikeIp = (value) => {
-  // digits, dots and/or colons, and at least one dot or colon
-  if (!/^[0-9.:]+$/.test(value)) return false;
-  return /[.:]/.test(value);
+  //IPv6: contains a colon; hex digits, colons and dots (for IPv4 mapped forms)
+  if (value.includes(":")) {
+    return /^[0-9a-fA-F:.]+$/.test(value);
+  }
+  //IPv4: digits and dots, with at least one dot
+  return /^[0-9.]+$/.test(value) && value.includes(".");
 };
-
 const looksLikeDomain = (value) => {
   // letters/digits/dot/hyphen/underscore, at least one dot, and no leading/trailing dot or hyphen
   if (!/^[a-zA-Z0-9._-]+$/.test(value)) return false;
@@ -52,6 +61,7 @@ const isValidQuery = (value) => {
 
 export default function EnrichmentLookup() {
   const [result, setResult] = React.useState(null);
+  const [showAllHashes, setShowAllHashes] = React.useState(false);
 
   const [error, setError] = React.useState(null);
 
@@ -65,6 +75,7 @@ export default function EnrichmentLookup() {
     async (values, { setSubmitting }) => {
       setError(null);
       setResult(null);
+      setShowAllHashes(false);
 
       // Check authentication first
       if (isAuthenticated !== AUTHENTICATION_STATUSES.TRUE) {
@@ -271,21 +282,20 @@ export default function EnrichmentLookup() {
               </Col>
             </Row>
 
-            {result.ioc.general_honeypot &&
-              result.ioc.general_honeypot.length > 0 && (
-                <Row className="mt-3">
-                  <Col>
-                    <strong>Honeypots:</strong>
-                    <div className="mt-2">
-                      {result.ioc.general_honeypot.map((hp, idx) => (
-                        <span key={idx} className="badge bg-primary me-2">
-                          {hp}
-                        </span>
-                      ))}
-                    </div>
-                  </Col>
-                </Row>
-              )}
+            {result.ioc.honeypots && result.ioc.honeypots.length > 0 && (
+              <Row className="mt-3">
+                <Col>
+                  <strong>Honeypots:</strong>
+                  <div className="mt-2">
+                    {result.ioc.honeypots.map((hp, idx) => (
+                      <span key={idx} className="badge bg-primary me-2">
+                        {hp}
+                      </span>
+                    ))}
+                  </div>
+                </Col>
+              </Row>
+            )}
             {result.ioc.sensors && result.ioc.sensors.length > 0 && (
               <Row className="mt-3">
                 <Col>
@@ -302,6 +312,48 @@ export default function EnrichmentLookup() {
                       </div>
                     ))}
                   </div>
+                </Col>
+              </Row>
+            )}
+            {result.ioc.payload_hashes?.length > 0 && (
+              <Row className="mt-3">
+                <Col>
+                  <strong>Payload Hashes:</strong>
+                  <div className="mt-2 font-monospace small">
+                    {(showAllHashes
+                      ? result.ioc.payload_hashes
+                      : result.ioc.payload_hashes.slice(
+                          0,
+                          PAYLOAD_HASHES_PREVIEW,
+                        )
+                    ).map((sha256) => (
+                      <div
+                        key={sha256}
+                        className="mb-1 d-flex align-items-center"
+                      >
+                        <span className="text-break me-2">{sha256}</span>
+                        <CopyToClipboardButton
+                          id={`payload-hash-${sha256}`}
+                          text={sha256}
+                          aria-label={`Copy ${sha256}`}
+                          showOnHover
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {result.ioc.payload_hashes.length >
+                    PAYLOAD_HASHES_PREVIEW && (
+                    <Button
+                      color="link"
+                      size="sm"
+                      className="p-0"
+                      onClick={() => setShowAllHashes((prev) => !prev)}
+                    >
+                      {showAllHashes
+                        ? "Show less"
+                        : `Show all (${result.ioc.payload_hashes.length})`}
+                    </Button>
+                  )}
                 </Col>
               </Row>
             )}

@@ -2,7 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 import logging
 
-from django.db.models.functions import Lower
+from django.db.models import QuerySet
 from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from api.permissions import IsThreatResearcherOrAdmin
 from api.serializers.payloads import HoneypotPayloadSerializer
+from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,12 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
     :class:`~api.permissions.IsThreatResearcherOrAdmin`.
     """
 
-    queryset = HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_sessions").order_by("-id")
     serializer_class = HoneypotPayloadSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "sha256"
+
+    def get_queryset(self) -> QuerySet:
+        return PayloadRepository().list_payloads()
 
     def get_object(self) -> HoneypotPayload:
         """
@@ -64,9 +67,10 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
         are lower-cased. Matching on Lower("sha256") also finds older rows that
         were saved before that was true.
         """
+        payload_repo = PayloadRepository()
         queryset = self.filter_queryset(self.get_queryset())
         sha256 = self.kwargs[self.lookup_field].lower()
-        obj = get_object_or_404(queryset.annotate(sha256_lower=Lower("sha256")), sha256_lower=sha256)
+        obj = get_object_or_404(payload_repo.annotate_lower_sha256(queryset), sha256_lower=sha256)
         self.check_object_permissions(self.request, obj)
         return obj
 

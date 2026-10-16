@@ -2,17 +2,20 @@ import hashlib
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import CharField, Q
 from django.utils import timezone
 
+from greedybear.cache import invalidate_ioc_cache
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import iocs_from_hits
-from greedybear.cronjobs.repositories import IocRepository, SensorRepository
+from greedybear.cronjobs.repositories import IocRepository, PayloadRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, HoneypotPayload, RawEvent
+from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, RawEvent
 from greedybear.utils import get_attack_type, is_valid_url
 
 logger = logging.getLogger(__name__)
@@ -23,12 +26,15 @@ DEFAULT_EXTERNAL_HONEYPOT = "External"
 # SensorCreateSerializer caps honeypot_software at this length, but sensors
 # registered before that cap could hold more than Honeypot.name accepts, so
 # values are truncated rather than failing the batch with a DataError.
-HONEYPOT_NAME_MAX_LENGTH = Honeypot._meta.get_field("name").max_length
+HONEYPOT_NAME_MAX_LENGTH = cast("CharField", Honeypot._meta.get_field("name")).max_length
 
 
-def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
+def _normalize_raw_event_to_hit(raw: RawEvent) -> Hit:
     """
-    Convert a RawEvent into the hit-dict format expected by iocs_from_hits.
+    Convert a RawEvent into the Hit format expected by iocs_from_hits.
+
+    Raises:
+        InvalidHitError: If the event has no source address.
     """
     hit: dict = {
         "src_ip": raw.src_ip,
@@ -45,7 +51,7 @@ def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
     if raw.password:
         hit["password"] = raw.password
 
-    if raw.username and raw.password:
+    if raw.username or raw.password:
         hit["_credential"] = {
             "username": raw.username,
             "password": raw.password,
@@ -63,10 +69,10 @@ def _normalize_raw_event_to_hit(raw: RawEvent) -> dict:
     if raw.payload_hash:
         hit["_payload_hash"] = raw.payload_hash
 
-    return hit
+    return Hit.from_event(hit)
 
 
-def _process_credentials(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_credentials(saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Linking all credentials data to ioc
     """
@@ -91,7 +97,7 @@ def _process_credentials(saved_ioc: IOC, ip_hits: list[dict]) -> None:
         logger.debug(f"linked credential '{credential}' → IOC {saved_ioc.name}")
 
 
-def _process_related_urls(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_related_urls(saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Extracts, filters, and appends unique related URLs from raw hits to an IOC instance.
 
@@ -112,7 +118,7 @@ def _process_related_urls(saved_ioc: IOC, ip_hits: list[dict]) -> None:
         logger.debug(f"added {len(to_add)} related_url(s) → IOC {saved_ioc.name}")
 
 
-def _process_commands(ip_hits: list[dict]) -> None:
+def _process_commands(ip_hits: list[Hit]) -> None:
     """
     Deduplicates and registers order-preserving sequences of executed commands from raw hits.
 
@@ -153,7 +159,7 @@ def _process_commands(ip_hits: list[dict]) -> None:
         logger.debug(f"created CommandSequence hash={commands_hash[:12]}…")
 
 
-def _process_array_field(saved_ioc: IOC, ip_hits: list[dict], hit_key: str, field_name: str) -> None:
+def _process_array_field(saved_ioc: IOC, ip_hits: list[Hit], hit_key: str, field_name: str) -> None:
     """
     Aggregates unique string values from raw hits into an IOC ArrayField.
 
@@ -177,33 +183,30 @@ def _process_array_field(saved_ioc: IOC, ip_hits: list[dict], hit_key: str, fiel
     logger.debug(f"added {len(to_add)} {field_name[:-1]}(s) → IOC {saved_ioc.name}")
 
 
-def _process_payload_hashes(saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _process_payload_hashes(payload_repo: PayloadRepository, saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Links observed payload hashes to HoneypotPayload rows.
 
     A hash observed here may later be enriched with an actual file by
     PayloadExtractionJob. We only create a hash-only stub row if one doesn't
-    already exist.
+    already exist. New stubs are linked to already-recorded Cowrie sessions
+    and their attacker IOCs.
     """
     hashes = {hit["_payload_hash"].lower() for hit in ip_hits if hit.get("_payload_hash")}
     if not hashes:
         return
     for sha256_hash in hashes:
-        payload, created = HoneypotPayload.objects.get_or_create(
-            sha256=sha256_hash,
-            defaults={
-                "payload_file": None,
-                "md5": "",
-                "sha1": "",
-            },
-        )
+        payload, created = payload_repo.get_or_create_stub(sha256_hash)
         payload.iocs.add(saved_ioc)
         if created:
             logger.debug(f"created hash-only payload {sha256_hash[:12]}…")
+            linked = payload_repo.link_sessions_to_payload(payload)
+            if linked:
+                logger.debug(f"linked payload {sha256_hash[:12]}… to {linked} cowrie session(s).")
         logger.debug(f"linked payload {sha256_hash[:12]}… → IOC {saved_ioc.name}")
 
 
-def _sensor_honeypot_names(ip_hits: list[dict]) -> list[str]:
+def _sensor_honeypot_names(ip_hits: list[Hit]) -> list[str]:
     """
     Collect the honeypot names advertised by the sensors that reported these hits.
 
@@ -218,7 +221,7 @@ def _sensor_honeypot_names(ip_hits: list[dict]) -> list[str]:
     return sorted(names)
 
 
-def _link_sensor_honeypots(ioc_repo: IocRepository, saved_ioc: IOC, ip_hits: list[dict]) -> None:
+def _link_sensor_honeypots(ioc_repo: IocRepository, saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
     Associate an externally reported IOC with the honeypots its sensors run.
 
@@ -302,7 +305,13 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         logger.debug(f"[task={task_id}] {len(raw_events)} RawEvents fetched")
 
         # normaizing hit dicts
-        hits = [_normalize_raw_event_to_hit(raw) for raw in raw_events]
+        hits = []
+        for raw in raw_events:
+            try:
+                hits.append(_normalize_raw_event_to_hit(raw))
+            except InvalidHitError as exc:
+                # one unusable event costs itself, not the batch
+                logger.warning(f"[task={task_id}] skipping event {raw.pk}: {exc}")
 
         if not hits:
             error_msg = f"All {len(raw_events)} RawEvents invalid after normalization"
@@ -313,10 +322,11 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
 
         logger.debug(f"[task={task_id}] {len(hits)} valid hits")
 
-        ioc_objects = iocs_from_hits(hits)
+        # sensors may sit in a LAN and be attacked from it, so keep non-global sources
+        ioc_objects = iocs_from_hits(hits, allow_non_global=True)
 
         if not ioc_objects:
-            error_msg = "iocs_from_hits returned 0 IOCs, all source IPs may be non-global or filtered"
+            error_msg = "iocs_from_hits returned 0 IOCs, all source IPs may be malformed"
             logger.error(f"[task={task_id}] {error_msg}")
             batch.status = EventStatusType.FAILED
             batch.last_error = error_msg
@@ -325,13 +335,14 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
         logger.debug(f"[task_id={task_id}] {len(ioc_objects)} unique IOCs")
 
         # grouping hits by src_ip for post-processing lookup
-        hits_by_ip: dict[str, list[dict]] = defaultdict(list)
+        hits_by_ip: dict[str, list[Hit]] = defaultdict(list)
         for hit in hits:
             hits_by_ip[hit["src_ip"]].append(hit)
 
         # post processing
         ioc_repo = IocRepository()
         sensor_repo = SensorRepository()
+        payload_repo = PayloadRepository()
         processor = IocProcessor(ioc_repo, sensor_repo)
 
         with transaction.atomic():
@@ -357,7 +368,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
                 _process_commands(ip_hits)
                 _process_array_field(saved_ioc, ip_hits, hit_key="_protocol", field_name="protocols")
                 _process_array_field(saved_ioc, ip_hits, hit_key="_cve_id", field_name="cves")
-                _process_payload_hashes(saved_ioc, ip_hits)
+                _process_payload_hashes(payload_repo, saved_ioc, ip_hits)
 
                 processed_iocs.append(saved_ioc)
 
@@ -375,6 +386,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
 
             batch.status = EventStatusType.COMPLETED
             batch.ioc_count = len(processed_iocs)
+            invalidate_ioc_cache()
 
     except Exception as exc:
         logger.exception(f"[task={task_id}] Failed")
