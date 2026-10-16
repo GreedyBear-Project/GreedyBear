@@ -11,15 +11,14 @@ from api.views.utils import build_feed_dict, build_stix_bundle
 _CSV_FORMULA_PREFIXES = frozenset("=+-@\t\r")
 
 
-def neutralize_csv_formula(value) -> str:
+def neutralize_csv_formula(value: str) -> str:
     """Prefix a leading formula character so Excel/LibreOffice treat the cell as text.
 
     The stored IOC is unchanged; this is export-only (issue #1738).
     """
-    text = "" if value is None else str(value)
-    if text and text[0] in _CSV_FORMULA_PREFIXES:
-        return f"'{text}"
-    return text
+    if value and value[0] in _CSV_FORMULA_PREFIXES:
+        return f"'{value}"
+    return value
 
 
 class FeedJSONRenderer(JSONRenderer):
