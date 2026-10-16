@@ -131,7 +131,7 @@ describe("Enrichment Lookup Integration Tests", () => {
       ip_reputation: "malicious",
       asn: "12345",
       destination_ports: [22, 80, 443],
-      firehol_categories: ["abuse"],
+      tags: [{ key: "blocklist", value: "greensnow", source: "firehol" }],
       honeypots: ["Cowrie", "Heralding"],
       recurrence_probability: 0.85,
       expected_interactions: 120.5,

@@ -103,13 +103,22 @@ def is_valid_cidr(candidate: str) -> tuple[bool, str | None]:
         candidate: String to validate as CIDR.
 
     Returns:
-        True if valid CIDR, False otherwise.
+        Tuple of (is_valid, cleaned_cidr). If valid, cleaned_cidr is the
+        stripped value; otherwise, it is None.
     """
+    candidate = candidate.strip()
     try:
-        IPv4Network(candidate.strip(), strict=False)
-        return True, candidate.strip()
+        IPv4Network(candidate, strict=False)
     except ValueError:
         return False, None
+
+    # Python accepts a netmask after the slash, like 1.2.3.0/255.255.255.0.
+    # Postgres inet only accepts a prefix length, and the CIDR index parses
+    # every stored value, so anything it would refuse is rejected here.
+    if "/" in candidate and not candidate.split("/", 1)[1].isdigit():
+        return False, None
+
+    return True, candidate
 
 
 def is_valid_ipv4(candidate: str) -> tuple[bool, str | None]:

@@ -93,10 +93,7 @@ JSON_BASE_FIELDS = (
     "autonomous_system",
     "tags",
 )
-JSON_VERBOSE_FIELDS = (
-    "days_seen",
-    "firehol_categories",
-)
+JSON_VERBOSE_FIELDS = ("days_seen",)
 STIX_FIELDS = {
     "value",
     "type",
@@ -118,7 +115,7 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
 
     Args:
         iocs (QuerySet | list): Filtered IOCs to render.
-        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories)
+        verbose (bool): Include verbose fields (days_seen, destination_ports)
             and, when the `payload_hashes` annotation is present, the payload hashes.
         include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 

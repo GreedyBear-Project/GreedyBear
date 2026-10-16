@@ -3,7 +3,6 @@ from abc import abstractmethod
 import requests
 
 from greedybear.cronjobs.enrichment.base_enrichment import BaseEnrichmentJob
-from greedybear.models import IOC
 
 
 class HttpEnrichmentJob(BaseEnrichmentJob):
@@ -57,9 +56,6 @@ class HttpEnrichmentJob(BaseEnrichmentJob):
         Returns:
             List of dicts with keys: ioc_id, key, value.
         """
-
-    def _match_iocs(self, ip_dict):
-        return IOC.objects.filter(name__in=ip_dict.keys()).values_list("id", "name")
 
     def run(self) -> None:
         if self._should_skip():

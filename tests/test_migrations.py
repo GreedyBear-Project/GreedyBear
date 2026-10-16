@@ -1,4 +1,6 @@
-from django.db import IntegrityError
+from datetime import datetime
+
+from django.db import IntegrityError, connection
 from django.test import tag
 
 from . import MigrationTestCase
@@ -495,3 +497,72 @@ class TestMigrateCredentialReuseTags(MigrationTestCase):
 
         self.assertEqual(Tag.objects.filter(source="threatfox", ioc__name="3.3.3.3").count(), 1)
         self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())
+
+
+@tag("migration")
+class TestMigrateFireHolCategories(MigrationTestCase):
+    """Tests that IOC.firehol_categories becomes blocklist tags."""
+
+    migrate_from = "0070_alter_credential_password_alter_credential_username"
+    migrate_to = "0071_migrate_firehol_categories_to_tags"
+
+    def test_each_category_becomes_a_tag(self):
+        """One IOC with two categories produces two tags."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        ioc = IOC.objects.create(name="1.1.1.1", type="ip", firehol_categories=["greensnow", "dshield"])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        tags = Tag.objects.filter(ioc_id=ioc.id, source="firehol")
+        self.assertEqual(tags.count(), 2)
+        self.assertEqual(sorted(tags.values_list("value", flat=True)), ["dshield", "greensnow"])
+        for stored_tag in tags:
+            self.assertEqual(stored_tag.key, "blocklist")
+
+    def test_empty_categories_produce_no_tags(self):
+        """An IOC with no categories is left alone."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        IOC.objects.create(name="2.2.2.2", type="ip", firehol_categories=[])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertFalse(Tag.objects.filter(source="firehol").exists())
+
+    def test_added_comes_from_last_seen(self):
+        """The tag timestamp is taken from the IOC's last_seen."""
+
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        seen_at = datetime(2026, 3, 1, 12, 0, 0)
+        ioc = IOC.objects.create(name="3.3.3.3", type="ip", last_seen=seen_at, firehol_categories=["greensnow"])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.get(ioc_id=ioc.id, source="firehol").added, seen_at)
+
+
+@tag("migration")
+class TestFireHolCidrIndex(MigrationTestCase):
+    """Tests that the CIDR lookup index is created with a usable predicate."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_firehollist_cidr_gist"
+
+    def test_index_is_created(self):
+        """A wrong predicate would leave the index covering no rows."""
+        self.apply_tested_migration()
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'firehollist_cidr_gist'")
+            rows = cursor.fetchall()
+
+        self.assertEqual(len(rows), 1)
+        definition = rows[0][0]
+        self.assertIn("gist", definition)
+        self.assertIn("inet_ops", definition)
+        self.assertIn("'%/%'", definition)
