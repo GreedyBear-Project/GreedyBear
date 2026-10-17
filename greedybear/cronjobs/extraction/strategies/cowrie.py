@@ -138,7 +138,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                     type=get_ioc_type(payload_hostname),
                     first_seen=hit_time,
                     last_seen=hit_time,
-                    related_urls=[payload_url],
+                    related_urls=self.related_urls_for(payload_url),
                 )
                 sensor = hit.get("_sensor")
                 if sensor:
@@ -184,7 +184,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                         type=get_ioc_type(hostname),
                         first_seen=hit_time,
                         last_seen=hit_time,
-                        related_urls=[download_url],
+                        related_urls=self.related_urls_for(download_url),
                     )
                     sensor = hit.get("_sensor")
                     if sensor:

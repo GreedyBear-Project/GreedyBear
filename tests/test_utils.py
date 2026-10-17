@@ -13,6 +13,8 @@ from greedybear.utils import (
     PAYLOAD_REQUEST,
     SCANNER,
     clamp_to_field,
+    field_max_length,
+    fits_field,
     get_attack_type,
     get_ioc_type,
     get_nested_value,
@@ -538,6 +540,43 @@ class TestClampToField(SimpleTestCase):
     def test_unknown_field_raises(self):
         with self.assertRaises(FieldDoesNotExist):
             clamp_to_field(Credential, "not_a_field", "value")
+
+
+class TestFitsField(SimpleTestCase):
+    def test_value_at_the_width_fits(self):
+        self.assertTrue(fits_field(Credential, "username", "x" * 256))
+
+    def test_value_over_the_width_does_not_fit(self):
+        self.assertFalse(fits_field(Credential, "username", "x" * 257))
+
+    def test_array_field_measures_the_inner_field(self):
+        """An ArrayField stores each element in its inner field, so that is the limit."""
+        self.assertTrue(fits_field(IOC, "related_urls", "x" * 900))
+        self.assertFalse(fits_field(IOC, "related_urls", "x" * 901))
+
+    def test_empty_value_fits(self):
+        self.assertTrue(fits_field(IOC, "related_urls", ""))
+
+    def test_field_without_max_length_always_fits(self):
+        self.assertTrue(fits_field(CommandSequence, "first_seen", "x" * 5000))
+
+
+class TestFieldMaxLength(SimpleTestCase):
+    def test_reads_char_field_width(self):
+        self.assertEqual(field_max_length(Credential, "username"), 256)
+
+    def test_reads_array_inner_field_width(self):
+        self.assertEqual(field_max_length(IOC, "related_urls"), 900)
+
+    def test_field_without_max_length_returns_none(self):
+        self.assertIsNone(field_max_length(CommandSequence, "first_seen"))
+
+    def test_reads_hash_field_width(self):
+        self.assertEqual(field_max_length(CommandSequence, "commands_hash"), 64)
+
+    def test_unknown_field_raises(self):
+        with self.assertRaises(FieldDoesNotExist):
+            field_max_length(IOC, "not_a_field")
 
 
 class TestTimeWindowCalculation(SimpleTestCase):

@@ -230,6 +230,28 @@ class TestProcessRelatedUrls(CustomTestCase):
         self.ioc.refresh_from_db()
         self.assertEqual(self.ioc.related_urls or [], [])
 
+    def test_over_long_url_dropped_but_ioc_kept(self):
+        """The column truncates silently, so an over long URL is rejected rather than stored."""
+        long_url = f"http://evil.com/{'a' * 900}"
+        _process_related_urls(self.ioc, [self._hit(long_url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls or [], [])
+        self.assertTrue(IOC.objects.filter(name=self.ioc.name).exists())
+
+    def test_over_long_url_does_not_cost_the_valid_ones(self):
+        long_url = f"http://evil.com/{'a' * 900}"
+        good_url = "http://evil.com/stage2"
+        _process_related_urls(self.ioc, [self._hit(long_url), self._hit(good_url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls, [good_url])
+
+    def test_url_at_the_column_width_is_stored_whole(self):
+        url = f"http://evil.com/{'a' * (900 - len('http://evil.com/'))}"
+        self.assertEqual(len(url), 900)
+        _process_related_urls(self.ioc, [self._hit(url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls, [url])
+
     def test_duplicate_url_not_added_twice(self):
         url = "http://evil.com/stage2"
         _process_related_urls(self.ioc, [self._hit(url)])

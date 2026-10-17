@@ -136,6 +136,26 @@ class RealMalformedRecordTestCase(CustomTestCase):
         strategy.extract_from_hits([self._tanner_hit("193.32.162.99", self.LONG_HOST)])
         self.assertEqual(strategy.skipped, 1)
 
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
+    def test_overlong_rfi_url_costs_the_url_not_the_ioc(self, _tf):
+        """The hostname is short and valid, so only the URL is too long for its column."""
+        strategy = self._tanner()
+        hit = Hit(
+            {
+                "src_ip": "193.32.162.99",
+                "type": "tanner",
+                "@timestamp": TS,
+                "url": f"/index.php?page=http://evil.example.com/{'a' * 950}",
+                "geoip": {},
+            }
+        )
+
+        strategy.extract_from_hits([hit])
+
+        ioc = IOC.objects.get(name="evil.example.com")
+        self.assertEqual(ioc.related_urls or [], [])
+        self.assertEqual(strategy.skipped, 0)
+
 
 class MissingFieldTestCase(CustomTestCase):
     """

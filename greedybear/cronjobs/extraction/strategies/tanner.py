@@ -281,7 +281,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             ioc_kwargs: dict = {
                 "name": hostname,
                 "type": get_ioc_type(hostname),
-                "related_urls": [url],
+                "related_urls": self.related_urls_for(url),
             }
             if hit_time is not None:
                 ioc_kwargs["first_seen"] = hit_time
