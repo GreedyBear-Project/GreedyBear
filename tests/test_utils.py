@@ -7,8 +7,8 @@ from ipaddress import ip_address
 from django.core.exceptions import FieldDoesNotExist
 from django.test import SimpleTestCase
 
-from greedybear.consts import DOMAIN, IP
-from greedybear.models import CommandSequence, Credential
+from greedybear.consts import DOMAIN, IP, MAX_HOSTNAME_LENGTH
+from greedybear.models import IOC, CommandSequence, Credential
 from greedybear.utils import (
     PAYLOAD_REQUEST,
     SCANNER,
@@ -24,6 +24,7 @@ from greedybear.utils import (
     is_valid_domain,
     is_valid_ipv4,
     is_valid_url,
+    parse_url_hostname,
 )
 
 from . import CustomTestCase
@@ -390,6 +391,53 @@ class UtilsTestCase(SimpleTestCase):
         self.assertEqual(get_attack_type(payload_hits), PAYLOAD_REQUEST)
 
         self.assertEqual(get_attack_type([]), SCANNER)
+
+
+class TestParseUrlHostname(SimpleTestCase):
+    def test_valid_http(self):
+        """Test URL parsing with valid HTTP URL."""
+        self.assertEqual(parse_url_hostname("http://example.com/path"), "example.com")
+
+    def test_valid_https(self):
+        """Test URL parsing with valid HTTPS URL."""
+        self.assertEqual(parse_url_hostname("https://malware.site/payload.exe"), "malware.site")
+
+    def test_with_port(self):
+        """Test URL parsing with port number."""
+        self.assertEqual(parse_url_hostname("http://evil.com:8080/download"), "evil.com")
+
+    def test_ipv6(self):
+        """Test URL parsing with IPv6 address."""
+        self.assertEqual(parse_url_hostname("http://[2001:db8::1]/foo"), "2001:db8::1")
+
+    def test_invalid_url(self):
+        """Test URL parsing with invalid URL."""
+        self.assertIsNone(parse_url_hostname("not_a_url"))
+
+    def test_empty_string(self):
+        """Test URL parsing with empty string."""
+        self.assertIsNone(parse_url_hostname(""))
+
+    def test_hostname_at_dns_limit_is_accepted(self):
+        hostname = f"{'a' * (MAX_HOSTNAME_LENGTH - 4)}.com"
+        self.assertEqual(len(hostname), MAX_HOSTNAME_LENGTH)
+        self.assertEqual(parse_url_hostname(f"http://{hostname}/payload"), hostname)
+
+    def test_hostname_over_dns_limit_is_rejected(self):
+        hostname = f"{'a' * (MAX_HOSTNAME_LENGTH - 3)}.com"
+        self.assertEqual(len(hostname), MAX_HOSTNAME_LENGTH + 1)
+        self.assertIsNone(parse_url_hostname(f"http://{hostname}/payload"))
+
+    def test_hostname_over_ioc_name_width_is_rejected(self):
+        """A hostname wider than the IOC.name column never reaches it."""
+        hostname = f"{'a' * 300}.com"
+        self.assertIsNone(parse_url_hostname(f"http://{hostname}/payload"))
+
+    def test_dns_limit_fits_the_ioc_name_column(self):
+        """If IOC.name ever shrinks below the DNS limit, this guard stops protecting it."""
+        name_width = IOC._meta.get_field("name").max_length
+        self.assertEqual(name_width, 256)
+        self.assertLessEqual(MAX_HOSTNAME_LENGTH, 256)
 
 
 class TestGetNestedValue(SimpleTestCase):

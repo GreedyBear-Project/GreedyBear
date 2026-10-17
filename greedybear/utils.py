@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.db.models import Model
 
-from greedybear.consts import DOMAIN, IP, PAYLOAD_REQUEST, SCANNER
+from greedybear.consts import DOMAIN, IP, MAX_HOSTNAME_LENGTH, PAYLOAD_REQUEST, SCANNER
 
 
 def is_ip_address(string: str) -> bool:
@@ -158,6 +158,28 @@ def get_attack_type(ip_hits: Sequence[Mapping]) -> str:
             return PAYLOAD_REQUEST
 
     return SCANNER
+
+
+def parse_url_hostname(url: str) -> str | None:
+    """
+    Extract hostname from URL safely.
+
+    Args:
+        url: URL string to parse
+
+    Returns:
+        Hostname if parsing succeeds and the hostname is a valid length,
+        None otherwise
+    """
+    try:
+        parsed = urlparse(url)
+    except (ValueError, AttributeError):
+        return None
+    else:
+        hostname = parsed.hostname
+        if not hostname or len(hostname) > MAX_HOSTNAME_LENGTH:
+            return None
+        return hostname
 
 
 def is_valid_url(url: str) -> bool:
