@@ -28,3 +28,7 @@ coverage.xml
 # frontend tests
 frontend/test-results/
 frontend/playwright-report/
+
+# Log files and directories
+logs/
+*.log
