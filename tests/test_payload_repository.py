@@ -355,6 +355,17 @@ class TestPayloadRepository(CustomTestCase):
 
         self.assertEqual([p.id for p in payloads], [second.id, first.id])
 
+    def test_list_payloads_prefetches_sensors(self):
+        sensor = Sensor.objects.create(address="198.51.100.1")
+        for i in range(3):
+            payload = HoneypotPayload.objects.create(sha256=f"b{i}" * 32)
+            PayloadObservation.objects.create(payload=payload, sensor=sensor, locator=f"cowrie/downloads/b{i}")
+
+        payloads = list(self.repo.list_payloads())
+
+        with self.assertNumQueries(0):
+            self.assertEqual([[s.address for s in p.sensors.all()] for p in payloads], [["198.51.100.1"]] * 3)
+
     def test_list_payloads_returns_unevaluated_queryset(self):
         HoneypotPayload.objects.create(sha256="a3" * 32, is_uploaded_mb=True)
         HoneypotPayload.objects.create(sha256="a4" * 32, is_uploaded_mb=False)

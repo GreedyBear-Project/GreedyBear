@@ -5,7 +5,7 @@ from django.core.files.base import ContentFile
 from rest_framework.test import APIClient
 
 from api.permissions import THREAT_RESEARCHER_GROUP
-from greedybear.models import Honeypot, HoneypotPayload
+from greedybear.models import Honeypot, HoneypotPayload, PayloadObservation, Sensor
 from tests import CustomTestCase
 
 PAYLOADS_URL = "/api/payloads"
@@ -71,6 +71,20 @@ class TestListPayloads(HoneypotPayloadViewSetTestCase):
         self.assertEqual(item["mime_type"], "application/octet-stream")
         self.assertEqual(item["size"], 0)
         self.assertIn("Dionaea", item["source_honeypots"])
+        self.assertEqual(item["sensors"], [])
+
+    def test_list_contains_sensors_that_observed_the_payload(self):
+        sensor = Sensor.objects.create(address="198.51.100.1", label="tpot-a")
+        PayloadObservation.objects.create(payload=self.payload, sensor=sensor, locator="cowrie/downloads/sample")
+        # An observation from the legacy single-server configuration has no sensor to show.
+        PayloadObservation.objects.create(payload=self.payload, sensor=None, locator="cowrie/downloads/sample")
+
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(PAYLOADS_URL)
+        item = next(r for r in response.json()["results"] if r["sha256"] == SAMPLE_SHA256)
+        self.assertEqual(item["sensors"], [{"address": "198.51.100.1", "label": "tpot-a"}])
+        # Locators are internal to the payload servers and not exposed.
+        self.assertNotIn("locator", item)
 
 
 class TestRetrievePayload(HoneypotPayloadViewSetTestCase):

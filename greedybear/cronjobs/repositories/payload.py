@@ -212,7 +212,7 @@ class PayloadRepository:
     def list_payloads(self) -> QuerySet:
         """
         Return the base queryset for listing/retrieving payloads, with
-        related honeypots/IOCs/sessions prefetched, most recent first.
+        related honeypots/sensors/IOCs/sessions prefetched, most recent first.
 
         Left unevaluated so the API view can paginate or filter further on
         top of it.
@@ -220,7 +220,7 @@ class PayloadRepository:
         Returns:
             QuerySet of HoneypotPayload.
         """
-        return HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_sessions").order_by("-id")
+        return HoneypotPayload.objects.prefetch_related("source_honeypots", "sensors", "iocs", "cowrie_sessions").order_by("-id")
 
     def annotate_lower_sha256(self, queryset: QuerySet) -> QuerySet:
         """
