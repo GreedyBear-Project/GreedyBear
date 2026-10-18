@@ -4,7 +4,7 @@ from django.contrib.postgres.expressions import ArraySubquery
 from django.db.models import OuterRef, Q, QuerySet
 from django.db.models.functions import Lower
 
-from greedybear.models import CowrieSession, HoneypotPayload
+from greedybear.models import CowrieSession, HoneypotPayload, PayloadObservation
 
 
 class PayloadRepository:
@@ -86,9 +86,10 @@ class PayloadRepository:
         upgrade the existing row for that hash with it.
 
         A new row gets every metadata field of `payload`. An existing row
-        always has size and locator overwritten; every other field is
-        overwritten only if its incoming value is truthy, so a blank one
-        never erases existing data. The row is saved in both cases.
+        always has size overwritten; every other field is overwritten only
+        if its incoming value is truthy, so a blank one never erases
+        existing data. The row is saved in both cases. Where the file was
+        found is recorded separately, see record_observations.
 
         Args:
             payload: Unsaved HoneypotPayload holding the lower-cased SHA256 and the download's metadata.
@@ -103,30 +104,26 @@ class PayloadRepository:
                 "sha1": payload.sha1,
                 "mime_type": payload.mime_type,
                 "size": payload.size,
-                "locator": payload.locator,
-                "mtime": payload.mtime,
             },
         )
         if not created:
-            # Always overwrite size and locator, but only overwrite other fields if the new value is not empty
+            # Always overwrite size, but only overwrite other fields if the new value is not empty
             payload_record.size = payload.size
-            payload_record.locator = payload.locator
             payload_record.md5 = payload.md5 or payload_record.md5
             payload_record.sha1 = payload.sha1 or payload_record.sha1
             payload_record.mime_type = payload.mime_type or payload_record.mime_type
-            payload_record.mtime = payload.mtime or payload_record.mtime
             payload_record.save()
         return payload_record, created
 
     def upsert_metadata_only_payload(self, payload: HoneypotPayload) -> tuple[HoneypotPayload, bool]:
         """
         Create a HoneypotPayload row for a payload the server listed but
-        this run did not download, or backfill an existing stub's locator.
+        this run did not download, or return the existing row for its hash.
 
         A new row gets every metadata field of `payload`, with payload_file
-        left unset. An existing row's locator is filled in only if it doesn't
-        already have one; no other metadata is updated here since an actual
-        download has not occurred.
+        left unset. An existing row is left untouched since an actual
+        download has not occurred. The locator that makes the payload
+        recoverable is recorded separately, see record_observations.
 
         Args:
             payload: Unsaved HoneypotPayload holding the lower-cased SHA256 and the listed metadata.
@@ -145,36 +142,47 @@ class PayloadRepository:
                 "sha1": payload.sha1,
                 "mime_type": payload.mime_type,
                 "size": payload.size,
-                "locator": payload.locator,
-                "mtime": payload.mtime,
             },
         )
-        if not created and not payload_record.locator:
-            # A hash-only stub written by _process_payload_hashes carries no
-            # locator. Fill it in so the payload stays recoverable.
-            payload_record.locator = payload.locator
-            payload_record.save(update_fields=["locator"])
         return payload_record, created
 
-    def get_downloaded_hashes(self, hashes: set[str]) -> set[str]:
+    def record_observations(self, observations: list[PayloadObservation]) -> None:
         """
-        Given SHA256 hashes in any case, return the subset that already have
-        a downloaded file.
+        Record that a payload server listed these payloads, or refresh the
+        locator and mtime of that server's earlier observations of them.
+
+        Each sensor keeps its own observation, so a binary reported by several
+        sensors is stored once while every sensor's locator is kept.
+
+        Args:
+            observations: Unsaved PayloadObservations of saved payloads, at most one per payload and sensor.
+        """
+        PayloadObservation.objects.bulk_create(
+            observations,
+            update_conflicts=True,
+            unique_fields=["payload", "sensor"],
+            update_fields=["locator", "mtime"],
+        )
+
+    def get_downloaded_payloads(self, hashes: set[str]) -> dict[str, HoneypotPayload]:
+        """
+        Given SHA256 hashes in any case, return the payloads among them that
+        already have a downloaded file.
 
         Args:
             hashes: Set of SHA256 hashes to check, in any case.
 
         Returns:
-            The subset of hashes (lower-cased) that already have a file attached.
+            Dict mapping the lower-cased hash to its HoneypotPayload, for the hashes that already have a file attached.
         """
         hashes_lower = {h.lower() for h in hashes}
-        return set(
+        payloads = (
             HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
             .filter(sha256_lower__in=hashes_lower)
             # Django stores an unset FileField as an empty string, but exclude NULL as well.
             .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
-            .values_list("sha256_lower", flat=True)
         )
+        return {payload.sha256.lower(): payload for payload in payloads}
 
     def get_pending_malwarebazaar_submissions(self, max_size_bytes: int, limit: int) -> list[HoneypotPayload]:
         """
