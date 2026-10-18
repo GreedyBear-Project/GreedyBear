@@ -389,7 +389,6 @@ class TestTagIdentityDeduplication(MigrationTestCase):
     migrate_to = "0064_deduplicate_tag_identity_and_add_constraint"
 
     def test_deduplicates_identical_tags_keeping_earliest(self):
-
         IOC = self.old_state.apps.get_model(self.app_name, "IOC")
         Tag = self.old_state.apps.get_model(self.app_name, "Tag")
 
@@ -422,7 +421,6 @@ class TestTagIdentityDeduplication(MigrationTestCase):
         self.assertEqual(remaining[0].id, older.id)
 
     def test_distinguishes_tags_by_every_identity_field(self):
-
         IOC = self.old_state.apps.get_model(self.app_name, "IOC")
         Tag = self.old_state.apps.get_model(self.app_name, "Tag")
 
