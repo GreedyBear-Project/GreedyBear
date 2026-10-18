@@ -112,3 +112,40 @@ class SettingsWithoutElasticsearchTestCase(SimpleTestCase):
             reloaded = importlib.reload(greedybear_settings)
 
         self.assertIsNotNone(reloaded.ELASTIC_CLIENT)
+
+
+class PayloadServersSettingsTests(SimpleTestCase):
+    """TPOT_PAYLOAD_SERVERS must be parsed at startup and rejected early when it is malformed."""
+
+    def _reload_with(self, value):
+        import greedybear.settings as greedybear_settings
+
+        # restore the original module state after the test
+        self.addCleanup(importlib.reload, greedybear_settings)
+        with mock.patch.dict("os.environ", {"TPOT_PAYLOAD_SERVERS": value}):
+            return importlib.reload(greedybear_settings)
+
+    def test_unset_means_no_servers(self):
+        self.assertEqual(self._reload_with("").TPOT_PAYLOAD_SERVERS, [])
+
+    def test_servers_are_parsed(self):
+        value = '[{"url": "https://a.example", "api_key": "key-a", "sensor": "198.51.100.10"}, {"url": "https://b.example", "sensor": "198.51.100.20"}]'
+
+        servers = self._reload_with(value).TPOT_PAYLOAD_SERVERS
+
+        self.assertEqual([server["sensor"] for server in servers], ["198.51.100.10", "198.51.100.20"])
+        self.assertEqual(servers[0]["api_key"], "key-a")
+
+    def test_malformed_values_are_rejected_without_revealing_them(self):
+        malformed_values = [
+            '[{"url": "https://tpot-a.example:64445", "api_key": "secret-key", ',
+            '{"url": "https://tpot-a.example:64445", "api_key": "secret-key", "sensor": "198.51.100.10"}',
+            '[{"url": "https://tpot-a.example:64445", "api_key": "secret-key"}]',
+            '[{"api_key": "secret-key", "sensor": "198.51.100.10"}]',
+            '["secret-key"]',
+        ]
+        for value in malformed_values:
+            with self.subTest(value), self.assertRaises(ValueError) as raised:
+                self._reload_with(value)
+            self.assertIn("TPOT_PAYLOAD_SERVERS", str(raised.exception))
+            self.assertNotIn("secret-key", str(raised.exception))
