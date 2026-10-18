@@ -1,6 +1,7 @@
 import hashlib
 from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import urlsplit
 
 import requests
 from django.test import override_settings
@@ -869,10 +870,11 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.addCleanup(usage_patcher.stop)
 
     def _route(self, url, headers=None, params=None, **kwargs):
-        for base_url, server in self.servers.items():
-            if url.startswith(base_url):
-                return server.get(url.removeprefix(base_url), headers or {}, params)
-        raise requests.ConnectionError(f"no route to {url}")
+        parts = urlsplit(url)
+        server = self.servers.get(f"{parts.scheme}://{parts.netloc}")
+        if server is None:
+            raise requests.ConnectionError(f"no route to {url}")
+        return server.get(parts.path, headers or {}, params)
 
     def _config(self, *servers: str) -> list[dict]:
         entries = {
@@ -958,7 +960,7 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
 
         for call in self.client.get.call_args_list:
             url, headers = call.args[0], call.kwargs["headers"]
-            expected_key = "key-a" if url.startswith(SERVER_A) else "key-b"
+            expected_key = "key-a" if urlsplit(url).hostname == urlsplit(SERVER_A).hostname else "key-b"
             self.assertEqual(headers, {"X-API-Key": expected_key})
 
     def test_wrong_api_key_for_one_source_does_not_affect_the_other(self):
@@ -1026,7 +1028,7 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
             self._run()
 
         # The broken server is reported in the error log, the run itself does not fail.
-        self.assertTrue(any("tpot-a.example:64445" in line and "failed" in line for line in logs.output))
+        self.assertIn(f"Payload extraction from {SERVER_A} (sensor {SENSOR_A}) failed", "\n".join(logs.output))
         self.assertFalse(HoneypotPayload.objects.filter(sha256=sha256_of(ONLY_A)).exists())
         self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
         self.assertEqual(self._sensors(SHARED), [SENSOR_B])
@@ -1063,7 +1065,7 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
 
         self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
         self.assertEqual(self._sensors(SHARED), [SENSOR_A])
-        self.assertTrue(any("tpot-b.example:64445" in line and "continuing" in line for line in logs.output))
+        self.assertIn(f"Payload extraction from {SERVER_B} (sensor {SENSOR_B}) failed, continuing", "\n".join(logs.output))
 
     def test_run_fails_when_every_source_fails(self):
         self.server_a.recent_body = [42]
@@ -1186,7 +1188,8 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
             self._run(legacy_url="https://legacy.example:64445")
 
         self._assert_fleet_extracted()
-        self.assertFalse(any(call.args[0].startswith("https://legacy.example") for call in self.client.get.call_args_list))
+        called_hosts = {urlsplit(call.args[0]).hostname for call in self.client.get.call_args_list}
+        self.assertNotIn("legacy.example", called_hosts)
         self.assertIn("ignoring TPOT_PAYLOAD_SERVER_URL", "\n".join(logs.output))
 
     def test_legacy_setting_records_observations_without_sensor(self):
