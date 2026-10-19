@@ -143,6 +143,8 @@ class PayloadServersSettingsTests(SimpleTestCase):
             '[{"url": "https://tpot-a.example:64445", "api_key": "secret-key"}]',
             '[{"api_key": "secret-key", "sensor": "198.51.100.10"}]',
             '["secret-key"]',
+            '[{"url": "https://tpot-a.example:64445", "api_key": ["secret-key"], "sensor": "198.51.100.10"}]',
+            '[{"url": "https://tpot-a.example:64445", "api_key": null, "sensor": "198.51.100.10"}]',
         ]
         for value in malformed_values:
             with self.subTest(value), self.assertRaises(ValueError) as raised:

@@ -3,7 +3,7 @@ from unittest.mock import patch
 from greedybear.cronjobs.repositories import SensorRepository
 from greedybear.models import Sensor
 
-from . import CustomTestCase
+from . import CustomTestCase, make_api_source, make_sensor
 
 
 class TestSensorRepository(CustomTestCase):
@@ -31,6 +31,27 @@ class TestSensorRepository(CustomTestCase):
     def test_get_or_create_sensor_rejects_domain(self):
         result = self.repo.get_or_create_sensor("example.com")
         self.assertIsNone(result)
+
+    def test_get_or_create_internal_sensor_ignores_event_collector_sensor(self):
+        user_sensor = make_sensor(make_api_source(self.regular_user), address="203.0.113.10")
+        repo = SensorRepository()
+
+        result = repo.get_or_create_internal_sensor("203.0.113.10")
+
+        self.assertNotEqual(result.pk, user_sensor.pk)
+        self.assertIsNone(result.api_source)
+        self.assertEqual(Sensor.objects.filter(address="203.0.113.10").count(), 2)
+
+    def test_get_or_create_internal_sensor_returns_existing_internal_sensor(self):
+        make_sensor(make_api_source(self.regular_user), address="203.0.113.11")
+        internal = Sensor.objects.create(address="203.0.113.11")
+
+        result = SensorRepository().get_or_create_internal_sensor("203.0.113.11")
+
+        self.assertEqual(result.pk, internal.pk)
+
+    def test_get_or_create_internal_sensor_rejects_non_ip(self):
+        self.assertIsNone(self.repo.get_or_create_internal_sensor("not-an-ip"))
 
     def test_cache_populated_on_init(self):
         Sensor.objects.create(address="192.168.1.1")

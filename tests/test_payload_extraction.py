@@ -11,7 +11,7 @@ from greedybear.cronjobs.payload_extraction import PayloadExtractionJob, Payload
 from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import CowrieFileTransfer, HoneypotPayload, PayloadObservation, Sensor
 
-from . import CustomTestCase
+from . import CustomTestCase, make_api_source, make_sensor
 
 
 class TestPayloadExtractionJob(CustomTestCase):
@@ -1165,6 +1165,17 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         shared = HoneypotPayload.objects.get(sha256=sha256_of(SHARED))
         self.assertIn(sensor, shared.sensors.all())
 
+    def test_payloads_are_never_linked_to_an_event_collector_sensor(self):
+        # An Event Collector user registered a sensor with the same address as T-Pot A.
+        user_sensor = make_sensor(make_api_source(self.regular_user), address=SENSOR_A, label="user-sensor")
+
+        self._run()
+
+        observation = PayloadObservation.objects.get(payload__sha256=sha256_of(ONLY_A))
+        self.assertIsNone(observation.sensor.api_source)
+        self.assertNotEqual(observation.sensor.pk, user_sensor.pk)
+        self.assertFalse(user_sensor.payload_observations.exists())
+
     def test_source_with_invalid_sensor_address_is_skipped(self):
         config = [{"url": SERVER_A, "api_key": "key-a", "sensor": "not-an-ip"}, *self._config(SERVER_B)]
 
@@ -1178,7 +1189,7 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
     def test_api_key_is_optional(self):
         self.server_a.api_key = ""
 
-        self._run([{"url": SERVER_A, "api_key": None, "sensor": SENSOR_A}])
+        self._run([{"url": SERVER_A, "sensor": SENSOR_A}])
 
         self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
         self.assertEqual(self.client.get.call_args_list[0].kwargs["headers"], {})

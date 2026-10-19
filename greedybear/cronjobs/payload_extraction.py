@@ -114,11 +114,12 @@ class PayloadExtractionJob(Cronjob):
         sensor_repo = SensorRepository()
         sources = []
         for server in settings.TPOT_PAYLOAD_SERVERS:
-            sensor = sensor_repo.get_or_create_sensor(server["sensor"])
+            # The configured address is a T-Pot of this GreedyBear, never an Event Collector user's sensor.
+            sensor = sensor_repo.get_or_create_internal_sensor(server["sensor"])
             if sensor is None:
                 self.log.error(f"Skipping payload server {server['url']}: {server['sensor']} is not a valid sensor IP address.")
                 continue
-            sources.append(PayloadSource(url=server["url"], api_key=server.get("api_key") or "", sensor=sensor))
+            sources.append(PayloadSource(url=server["url"], api_key=server.get("api_key", ""), sensor=sensor))
         return sources
 
     def _extraction_window(self) -> tuple[datetime, datetime]:
