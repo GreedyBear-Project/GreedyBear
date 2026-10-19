@@ -1,14 +1,17 @@
+import hashlib
 from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import urlsplit
 
 import requests
 from django.test import override_settings
 from django.utils import timezone
 
-from greedybear.cronjobs.payload_extraction import PayloadExtractionJob
-from greedybear.models import CowrieFileTransfer, HoneypotPayload
+from greedybear.cronjobs.payload_extraction import PayloadExtractionJob, PayloadSource
+from greedybear.cronjobs.repositories import PayloadRepository
+from greedybear.models import CowrieFileTransfer, HoneypotPayload, PayloadObservation, Sensor
 
-from . import CustomTestCase
+from . import CustomTestCase, make_api_source, make_sensor
 
 
 class TestPayloadExtractionJob(CustomTestCase):
@@ -17,6 +20,12 @@ class TestPayloadExtractionJob(CustomTestCase):
     def setUp(self):
         super().setUp()
         self.job = PayloadExtractionJob()
+        # The server configured through the legacy TPOT_PAYLOAD_SERVER_URL setting.
+        self.legacy_source = PayloadSource(url="http://payload-server:8000")
+
+    def _locator(self, sha256):
+        """Return the locator the legacy payload server reported for this hash."""
+        return PayloadObservation.objects.get(payload__sha256=sha256, sensor=None).locator
 
     @override_settings(TPOT_PAYLOAD_SERVER_URL="")
     def test_skips_when_url_not_configured(self):
@@ -34,7 +43,7 @@ class TestPayloadExtractionJob(CustomTestCase):
         client = MagicMock()
         client.get.return_value.json.return_value = []
 
-        self.job._fetch_metadata(client, "http://payload-server:8000")
+        self.job._fetch_metadata(client, self.legacy_source, self.job._extraction_window())
 
         params = client.get.call_args.kwargs["params"]
         self.assertEqual(params["start_ts"], datetime(2026, 1, 1, 8, 0).timestamp())
@@ -105,7 +114,10 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(obj.sha1, "c" * 40)
         self.assertEqual(obj.mime_type, "application/octet-stream")
         self.assertEqual(obj.size, 256)
-        self.assertEqual(obj.locator, "cowrie/aaa")
+        observation = PayloadObservation.objects.get(payload=obj)
+        self.assertIsNone(observation.sensor)
+        self.assertEqual(observation.locator, "cowrie/aaa")
+        self.assertEqual(observation.mtime, 1719000000.0)
 
         # Verify download hit the /download/ endpoint.
         download_call = mock_client.get.call_args_list[1]
@@ -234,7 +246,7 @@ class TestPayloadExtractionJob(CustomTestCase):
         # The payload is kept as metadata only so it is not lost with the window.
         obj = HoneypotPayload.objects.get(sha256="d" * 64)
         self.assertFalse(obj.payload_file)
-        self.assertEqual(obj.locator, "cowrie/ddd")
+        self.assertEqual(self._locator("d" * 64), "cowrie/ddd")
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
@@ -269,7 +281,7 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(obj.md5, "d" * 32)
         self.assertEqual(obj.sha1, "d" * 40)
         self.assertEqual(obj.mime_type, "application/x-executable")
-        self.assertEqual(obj.mtime, 1234.5)
+        self.assertEqual(PayloadObservation.objects.get(payload=obj).mtime, 1234.5)
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
@@ -304,11 +316,11 @@ class TestPayloadExtractionJob(CustomTestCase):
 
         deferred = HoneypotPayload.objects.get(sha256="b" * 64)
         self.assertFalse(deferred.payload_file)
-        self.assertEqual(deferred.locator, "cowrie/bbb")
+        self.assertEqual(self._locator("b" * 64), "cowrie/bbb")
 
     def test_metadata_only_skips_payload_without_locator(self):
         """A payload with no locator can never be fetched, so no row is written."""
-        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": ""}])
+        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": ""}], self.legacy_source)
 
         self.assertEqual(stored, 0)
         self.assertEqual(HoneypotPayload.objects.count(), 0)
@@ -323,7 +335,7 @@ class TestPayloadExtractionJob(CustomTestCase):
             timestamp=timezone.now(),
         )
 
-        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}])
+        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}], self.legacy_source)
 
         self.assertEqual(stored, 1)
         obj = HoneypotPayload.objects.get(sha256="c" * 64)
@@ -342,7 +354,7 @@ class TestPayloadExtractionJob(CustomTestCase):
             timestamp=timezone.now(),
         )
 
-        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}])
+        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}], self.legacy_source)
 
         self.assertEqual(stored, 1)
         obj = HoneypotPayload.objects.get(sha256="c" * 64)
@@ -353,19 +365,20 @@ class TestPayloadExtractionJob(CustomTestCase):
         """Recording the same payload twice should not create a duplicate row."""
         payloads = [{"sha256": "c" * 64, "locator": "cowrie/ccc"}]
 
-        self.assertEqual(self.job._store_metadata_only(payloads), 1)
-        self.assertEqual(self.job._store_metadata_only(payloads), 1)
+        self.assertEqual(self.job._store_metadata_only(payloads, self.legacy_source), 1)
+        self.assertEqual(self.job._store_metadata_only(payloads, self.legacy_source), 1)
         self.assertEqual(HoneypotPayload.objects.filter(sha256="c" * 64).count(), 1)
+        self.assertEqual(PayloadObservation.objects.filter(payload__sha256="c" * 64).count(), 1)
 
     def test_metadata_only_fills_locator_on_existing_stub(self):
         """A hash-only stub gets its locator filled in so it stays recoverable."""
         HoneypotPayload.objects.create(sha256="c" * 64)
 
-        stored = self.job._store_metadata_only([{"sha256": "C" * 64, "locator": "cowrie/ccc"}])
+        stored = self.job._store_metadata_only([{"sha256": "C" * 64, "locator": "cowrie/ccc"}], self.legacy_source)
 
         self.assertEqual(stored, 1)
-        obj = HoneypotPayload.objects.get(sha256="c" * 64)
-        self.assertEqual(obj.locator, "cowrie/ccc")
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        self.assertEqual(self._locator("c" * 64), "cowrie/ccc")
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
@@ -769,7 +782,455 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(stub.md5, "c" * 32)
         # size/locator are always known from this download, so they still update.
         self.assertEqual(stub.size, len(b"\x01\x02\x03"))
-        self.assertEqual(stub.locator, "cowrie/hhh")
+        self.assertEqual(self._locator("h" * 64), "cowrie/hhh")
+
+
+SENSOR_A = "198.51.100.10"
+SENSOR_B = "198.51.100.20"
+SERVER_A = "https://tpot-a.example:64445"
+SERVER_B = "https://tpot-b.example:64445"
+# Benign stand-ins for captured binaries.
+ONLY_A = b"captured only by sensor A"
+ONLY_B = b"captured only by sensor B"
+SHARED = b"captured by both sensors"
+
+
+def sha256_of(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+class FakePayloadServer:
+    """
+    In-memory tpot-payload-server, answering the GET requests the job sends.
+
+    It lists every file it holds on /recent, serves them on /download and
+    rejects requests without its API key, like the real server does.
+    """
+
+    def __init__(self, api_key: str, files: dict[str, bytes]):
+        self.api_key = api_key
+        self.files = files
+        # Raised by /recent instead of answering, to simulate an unreachable server.
+        self.recent_error = None
+        # Returned by /recent instead of the listing, to simulate a malformed response.
+        self.recent_body = None
+        self.recent_params = []
+        self.downloads = []
+
+    def listing(self) -> list[dict]:
+        return [
+            {
+                "locator": locator,
+                "mime_type": "text/plain",
+                "md5": hashlib.md5(content).hexdigest(),
+                "sha1": hashlib.sha1(content).hexdigest(),
+                "sha256": sha256_of(content),
+                "mtime": 1719000000.0,
+                "size": len(content),
+                "source_honeypot": locator.split("/")[0],
+            }
+            for locator, content in self.files.items()
+        ]
+
+    def get(self, path: str, headers: dict, params: dict | None = None) -> Mock:
+        if self.api_key and headers.get("X-API-Key") != self.api_key:
+            raise requests.HTTPError("403 Client Error: Forbidden")
+        response = Mock()
+        if path == "/api/v1/payloads/recent":
+            self.recent_params.append(params)
+            if self.recent_error is not None:
+                raise self.recent_error
+            response.json.return_value = self.listing() if self.recent_body is None else self.recent_body
+            return response
+        locator = path.removeprefix("/api/v1/payloads/download/")
+        self.downloads.append(locator)
+        response.content = self.files[locator]
+        return response
+
+
+class TestMultiSourcePayloadExtraction(CustomTestCase):
+    """Tests for fetching payloads from several payload servers, one per T-Pot sensor (issue #1511)."""
+
+    def setUp(self):
+        super().setUp()
+        self.server_a = FakePayloadServer("key-a", {"cowrie/downloads/only-a": ONLY_A, "cowrie/downloads/shared": SHARED})
+        self.server_b = FakePayloadServer("key-b", {"cowrie/downloads/only-b": ONLY_B, "dionaea/binaries/shared": SHARED})
+        self.servers = {SERVER_A: self.server_a, SERVER_B: self.server_b}
+
+        http_patcher = patch("greedybear.cronjobs.payload_extraction.HttpClient")
+        mock_http_class = http_patcher.start()
+        self.addCleanup(http_patcher.stop)
+        self.client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=self.client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+        self.client.get.side_effect = self._route
+
+        usage_patcher = patch.object(PayloadExtractionJob, "_quarantine_usage_bytes", return_value=0)
+        self.mock_usage = usage_patcher.start()
+        self.addCleanup(usage_patcher.stop)
+
+    def _route(self, url, headers=None, params=None, **kwargs):
+        parts = urlsplit(url)
+        server = self.servers.get(f"{parts.scheme}://{parts.netloc}")
+        if server is None:
+            raise requests.ConnectionError(f"no route to {url}")
+        return server.get(parts.path, headers or {}, params)
+
+    def _config(self, *servers: str) -> list[dict]:
+        entries = {
+            SERVER_A: {"url": SERVER_A, "api_key": "key-a", "sensor": SENSOR_A},
+            SERVER_B: {"url": SERVER_B, "api_key": "key-b", "sensor": SENSOR_B},
+        }
+        return [entries[server] for server in servers or (SERVER_A, SERVER_B)]
+
+    def _run(self, config: list | None = None, legacy_url: str = "") -> None:
+        with override_settings(
+            TPOT_PAYLOAD_SERVERS=self._config() if config is None else config,
+            TPOT_PAYLOAD_SERVER_URL=legacy_url,
+            TPOT_PAYLOAD_SERVER_API_KEY="",
+            MAX_QUARANTINE_SIZE_GB=5,
+        ):
+            PayloadExtractionJob().run()
+
+    def _sensors(self, content: bytes) -> list[str | None]:
+        """Addresses of the sensors that observed this content, sorted."""
+        return sorted(
+            PayloadObservation.objects.filter(payload__sha256=sha256_of(content)).values_list("sensor__address", flat=True),
+            key=str,
+        )
+
+    def _locator(self, content: bytes, sensor_address: str) -> str:
+        return PayloadObservation.objects.get(payload__sha256=sha256_of(content), sensor__address=sensor_address).locator
+
+    def _assert_fleet_extracted(self):
+        """Both sensors' payloads are stored once, each with the sensors that reported it."""
+        self.assertEqual(HoneypotPayload.objects.count(), 3)
+        self.assertEqual(PayloadObservation.objects.count(), 4)
+        self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_A, SENSOR_B])
+        self.assertTrue(all(payload.payload_file for payload in HoneypotPayload.objects.all()))
+
+    def test_two_sources_both_succeed(self):
+        self._run()
+
+        self._assert_fleet_extracted()
+        # The shared binary is stored once and downloaded only from the first server.
+        self.assertEqual(HoneypotPayload.objects.filter(sha256=sha256_of(SHARED)).count(), 1)
+        self.assertCountEqual(self.server_a.downloads, ["cowrie/downloads/only-a", "cowrie/downloads/shared"])
+        self.assertEqual(self.server_b.downloads, ["cowrie/downloads/only-b"])
+        shared = HoneypotPayload.objects.get(sha256=sha256_of(SHARED))
+        self.assertEqual(shared.size, len(SHARED))
+        self.assertEqual(shared.md5, hashlib.md5(SHARED).hexdigest())
+
+    def test_unique_payloads_are_attributed_to_their_own_sensor(self):
+        self._run()
+
+        only_a = HoneypotPayload.objects.get(sha256=sha256_of(ONLY_A))
+        only_b = HoneypotPayload.objects.get(sha256=sha256_of(ONLY_B))
+        self.assertEqual([s.address for s in only_a.sensors.all()], [SENSOR_A])
+        self.assertEqual([s.address for s in only_b.sensors.all()], [SENSOR_B])
+
+    def test_shared_payload_keeps_each_sensors_locator(self):
+        self._run()
+
+        self.assertEqual(self._locator(SHARED, SENSOR_A), "cowrie/downloads/shared")
+        self.assertEqual(self._locator(SHARED, SENSOR_B), "dionaea/binaries/shared")
+
+    def test_source_order_does_not_matter(self):
+        self._run(self._config(SERVER_B, SERVER_A))
+
+        self._assert_fleet_extracted()
+        self.assertEqual(self._locator(SHARED, SENSOR_A), "cowrie/downloads/shared")
+        self.assertEqual(self._locator(SHARED, SENSOR_B), "dionaea/binaries/shared")
+        # Now the shared binary is downloaded from B, which comes first, and only from it.
+        self.assertCountEqual(self.server_b.downloads, ["cowrie/downloads/only-b", "dionaea/binaries/shared"])
+        self.assertEqual(self.server_a.downloads, ["cowrie/downloads/only-a"])
+
+    def test_repeated_runs_are_idempotent(self):
+        for _ in range(3):
+            self._run()
+
+        self._assert_fleet_extracted()
+        # Nothing is downloaded again after the first run.
+        self.assertEqual(len(self.server_a.downloads) + len(self.server_b.downloads), 3)
+
+    def test_each_source_uses_its_own_api_key(self):
+        self._run()
+
+        for call in self.client.get.call_args_list:
+            url, headers = call.args[0], call.kwargs["headers"]
+            expected_key = "key-a" if urlsplit(url).hostname == urlsplit(SERVER_A).hostname else "key-b"
+            self.assertEqual(headers, {"X-API-Key": expected_key})
+
+    def test_wrong_api_key_for_one_source_does_not_affect_the_other(self):
+        # B's key was rotated on the server but not in GreedyBear yet.
+        self.server_b.api_key = "rotated-key"
+
+        self._run()
+
+        self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_A])
+        self.assertFalse(HoneypotPayload.objects.filter(sha256=sha256_of(ONLY_B)).exists())
+
+        # Once the key matches again, B's payloads come in as usual.
+        self.server_b.api_key = "key-b"
+        self._run()
+        self._assert_fleet_extracted()
+
+    def test_source_b_unavailable_then_recovers(self):
+        self.server_b.recent_error = requests.ConnectionError("connection refused")
+
+        self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 2)
+        self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_A])
+
+        self.server_b.recent_error = None
+        self._run()
+
+        self._assert_fleet_extracted()
+        # The shared binary was already downloaded from A, so B only adds its observation.
+        self.assertEqual(self.server_b.downloads, ["cowrie/downloads/only-b"])
+
+    def test_source_a_unavailable_does_not_stop_source_b(self):
+        self.server_a.recent_error = requests.Timeout("read timed out")
+
+        self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 2)
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_B])
+        self.assertFalse(HoneypotPayload.objects.filter(sha256=sha256_of(ONLY_A)).exists())
+
+    def test_unreachable_host_does_not_stop_the_other_source(self):
+        config = [{"url": "https://unreachable.example:64445", "api_key": "key-x", "sensor": "198.51.100.99"}, *self._config(SERVER_B)]
+
+        self._run(config)
+
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_B])
+
+    def test_malformed_response_from_one_source_does_not_affect_the_other(self):
+        self.server_a.recent_body = {"detail": "Internal Server Error"}
+
+        self._run()
+
+        self.assertFalse(HoneypotPayload.objects.filter(sha256=sha256_of(ONLY_A)).exists())
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_B])
+
+    def test_garbage_entries_from_one_source_do_not_affect_the_other(self):
+        self.server_a.recent_body = [42, "x", None]
+
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
+            self._run()
+
+        # The broken server is reported in the error log, the run itself does not fail.
+        self.assertIn(f"Payload extraction from {SERVER_A} (sensor {SENSOR_A}) failed", "\n".join(logs.output))
+        self.assertFalse(HoneypotPayload.objects.filter(sha256=sha256_of(ONLY_A)).exists())
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_B])
+
+    def test_invalid_json_from_one_source_does_not_affect_the_other(self):
+        self.servers[SERVER_A] = Mock(get=Mock(return_value=Mock(json=Mock(side_effect=ValueError("Expecting value")))))
+
+        self._run()
+
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_B])
+
+    def test_entries_without_sha256_are_skipped(self):
+        self.server_b.recent_body = [{"locator": "cowrie/downloads/z"}, *self.server_b.listing()]
+
+        self._run()
+
+        self._assert_fleet_extracted()
+
+    def test_unexpected_error_in_one_source_does_not_stop_the_next(self):
+        record_observations = PayloadRepository.record_observations
+
+        def fail_for_sensor_b(repo, observations):
+            if any(observation.sensor.address == SENSOR_B for observation in observations):
+                raise RuntimeError("unexpected failure")
+            return record_observations(repo, observations)
+
+        with (
+            patch.object(PayloadRepository, "record_observations", autospec=True, side_effect=fail_for_sensor_b),
+            self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs,
+        ):
+            # B comes first and fails, A must still be processed.
+            self._run(self._config(SERVER_B, SERVER_A))
+
+        self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_A])
+        self.assertIn(f"Payload extraction from {SERVER_B} (sensor {SENSOR_B}) failed, continuing", "\n".join(logs.output))
+
+    def test_run_fails_when_every_source_fails(self):
+        self.server_a.recent_body = [42]
+        self.server_b.recent_body = [None]
+
+        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 2 payload server(s)."):
+            self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    def test_legacy_source_failing_fails_the_run(self):
+        # With a single server nothing worked, so the run fails like it always did.
+        self.server_a.recent_body = [42]
+
+        with (
+            override_settings(TPOT_PAYLOAD_SERVERS=[], TPOT_PAYLOAD_SERVER_URL=SERVER_A, TPOT_PAYLOAD_SERVER_API_KEY="key-a", MAX_QUARANTINE_SIZE_GB=5),
+            self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 1 payload server(s)."),
+        ):
+            PayloadExtractionJob().run()
+
+    def test_unreachable_sources_do_not_fail_the_run(self):
+        # Network errors are expected and handled per server, as for the single server before.
+        self.server_a.recent_error = requests.ConnectionError("connection refused")
+        self.server_b.recent_error = requests.Timeout("read timed out")
+
+        self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    def test_hash_case_differs_between_sources(self):
+        self.server_a.recent_body = [{**entry, "sha256": entry["sha256"].upper()} for entry in self.server_a.listing()]
+
+        self._run()
+
+        self._assert_fleet_extracted()
+        self.assertEqual(HoneypotPayload.objects.filter(sha256=sha256_of(SHARED)).count(), 1)
+        self.assertEqual(self.server_b.downloads, ["cowrie/downloads/only-b"])
+
+    def test_quota_reached_records_every_sensors_observation(self):
+        self.mock_usage.return_value = 10 * 1024**3
+
+        self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 3)
+        self.assertFalse(any(payload.payload_file for payload in HoneypotPayload.objects.all()))
+        self.assertEqual(self.server_a.downloads + self.server_b.downloads, [])
+        self.assertEqual(self._sensors(SHARED), [SENSOR_A, SENSOR_B])
+        self.assertEqual(self._locator(SHARED, SENSOR_B), "dionaea/binaries/shared")
+
+        # Once there is space again, every metadata-only row is upgraded in place.
+        self.mock_usage.return_value = 0
+        self._run()
+
+        self._assert_fleet_extracted()
+        self.assertEqual(len(self.server_a.downloads) + len(self.server_b.downloads), 3)
+
+    def test_hash_only_stub_is_upgraded_and_observed(self):
+        stub, _ = PayloadRepository().get_or_create_stub(sha256_of(SHARED))
+        stub.iocs.add(self.ioc)
+
+        self._run()
+
+        self._assert_fleet_extracted()
+        shared = HoneypotPayload.objects.get(sha256=sha256_of(SHARED))
+        self.assertEqual(shared.pk, stub.pk)
+        self.assertIn(self.ioc, shared.iocs.all())
+
+    def test_shared_payload_is_linked_to_cowrie_session_and_ioc(self):
+        CowrieFileTransfer.objects.create(session=self.cowrie_session, shasum=sha256_of(SHARED), url="", outfile="", timestamp=timezone.now())
+
+        self._run()
+
+        shared = HoneypotPayload.objects.get(sha256=sha256_of(SHARED))
+        self.assertEqual(list(shared.cowrie_sessions.all()), [self.cowrie_session])
+        self.assertEqual(list(shared.iocs.all()), [self.cowrie_session.source])
+        self.assertEqual(HoneypotPayload.objects.get(sha256=sha256_of(ONLY_A)).cowrie_sessions.count(), 0)
+
+    @override_settings(EXTRACTION_INTERVAL=10)
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_all_sources_are_queried_for_the_same_window(self, mock_datetime):
+        # Should the clock be read again for the second server, it would already
+        # be in the next interval and ask for a different window.
+        mock_datetime.now.side_effect = [datetime(2026, 1, 1, 8, 9, 59), datetime(2026, 1, 1, 8, 10, 1)]
+
+        self._run()
+
+        expected = {"start_ts": datetime(2026, 1, 1, 7, 50).timestamp(), "end_ts": datetime(2026, 1, 1, 8, 0).timestamp()}
+        self.assertEqual(self.server_a.recent_params, [expected])
+        self.assertEqual(self.server_b.recent_params, [expected])
+
+    def test_existing_sensor_is_reused(self):
+        sensor = Sensor.objects.create(address=SENSOR_A, label="tpot-a")
+
+        self._run()
+
+        self.assertEqual(Sensor.objects.filter(address=SENSOR_A).count(), 1)
+        shared = HoneypotPayload.objects.get(sha256=sha256_of(SHARED))
+        self.assertIn(sensor, shared.sensors.all())
+
+    def test_payloads_are_never_linked_to_an_event_collector_sensor(self):
+        # An Event Collector user registered a sensor with the same address as T-Pot A.
+        user_sensor = make_sensor(make_api_source(self.regular_user), address=SENSOR_A, label="user-sensor")
+
+        self._run()
+
+        observation = PayloadObservation.objects.get(payload__sha256=sha256_of(ONLY_A))
+        self.assertIsNone(observation.sensor.api_source)
+        self.assertNotEqual(observation.sensor.pk, user_sensor.pk)
+        self.assertFalse(user_sensor.payload_observations.exists())
+
+    def test_source_with_invalid_sensor_address_is_skipped(self):
+        config = [{"url": SERVER_A, "api_key": "key-a", "sensor": "not-an-ip"}, *self._config(SERVER_B)]
+
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
+            self._run(config)
+
+        self.assertEqual(len(logs.output), 1)
+        self.assertEqual(self.server_a.recent_params, [])
+        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
+
+    def test_api_key_is_optional(self):
+        self.server_a.api_key = ""
+
+        self._run([{"url": SERVER_A, "sensor": SENSOR_A}])
+
+        self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
+        self.assertEqual(self.client.get.call_args_list[0].kwargs["headers"], {})
+
+    def test_new_setting_takes_precedence_over_legacy_setting(self):
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="WARNING") as logs:
+            self._run(legacy_url="https://legacy.example:64445")
+
+        self._assert_fleet_extracted()
+        called_hosts = {urlsplit(call.args[0]).hostname for call in self.client.get.call_args_list}
+        self.assertNotIn("legacy.example", called_hosts)
+        self.assertIn("ignoring TPOT_PAYLOAD_SERVER_URL", "\n".join(logs.output))
+
+    def test_legacy_setting_records_observations_without_sensor(self):
+        with override_settings(TPOT_PAYLOAD_SERVERS=[], TPOT_PAYLOAD_SERVER_URL=SERVER_A, TPOT_PAYLOAD_SERVER_API_KEY="key-a", MAX_QUARANTINE_SIZE_GB=5):
+            PayloadExtractionJob().run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 2)
+        self.assertEqual(self._sensors(ONLY_A), [None])
+        self.assertEqual(self._sensors(SHARED), [None])
+        self.assertEqual(HoneypotPayload.objects.get(sha256=sha256_of(SHARED)).sensors.count(), 0)
+
+    def test_api_keys_are_never_logged(self):
+        self.server_a.recent_error = requests.ConnectionError("connection refused")
+        self.server_b.api_key = "rotated-key"
+
+        with self.assertLogs(level="DEBUG") as logs:
+            self._run()
+
+        output = "\n".join(logs.output)
+        self.assertIn("tpot-a.example:64445", output)
+        self.assertIn("tpot-b.example:64445", output)
+        for secret in ("key-a", "key-b"):
+            self.assertNotIn(secret, output)
+
+    def test_payload_source_never_shows_its_api_key(self):
+        source = PayloadSource(url=SERVER_A, api_key="key-a", sensor=Sensor(address=SENSOR_A))
+
+        self.assertEqual(str(source), f"{SERVER_A} (sensor {SENSOR_A})")
+        self.assertNotIn("key-a", repr(source))
+        self.assertEqual(str(PayloadSource(url="http://payload-server:8000")), "http://payload-server:8000")
 
 
 class TestExtractAllPayloadIntegration(CustomTestCase):

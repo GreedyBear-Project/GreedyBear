@@ -506,9 +506,8 @@ class HoneypotPayload(models.Model):
     sha256 = models.CharField(max_length=64)
     mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
-    locator = models.CharField(max_length=1024, blank=True, default="")
-    mtime = models.FloatField(blank=True, null=True)
     source_honeypots = models.ManyToManyField("Honeypot", blank=True)
+    sensors = models.ManyToManyField("Sensor", through="PayloadObservation", blank=True, related_name="payloads")
     iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
     cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
     is_uploaded_mb = models.BooleanField(
@@ -527,6 +526,35 @@ class HoneypotPayload(models.Model):
 
     def __str__(self):
         return f"Payload {self.sha256}"
+
+
+class PayloadObservation(models.Model):
+    """
+    A sighting of a HoneypotPayload on one tpot-payload-server.
+
+    The same binary can be captured by several T-Pot sensors. It is stored once
+    as a HoneypotPayload, while each sensor that reported it gets its own
+    observation holding where the file lives on that sensor's payload server.
+    The sensor is empty for the legacy single-server configuration, which does
+    not say which sensor the server belongs to.
+    """
+
+    payload = models.ForeignKey(HoneypotPayload, on_delete=models.CASCADE, related_name="observations")
+    sensor = models.ForeignKey(Sensor, on_delete=models.CASCADE, related_name="payload_observations", null=True, blank=True)
+    locator = models.CharField(
+        max_length=1024,
+        help_text="Path of the file on the sensor's payload server, used to download it from there.",
+    )
+    mtime = models.FloatField(blank=True, null=True, help_text="Modification time of the file on the sensor, as a Unix timestamp.")
+
+    class Meta:
+        constraints = [
+            # An empty sensor counts as a value too, so the legacy server also gets one observation per payload.
+            models.UniqueConstraint(fields=["payload", "sensor"], nulls_distinct=False, name="unique_payload_observation_per_sensor"),
+        ]
+
+    def __str__(self):
+        return f"{self.payload} on {self.sensor or 'unknown sensor'}"
 
 
 class DashboardConfig(models.Model):

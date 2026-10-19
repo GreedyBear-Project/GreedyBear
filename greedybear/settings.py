@@ -1,5 +1,6 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
+import json
 import logging
 import os
 import sys
@@ -22,6 +23,18 @@ DEBUG = os.environ.get("DEBUG", "False") == "True"
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
 TPOT_PAYLOAD_SERVER_URL = os.environ.get("TPOT_PAYLOAD_SERVER_URL", "")
 TPOT_PAYLOAD_SERVER_API_KEY = os.environ.get("TPOT_PAYLOAD_SERVER_API_KEY", "")
+# JSON list of payload servers, one per T-Pot sensor: [{"url": ..., "api_key": ..., "sensor": <T-Pot IP>}].
+# Takes precedence over TPOT_PAYLOAD_SERVER_URL / TPOT_PAYLOAD_SERVER_API_KEY when set.
+try:
+    TPOT_PAYLOAD_SERVERS = json.loads(os.environ.get("TPOT_PAYLOAD_SERVERS") or "[]")
+except json.JSONDecodeError as e:
+    # Report only the position: the value holds API keys and must not end up in logs.
+    raise ValueError(f"TPOT_PAYLOAD_SERVERS is not valid JSON ({e.msg} at line {e.lineno}, column {e.colno})") from None
+if not isinstance(TPOT_PAYLOAD_SERVERS, list) or not all(
+    isinstance(server, dict) and isinstance(server.get("url"), str) and isinstance(server.get("sensor"), str) and isinstance(server.get("api_key", ""), str)
+    for server in TPOT_PAYLOAD_SERVERS
+):
+    raise ValueError('TPOT_PAYLOAD_SERVERS must be a JSON list of objects with a "url", a "sensor" and an optional string "api_key"')
 MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
 ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
 ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"
