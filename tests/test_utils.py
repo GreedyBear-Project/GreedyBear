@@ -149,7 +149,7 @@ class TestIsValidCIDR(CustomTestCase):
             self.assertIsNone(cidr)
 
     def test_invalid_cidr_mask_after_slash(self):
-        """Python accepts a mask after the slash, Postgres inet does not."""
+        """Python accepts a mask after the slash, Postgres cidr does not."""
         invalid = [
             "192.168.1.0/255.255.255.0",
             "192.168.1.0/0.0.0.255",
@@ -159,6 +159,16 @@ class TestIsValidCIDR(CustomTestCase):
             is_valid, cidr = is_valid_cidr(value)
             self.assertFalse(is_valid)
             self.assertIsNone(cidr)
+
+    def test_invalid_cidr_host_bits_set(self):
+        """A network with host bits set cannot be stored in the cidr column."""
+        is_valid, cidr = is_valid_cidr("192.168.1.5/24")
+        self.assertFalse(is_valid)
+        self.assertIsNone(cidr)
+
+        is_valid, cidr = is_valid_cidr("10.0.0.1/8")
+        self.assertFalse(is_valid)
+        self.assertIsNone(cidr)
 
 
 class TestIsValidIpv4(CustomTestCase):

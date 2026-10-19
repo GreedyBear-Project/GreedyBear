@@ -187,7 +187,7 @@ def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict
 
     Args:
         iocs (QuerySet | list): Filtered IOCs to render.
-        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
+        verbose (bool): Include verbose fields (days_seen, destination_ports).
         include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 
     Returns: A list of JSON-serializable IOC dicts.

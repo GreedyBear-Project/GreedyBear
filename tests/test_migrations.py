@@ -551,7 +551,7 @@ class TestFireHolCidrIndex(MigrationTestCase):
     """Tests that the CIDR lookup index is created with a usable predicate."""
 
     migrate_from = "0072_remove_ioc_firehol_categories"
-    migrate_to = "0073_firehollist_cidr_gist"
+    migrate_to = "0073_alter_firehollist_ip_address_and_more"
 
     def test_index_is_created(self):
         """A wrong predicate would leave the index covering no rows."""
@@ -565,4 +565,5 @@ class TestFireHolCidrIndex(MigrationTestCase):
         definition = rows[0][0]
         self.assertIn("gist", definition)
         self.assertIn("inet_ops", definition)
-        self.assertIn("'%/%'", definition)
+        self.assertIn("masklen", definition)
+        self.assertIn("<= 31", definition)

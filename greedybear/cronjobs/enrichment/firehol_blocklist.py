@@ -47,7 +47,7 @@ class FireHolBlocklistCron(BaseEnrichmentJob):
 
         cidr_matches = self.firehol_repo.get_cidr_matches()
         self.log.info(f"Found {len(cidr_matches)} IOCs inside stored CIDR ranges")
-        tag_entries += [{"ioc_id": ioc_id, "key": "blocklist", "value": source} for ioc_id, source in cidr_matches]
+        tag_entries += [{"ioc_id": ioc_id, "key": "blocklist", "value": source} for ioc_id, sources in cidr_matches for source in sources]
 
         created_count = self._write_tags(tag_entries)
         self.log.info(f"{self.SOURCE_NAME} enrichment completed, created {created_count} tags.")

@@ -135,8 +135,7 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log = MagicMock()
         cronjob.execute()
 
-        self.assertFalse(FireHolList.objects.filter(ip_address="256.1.1.1", source="blocklist_de").exists())
-        self.assertFalse(FireHolList.objects.filter(ip_address="999.999.999.999", source="blocklist_de").exists())
+        self.assertFalse(FireHolList.objects.filter(source="blocklist_de").exists())
 
     @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_handles_invalid_cidr(self, mock_get):
@@ -150,7 +149,7 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log = MagicMock()
         cronjob.execute()
 
-        self.assertFalse(FireHolList.objects.filter(ip_address="192.168.1.256", source="blocklist_de").exists())
+        self.assertFalse(FireHolList.objects.filter(source="blocklist_de").exists())
 
     def test_cleanup_old_entries(self):
         now = datetime.now()

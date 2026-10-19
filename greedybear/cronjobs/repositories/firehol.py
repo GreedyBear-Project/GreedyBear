@@ -2,10 +2,14 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from django.db import DataError, connection, transaction
-from django.db.models.functions import Now
+from django.contrib.postgres.expressions import ArraySubquery
+from django.core.exceptions import ValidationError
+from django.db import DataError, transaction
+from django.db.models import Exists, OuterRef
+from django.db.models.functions import Cast, Now
+from netfields import InetAddressField
 
-from greedybear.models import FireHolList, IocType
+from greedybear.models import IOC, FireHolList, IocType
 
 
 class FireHolRepository:
@@ -45,7 +49,7 @@ class FireHolRepository:
                     source=source,
                     defaults={"added": Now()},
                 )
-        except DataError:
+        except (DataError, ValidationError):
             self.log.warning(f"Skipping entry Postgres cannot store as an address: {ip_address}")
             return None, False
         return entry, created
@@ -61,40 +65,36 @@ class FireHolRepository:
             Dict mapping IP address to the list of sources it appears in.
         """
         entries_by_ip = defaultdict(list)
-        for ip_address_value, source in FireHolList.objects.exclude(ip_address__contains="/").values_list("ip_address", "source"):
+        for network, source in FireHolList.objects.filter(ip_address__prefixlen=32).values_list("ip_address", "source"):
             if source:
-                entries_by_ip[ip_address_value].append(source)
+                entries_by_ip[str(network.network_address)].append(source)
         return dict(entries_by_ip)
 
-    def get_cidr_matches(self) -> list[tuple[int, str]]:
+    def get_cidr_matches(self) -> list[tuple[int, list[str]]]:
         """
         Find IOCs that sit inside a stored CIDR range.
 
-        Uses Postgres network containment, so the comparison happens in the
-        database. In Python this means loading every IP-type IOC and testing
-        each one against every range, which does not scale.
+        The containment test runs in the database, against the partial GiST
+        index on the blocklist. In Python it means loading every IP-type IOC
+        and testing each one against every range, which does not scale.
 
-        `pg_input_is_valid` replaces the try/except this used to need. A row
-        that cannot be read as an address is skipped instead of aborting the
-        whole query.
+        `Exists` filters first and stops at the first match, so the list of
+        sources is only built for IOCs that actually match.
 
         Returns:
-            List of (ioc_id, source) tuples, one per match.
+            List of (ioc_id, sources) tuples, one per matching IOC.
         """
-        query = """
-            SELECT ioc.id, fh.source
-            FROM greedybear_ioc ioc
-            JOIN greedybear_firehollist fh
-              ON ioc.name::inet <<= fh.ip_address::inet
-            WHERE ioc.type = %s
-              AND fh.source <> ''
-              AND fh.ip_address LIKE %s
-              AND pg_input_is_valid(ioc.name, 'inet')
-              AND pg_input_is_valid(fh.ip_address, 'inet')
-        """
-        with connection.cursor() as cursor:
-            cursor.execute(query, [IocType.IP, "%/%"])
-            return cursor.fetchall()
+        ranges = FireHolList.objects.filter(
+            ip_address__prefixlen__lte=31,
+            ip_address__net_contains_or_equals=Cast(OuterRef("name"), InetAddressField()),
+        ).exclude(source="")
+
+        return list(
+            IOC.objects.filter(type=IocType.IP)
+            .filter(Exists(ranges))
+            .annotate(blocklist_sources=ArraySubquery(ranges.values("source")))
+            .values_list("id", "blocklist_sources")
+        )
 
     def has_entries(self) -> bool:
         """

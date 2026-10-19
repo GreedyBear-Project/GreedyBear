@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from greedybear.cronjobs.repositories import FireHolRepository
-from greedybear.models import FireHolList
+from greedybear.models import IOC, FireHolList, IocType
 
 from . import CustomTestCase
 
@@ -16,7 +16,8 @@ class TestFireHolRepository(CustomTestCase):
         entry, created = self.repo.get_or_create("1.2.3.4", "blocklist_de")
 
         self.assertTrue(created)
-        self.assertEqual(entry.ip_address, "1.2.3.4")
+        entry.refresh_from_db()
+        self.assertEqual(str(entry.ip_address), "1.2.3.4/32")
         self.assertEqual(entry.source, "blocklist_de")
         self.assertTrue(FireHolList.objects.filter(ip_address="1.2.3.4", source="blocklist_de").exists())
 
@@ -26,16 +27,18 @@ class TestFireHolRepository(CustomTestCase):
         entry, created = self.repo.get_or_create("5.6.7.8", "greensnow")
 
         self.assertFalse(created)
-        self.assertEqual(entry.ip_address, "5.6.7.8")
+        self.assertEqual(str(entry.ip_address), "5.6.7.8/32")
         self.assertEqual(FireHolList.objects.filter(ip_address="5.6.7.8", source="greensnow").count(), 1)
 
     def test_get_or_create_skips_unstorable_value(self):
         """A value Postgres cannot parse is skipped, not raised."""
+        before = FireHolList.objects.count()
+
         entry, created = self.repo.get_or_create("not-an-ip/24", "greensnow")
 
         self.assertIsNone(entry)
         self.assertFalse(created)
-        self.assertFalse(FireHolList.objects.filter(ip_address="not-an-ip/24").exists())
+        self.assertEqual(FireHolList.objects.count(), before)
 
     def test_get_or_create_refreshes_added(self):
         """An entry seen again has its added timestamp moved forward."""
@@ -47,6 +50,27 @@ class TestFireHolRepository(CustomTestCase):
 
         entry.refresh_from_db()
         self.assertGreater(entry.added, old_date)
+
+    def test_get_entries_by_ip_ignores_cidr_rows(self):
+        """Only /32 rows are single IPs. A range must not be read as one."""
+        self.repo.get_or_create("1.2.3.4", "greensnow")
+        self.repo.get_or_create("10.0.0.0/8", "dshield")
+
+        entries = self.repo.get_entries_by_ip()
+
+        self.assertEqual(entries["1.2.3.4"], ["greensnow"])
+        self.assertNotIn("10.0.0.0", entries)
+
+    def test_get_cidr_matches_ignores_exact_rows(self):
+        """Only ranges belong to the CIDR path; a /32 row is an exact match, handled elsewhere."""
+        ioc = IOC.objects.create(name="10.0.0.5", type=IocType.IP)
+        self.repo.get_or_create("10.0.0.5", "greensnow")
+
+        self.assertNotIn(ioc.id, dict(self.repo.get_cidr_matches()))
+
+        self.repo.get_or_create("10.0.0.0/8", "dshield")
+
+        self.assertEqual(dict(self.repo.get_cidr_matches())[ioc.id], ["dshield"])
 
     def test_entry_still_listed_survives_cleanup(self):
         """An old entry seen again is not deleted, because added was refreshed."""

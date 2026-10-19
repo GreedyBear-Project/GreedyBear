@@ -97,7 +97,10 @@ def parse_timestamp(timestamp: str) -> datetime:
 
 def is_valid_cidr(candidate: str) -> tuple[bool, str | None]:
     """
-    Validate if a string is a valid CIDR notation.
+    Validate if a string is a CIDR notation the cidr column can store.
+
+    A value with host bits set, like 1.2.3.5/24, is rejected: the column
+    stores networks, not hosts inside them.
 
     Args:
         candidate: String to validate as CIDR.
@@ -108,13 +111,13 @@ def is_valid_cidr(candidate: str) -> tuple[bool, str | None]:
     """
     candidate = candidate.strip()
     try:
-        IPv4Network(candidate, strict=False)
+        IPv4Network(candidate, strict=True)
     except ValueError:
         return False, None
 
     # Python accepts a netmask after the slash, like 1.2.3.0/255.255.255.0.
-    # Postgres inet only accepts a prefix length, and the CIDR index parses
-    # every stored value, so anything it would refuse is rejected here.
+    # The cidr column only accepts a prefix length, so that form is rejected
+    # here too. strict=True above covers the other mismatch, host bits.
     if "/" in candidate and not candidate.split("/", 1)[1].isdigit():
         return False, None
 
