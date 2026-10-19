@@ -26,6 +26,7 @@ from greedybear.enums import FrontendPage
 from .serializers import (
     ChangePasswordSerializer,
     EmailVerificationSerializer,
+    GreedyBearPasswordResetSerializer,
     LoginSerializer,
     RegistrationSerializer,
 )
@@ -54,6 +55,7 @@ class PasswordResetView(rest_email_auth.views.PasswordResetView):
     authentication_classes: list = []
     permission_classes: list = []
     throttle_classes: list = [POSTUserRateThrottle]
+    serializer_class = GreedyBearPasswordResetSerializer
 
 
 class EmailVerificationView(rest_email_auth.views.EmailVerificationView):

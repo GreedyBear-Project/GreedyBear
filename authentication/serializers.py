@@ -11,6 +11,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 from django.db.models import Q
+from durin.models import AuthToken
+from rest_email_auth import models as rest_email_auth_models
 from rest_framework import serializers as rfs
 from rest_framework.authtoken.serializers import AuthTokenSerializer
 from slack_sdk.errors import SlackApiError
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ChangePasswordSerializer",
     "EmailVerificationSerializer",
+    "GreedyBearPasswordResetSerializer",
     "RegistrationSerializer",
     "UserProfileSerializer",
 ]
@@ -137,6 +140,18 @@ class EmailVerificationSerializer(rest_email_auth.serializers.EmailVerificationS
                 )
             except SlackApiError:
                 logger.exception(f"Slack message failed for user(#{user.pk})")
+
+
+class GreedyBearPasswordResetSerializer(rest_email_auth.serializers.PasswordResetSerializer):
+    def save(self):
+        with transaction.atomic():
+            token = rest_email_auth_models.PasswordResetToken.objects.select_related("email__user").get(key=self.validated_data["key"])
+            user = token.email.user
+
+            result = super().save()
+            AuthToken.objects.filter(user=user).delete()
+
+        return result
 
 
 class LoginSerializer(AuthTokenSerializer):

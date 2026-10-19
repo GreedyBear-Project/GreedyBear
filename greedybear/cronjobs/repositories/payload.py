@@ -16,7 +16,8 @@ class PayloadRepository:
     PayloadExtractionJob run independently and can complete in either order
     within the same tick, so the linking is done from both directions: once a
     payload is downloaded, and once a Cowrie file transfer is recorded, each
-    side looks for a match already stored by the other.
+    side looks for a match already stored by the other. Stubs created by the
+    event collector link pre-existing sessions at creation time.
     """
 
     def __init__(self):

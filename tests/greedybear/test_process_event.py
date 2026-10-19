@@ -13,7 +13,7 @@ from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.hit import InvalidHitError
 from greedybear.cronjobs.repositories import IocRepository, PayloadRepository
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
+from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
     DEFAULT_EXTERNAL_HONEYPOT,
     HONEYPOT_NAME_MAX_LENGTH,
@@ -770,6 +770,34 @@ class TestProcessPayloadHashes(CustomTestCase):
         # same hash, uppercase, should find existing row, not create a second
         _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("A" * 64)])
         self.assertEqual(HoneypotPayload.objects.count(), 1)
+
+    def test_stub_links_preexisting_session(self):
+        # transfer recorded FIRST, external hit carrying same hash SECOND
+        _, session = self._make_session_with_transfer(self.sha256)
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertIn(session, payload.cowrie_sessions.all())
+
+    def test_stub_links_cowrie_attacker_ioc(self):
+        cowrie_ioc, _ = self._make_session_with_transfer(self.sha256)
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertIn(cowrie_ioc, payload.iocs.all())
+
+    def test_existing_stub_skips_linking(self):
+        # stub FIRST (no sessions exist yet), transfer recorded SECOND
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        cowrie_ioc, _ = self._make_session_with_transfer(self.sha256)
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertEqual(payload.cowrie_sessions.count(), 0)
+        self.assertNotIn(cowrie_ioc, payload.iocs.all())
+
+    def _make_session_with_transfer(self, sha256):
+        cowrie_ioc = IOC.objects.create(name="9.9.9.9", type="ip")
+        session = CowrieSession.objects.create(session_id=0xABCDEF, source=cowrie_ioc)
+        CowrieFileTransfer.objects.create(session=session, shasum=sha256, timestamp=timezone.now())
+        return cowrie_ioc, session
 
 
 class TestSensorHoneypotNames(CustomTestCase):
