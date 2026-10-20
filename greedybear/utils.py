@@ -3,6 +3,7 @@
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+from hashlib import sha256
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
 from urllib.parse import urlparse
@@ -178,6 +179,23 @@ def is_valid_url(url: str) -> bool:
 
     except Exception:
         return False
+
+
+def hash_command_sequence(commands: Sequence[str]) -> str:
+    """
+    Compute the deduplication key of a command sequence.
+
+    Every ingestion path must hash commands through this function, otherwise
+    the same sequence gets a different CommandSequence.commands_hash and is
+    stored twice.
+
+    Args:
+        commands: Commands in execution order.
+
+    Returns:
+        SHA-256 hex digest of the commands joined by newlines.
+    """
+    return sha256("\n".join(commands).encode()).hexdigest()
 
 
 def clamp_to_field(model: type[Model], field_name: str, value: str) -> str:

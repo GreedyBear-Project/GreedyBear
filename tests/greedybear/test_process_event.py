@@ -12,7 +12,8 @@ from api.serializers.events import EventSerializer
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.hit import InvalidHitError
-from greedybear.cronjobs.repositories import IocRepository, PayloadRepository
+from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
+from greedybear.cronjobs.repositories import CowrieSessionRepository, IocRepository, PayloadRepository
 from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
     DEFAULT_EXTERNAL_HONEYPOT,
@@ -298,9 +299,35 @@ class TestProcessCommands(CustomTestCase):
     def test_hash_is_sha256_of_joined_commands(self):
         cmds = ["ls", "pwd"]
         _process_commands([self._hit(c) for c in cmds])
-        expected_hash = hashlib.sha256("|".join(cmds).encode()).hexdigest()
+        expected_hash = hashlib.sha256("\n".join(cmds).encode()).hexdigest()
         seq = CommandSequence.objects.first()
         self.assertEqual(seq.commands_hash, expected_hash)
+
+    def test_reuses_sequence_stored_by_cowrie_extraction(self):
+        """A sequence Cowrie extraction already stored must not be stored again by the event path."""
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        cowrie_seq = CommandSequence.objects.create(
+            commands=cmds,
+            commands_hash=hashlib.sha256("\n".join(cmds).encode()).hexdigest(),
+            first_seen=timezone.now(),
+            last_seen=timezone.now(),
+        )
+        _process_commands([self._hit(c) for c in cmds])
+        self.assertEqual(CommandSequence.objects.count(), 1)
+        self.assertEqual(CommandSequence.objects.get().pk, cowrie_seq.pk)
+
+    def test_cowrie_extraction_reuses_sequence_stored_by_event_path(self):
+        """Cowrie extraction must find a sequence the event path stored first."""
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        _process_commands([self._hit(c) for c in cmds])
+        event_seq = CommandSequence.objects.get()
+
+        session = CowrieSession(session_id=0xABC, source=IOC.objects.create(name="5.6.7.8", type="ip"))
+        session.commands = CommandSequence(commands=list(cmds), first_seen=timezone.now(), last_seen=timezone.now())
+        strategy = CowrieExtractionStrategy("Cowrie", ioc_repo=None, sensor_repo=None, session_repo=CowrieSessionRepository())
+
+        self.assertTrue(strategy._deduplicate_command_sequence(session))
+        self.assertEqual(session.commands.pk, event_seq.pk)
 
     def test_empty_hits_creates_nothing(self):
         _process_commands([{"src_ip": "1.1.1.1"}])
