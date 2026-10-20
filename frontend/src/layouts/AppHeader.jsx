@@ -141,6 +141,12 @@ function AppHeader() {
                 <span className="ms-1">Trending</span>
               </NavLink>
             </NavItem>
+            <NavItem>
+              <NavLink className="d-flex-start-center" end to="/payloads">
+                <MdDescription />
+                <span className="ms-1">Payloads</span>
+              </NavLink>
+            </NavItem>
           </Nav>
           {/* Navbar Right Side */}
           <Nav navbar className="ms-auto d-flex align-items-center">
