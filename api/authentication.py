@@ -25,8 +25,11 @@ class CSRFProtectedCookieTokenAuthentication(CookieTokenAuthentication):
 
     @staticmethod
     def _enforce_csrf(request: Request) -> None:
-        check = CSRFCheck(lambda r: None)
+        # Mirrors DRF's own SessionAuthentication.enforce_csrf: CSRFCheck's get_response
+        # callback is required by CsrfViewMiddleware's constructor but never actually
+        # invoked here, since only process_request()/process_view() are called directly.
+        check = CSRFCheck(lambda r: None)  # ty: ignore[invalid-argument-type]
         check.process_request(request)
-        reason = check.process_view(request, None, (), {})
+        reason = check.process_view(request, None, (), {})  # ty: ignore[invalid-argument-type]
         if reason:
             raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
