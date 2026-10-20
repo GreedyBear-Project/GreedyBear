@@ -62,7 +62,10 @@ with (BASE_DIR / "pyproject.toml").open("rb") as f:
     VERSION = tomllib.load(f)["project"]["version"]
 
 CSRF_COOKIE_SAMESITE = "Strict"
-CSRF_COOKIE_HTTPONLY = True
+# Must be readable by the frontend so axios can echo it back as X-CSRFToken.
+# Django's own docs note this adds little protection anyway, since XSS can
+# already make same-domain requests regardless of this flag.
+CSRF_COOKIE_HTTPONLY = False
 
 # Prevent browsers from MIME-sniffing the content type, reducing
 # the risk of drive-by downloads.
@@ -135,7 +138,7 @@ REST_FRAMEWORK = {
     # Exception Handling
     "EXCEPTION_HANDLER": "certego_saas.ext.exceptions.custom_exception_handler",
     # Auth
-    "DEFAULT_AUTHENTICATION_CLASSES": ["certego_saas.apps.auth.backend.CookieTokenAuthentication"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["api.authentication.CSRFProtectedCookieTokenAuthentication"],
     # OpenAPI schema generation (drf-spectacular)
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Pagination

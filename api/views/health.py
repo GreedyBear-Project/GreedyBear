@@ -2,7 +2,6 @@ import logging
 import time
 from datetime import datetime, timedelta
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
@@ -14,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.serializers import HealthSerializer
 from greedybear.consts import START_TIME
 from greedybear.models import (
@@ -185,7 +185,7 @@ def get_status_overview():
     )
 )
 class HealthView(APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAdminUser]
 
     def get(self, request: Request, *args, **kwargs):

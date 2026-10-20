@@ -2,10 +2,10 @@ import logging
 
 import rest_email_auth.views
 from certego_saas.apps.auth import views as certego_views
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.throttling import POSTUserRateThrottle
 from django.conf import settings
 from django.contrib.auth import login
+from django.middleware.csrf import get_token
 from durin import views as durin_views
 from durin.models import AuthToken
 from rest_framework import status
@@ -20,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from greedybear.consts import GET
 from greedybear.enums import FrontendPage
 
@@ -79,9 +80,14 @@ class ResendVerificationView(rest_email_auth.views.ResendVerificationView):
 
 
 @api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
+@authentication_classes([CSRFProtectedCookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def check_authentication(request):
+    # Calling get_token() marks the CSRF cookie as needed, so CsrfViewMiddleware
+    # sets it on the response. This is the frontend's startup call, so it's the
+    # natural place to guarantee the browser has a csrftoken cookie before any
+    # unsafe request is attempted.
+    get_token(request._request)
     logger.info(f"User: {request.user}, Administrator: {request.user.is_superuser}")
     return Response({"is_superuser": request.user.is_superuser}, status=status.HTTP_200_OK)
 
@@ -186,7 +192,7 @@ class TokenSessionsViewSet(durin_views.TokenSessionsViewSet):
         detail=False,
         methods=["delete"],
         url_path="others",
-        authentication_classes=[CookieTokenAuthentication],
+        authentication_classes=[CSRFProtectedCookieTokenAuthentication],
         permission_classes=[IsAuthenticated],
     )
     def revoke_others(self, request: Request) -> Response:
@@ -194,4 +200,9 @@ class TokenSessionsViewSet(durin_views.TokenSessionsViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-APIAccessTokenView = durin_views.APIAccessTokenView
+class APIAccessTokenView(durin_views.APIAccessTokenView):
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
+
+
+class LogoutView(certego_views.LogoutView):
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]

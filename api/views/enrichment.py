@@ -1,7 +1,6 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -9,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.mixins import RequestLoggingMixin
 from api.serializers import EnrichmentRequestSerializer, EnrichmentSerializer
 from api.views.utils import save_request_source
@@ -32,7 +32,7 @@ from greedybear.models import IOC, ViewType
     )
 )
 class EnrichmentView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request, *args, **kwargs):
