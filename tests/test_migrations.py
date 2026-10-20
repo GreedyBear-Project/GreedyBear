@@ -567,3 +567,54 @@ class TestFireHolCidrIndex(MigrationTestCase):
         self.assertIn("inet_ops", definition)
         self.assertIn("masklen", definition)
         self.assertIn("<= 31", definition)
+
+
+@tag("migration")
+class TestFireHolCidrDataCleanup(MigrationTestCase):
+    """Tests the cleanup that lets the ip_address column become cidr."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_alter_firehollist_ip_address_and_more"
+
+    def test_unstorable_values_are_dropped(self):
+        """cidr refuses host bits, a netmask after the slash, and non-addresses."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+
+        FireHolList.objects.create(ip_address="1.2.3.4/24", source="hostbits")
+        FireHolList.objects.create(ip_address="1.2.3.0/255.255.255.0", source="netmask")
+        FireHolList.objects.create(ip_address="w00tw00t.at.ISC", source="junk")
+        FireHolList.objects.create(ip_address="5.6.7.0/24", source="good")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        self.assertFalse(firehol_new.objects.filter(source__in=["hostbits", "netmask", "junk"]).exists())
+        self.assertEqual(str(firehol_new.objects.get(source="good").ip_address), "5.6.7.0/24")
+
+    def test_duplicates_collapse_to_the_newest_row(self):
+        """A bare address and its /32 form become one value, so one row has to go."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+
+        older = FireHolList.objects.create(ip_address="9.9.9.9", source="dshield")
+        newer = FireHolList.objects.create(ip_address="9.9.9.9/32", source="dshield")
+        FireHolList.objects.filter(pk=older.pk).update(added="2026-01-01T00:00:00Z")
+        FireHolList.objects.filter(pk=newer.pk).update(added="2026-06-01T00:00:00Z")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        remaining = list(firehol_new.objects.filter(source="dshield"))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].id, newer.id)
+        self.assertEqual(str(remaining[0].ip_address), "9.9.9.9/32")
+
+    def test_unique_constraint_is_enforced_after_migration(self):
+        """The constraint is what stops the duplicates coming back."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+        FireHolList.objects.create(ip_address="8.8.8.0/24", source="greensnow")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        with self.assertRaises(IntegrityError):
+            firehol_new.objects.create(ip_address="8.8.8.0/24", source="greensnow")

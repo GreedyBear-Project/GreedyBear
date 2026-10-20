@@ -140,6 +140,9 @@ class FireHolList(models.Model):
                 name="firehollist_cidr_gist",
             ),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["ip_address", "source"], name="unique_firehollist_identity"),
+        ]
 
     def __str__(self):
         return f"{self.ip_address} ({self.source or 'unknown'})"
