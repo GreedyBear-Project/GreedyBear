@@ -5,7 +5,7 @@ from math import isfinite
 from typing import Any
 
 from greedybear.consts import REQUIRED_ELASTIC_FIELDS, REQUIRED_EVENT_FIELDS
-from greedybear.utils import parse_timestamp
+from greedybear.utils import normalize_ip, parse_timestamp
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +28,11 @@ class Hit(Mapping):
 
     Read access is kept so a hit can be passed to code that treats hits as
     plain dicts. It is a Mapping rather than a MutableMapping because the hit
-    is input data: the one field we add, `_sensor`, is set through
-    `attach_sensor` so the write lives in here rather than in the pipeline.
+    is input data that callers should not modify. The class makes two writes
+    itself: it normalizes `src_ip` on construction, so equivalent IP spellings
+    map to one standardized form downstream, and it adds `_sensor` through
+    `attach_sensor`. Both live in here rather than in the pipeline, so the hit
+    stays read-only from the outside.
     """
 
     def __init__(self, data: dict, required: Iterable[str] = ()):
@@ -47,6 +50,11 @@ class Hit(Mapping):
         self._data = data
         for key in required:
             self.require(key)
+
+        # equivalent IP spellings must map to one canonical form everywhere downstream
+        src_ip = self._data.get("src_ip")
+        if isinstance(src_ip, str) and src_ip.strip():
+            self._data["src_ip"] = normalize_ip(src_ip)
 
     @classmethod
     def from_elastic(cls, raw: dict) -> "Hit":
@@ -85,8 +93,8 @@ class Hit(Mapping):
         """
         Record the sensor that reported this hit, for the strategies to read.
 
-        This is the only field GreedyBear adds to a hit, so it is the only
-        write the class allows.
+        This is the only field GreedyBear adds to a hit. Apart from the `src_ip`
+        normalization in `__init__`, it is the only write the class makes.
 
         Args:
             sensor: The Sensor the hit was reported by.

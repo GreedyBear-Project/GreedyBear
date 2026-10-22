@@ -18,7 +18,7 @@ from stix2 import Bundle, ExternalReference, Indicator
 from greedybear.consts import APISOURCE_LOCKED_THRESHOLD, CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.models import APISource, AutonomousSystem, EventStatus, EventStatusType, RawEvent, Sensor, SourceType, Statistics
-from greedybear.utils import is_ip_address, is_valid_domain
+from greedybear.utils import is_ip_address, is_valid_domain, normalize_ip
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def get_request_source_ip(request) -> str:
 
     for candidate in candidates:
         if is_ip_address(candidate):
-            return candidate
+            return normalize_ip(candidate)
 
     logger.error("Unable to extract valid source IP from request. X-Forwarded-For: %s", forwarded_for)
     raise UnableToExtractSourceIPError("No valid source IP found in request metadata")
