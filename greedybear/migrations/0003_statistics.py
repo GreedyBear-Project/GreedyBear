@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "request_date",
-                    models.DateTimeField(default=datetime.datetime.utcnow),
+                    models.DateTimeField(default=datetime.datetime.now),
                 ),
             ],
         ),

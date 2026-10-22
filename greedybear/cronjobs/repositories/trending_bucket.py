@@ -28,8 +28,8 @@ class TrendingBucketRepository:
         """
 
     @staticmethod
-    def _build_upsert_params(batch: list[tuple[BucketKey, int]]) -> list[object]:
-        params: list[object] = []
+    def _build_upsert_params(batch: list[tuple[BucketKey, int]]) -> list[str | datetime | int]:
+        params: list[str | datetime | int] = []
         for (attacker_ip, feed_type, bucket_start), interaction_count in batch:
             params.extend((attacker_ip, feed_type, bucket_start, interaction_count))
         return params

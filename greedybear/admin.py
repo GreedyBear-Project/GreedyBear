@@ -199,10 +199,11 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "related_urls_display",
         "scanner",
         "payload_request",
+        "http_attack_types_display",
+        "high_credential_reuse",
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
-        "firehol_categories_display",
         "autonomous_system_display",
         "destination_ports_display",
         "protocols_display",
@@ -215,6 +216,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "type",
         "scanner",
         "payload_request",
+        "high_credential_reuse",
         "ip_reputation",
         "autonomous_system",
     ]
@@ -229,11 +231,12 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     honeypots_display = collapsed_list_display("honeypots")
     sensors_display = collapsed_list_display("sensors")
     related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
-    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
     destination_ports_display = collapsed_list_display("destination_ports")
     protocols_display = collapsed_list_display("protocols")
     cves_display = collapsed_list_display("cves", description="CVEs")
+    http_attack_types_display = collapsed_list_display("http_attack_types", description="HTTP Attack Types")
 
+    @admin.display(description="Autonomous System", ordering="autonomous_system__asn")
     def autonomous_system_display(self, ioc):
         """
         Shows ASN and AS name neatly in list_display.
@@ -243,9 +246,6 @@ class IOCModelAdmin(GreedyBearModelAdmin):
             name = ioc.autonomous_system.name
             return f"{asn} ({name})" if name else str(asn)
         return "-"
-
-    autonomous_system_display.short_description = "Autonomous System"
-    autonomous_system_display.admin_order_field = "autonomous_system__asn"
 
     def get_queryset(self, request):
         """Override to optimize queries and avoid N+1 problems."""

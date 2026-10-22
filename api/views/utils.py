@@ -80,6 +80,8 @@ JSON_BASE_FIELDS = (
     "interaction_count",
     "scanner",
     "payload_request",
+    "http_attack_types",
+    "high_credential_reuse",
     "ip_reputation",
     "login_attempts",
     "recurrence_probability",
@@ -91,10 +93,7 @@ JSON_BASE_FIELDS = (
     "autonomous_system",
     "tags",
 )
-JSON_VERBOSE_FIELDS = (
-    "days_seen",
-    "firehol_categories",
-)
+JSON_VERBOSE_FIELDS = ("days_seen",)
 STIX_FIELDS = {
     "value",
     "type",
@@ -116,7 +115,7 @@ def stream_ioc_objects(iocs, verbose=False, include_sensors=False):
 
     Args:
         iocs (QuerySet | list): Filtered IOCs to render.
-        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories)
+        verbose (bool): Include verbose fields (days_seen, destination_ports)
             and, when the `payload_hashes` annotation is present, the payload hashes.
         include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 
@@ -188,7 +187,7 @@ def build_ioc_json_list(iocs, verbose=False, include_sensors=False) -> list[dict
 
     Args:
         iocs (QuerySet | list): Filtered IOCs to render.
-        verbose (bool): Include verbose fields (days_seen, destination_ports, firehol_categories).
+        verbose (bool): Include verbose fields (days_seen, destination_ports).
         include_sensors (bool): Emit a `sensors` array when the `sensors_json` annotation is present.
 
     Returns: A list of JSON-serializable IOC dicts.
@@ -413,14 +412,14 @@ def _bulk_create_raw_events(events_data: list[dict], batch: EventStatus, api_sou
 
     # Prefetch all sensors in one query
     sensor_ids = {e["sensor_id"] for e in events_data if "sensor_id" in e}
-    sensors_by_id = {s.id: s for s in Sensor.objects.filter(id__in=sensor_ids, api_source=api_source)}
+    sensors_by_id = {s.pk: s for s in Sensor.objects.filter(id__in=sensor_ids, api_source=api_source)}
 
     raw_events = []
 
     for e in events_data:
         sensor_id = e.get("sensor_id")
         if sensor_id not in sensors_by_id:
-            raise ValueError(f"Invalid or missing sensor_id '{sensor_id}' for api_source {api_source.id}. ")
+            raise ValueError(f"Invalid or missing sensor_id '{sensor_id}' for api_source {api_source.pk}. ")
 
     for event in events_data:
         sensor_id = event.get("sensor_id")
@@ -508,7 +507,7 @@ def increment_and_evaluate_lock(api_source: APISource) -> Response | None:
 def resolve_active_api_source(request: Request) -> tuple[APISource | None, Response | None]:
     """Resolve the caller's APISource or explain why it is unusable."""
     try:
-        api_source = request.user.api_source
+        api_source = request.user.api_source  # ty: ignore[unresolved-attribute]  # IsAuthenticated guarantees a real user
     except APISource.DoesNotExist:
         return None, Response(
             {"error": "No APISource linked to your account"},

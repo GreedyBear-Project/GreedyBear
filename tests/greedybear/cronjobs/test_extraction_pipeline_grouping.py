@@ -345,3 +345,74 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][0][0], "Cowrie")
         self.assertEqual(calls[1][0][0], "Log4pot")
+
+
+class HitGateTestCase(ExtractionPipelineTestCase):
+    """The required-field gate in execute(), and what a wrapped hit gives the strategies."""
+
+    def _run(self, hits):
+        pipeline = self._create_pipeline_with_mocks()
+        pipeline.elastic_repo.search.return_value = [hits]
+        pipeline.ioc_repo.is_empty.return_value = False
+        pipeline.ioc_repo.is_ready_for_extraction.return_value = True
+        return pipeline
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_null_src_ip_is_skipped(self, mock_factory, mock_scores):
+        """A _source filter omits absent fields, but an explicit null can still arrive."""
+        pipeline = self._run([MockElasticHit({"src_ip": None, "type": "Cowrie"})])
+        pipeline.execute()
+        mock_factory.return_value.get_strategy.assert_not_called()
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_non_string_src_ip_does_not_crash_the_chunk(self, mock_factory, mock_scores):
+        """The old check called .strip() directly, which raised on a non-string."""
+        pipeline = self._run(
+            [
+                MockElasticHit({"src_ip": 12345, "type": "Cowrie"}),
+                MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"}),
+            ]
+        )
+        pipeline.execute()
+        mock_factory.return_value.get_strategy.assert_called_once_with("Cowrie")
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_non_object_geoip_ext_does_not_crash(self, mock_factory, mock_scores):
+        """geoip_ext was read with a .get() chain, which breaks when it is not an object."""
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1", "geoip_ext": "not-an-object"})])
+        pipeline.execute()
+        mock_factory.return_value.get_strategy.assert_called_once_with("Cowrie")
+        pipeline.sensor_repo.update_country.assert_not_called()
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_sensor_country_still_read_from_a_real_object(self, mock_factory, mock_scores):
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1", "geoip_ext": {"country_name": "Testland"}})])
+        pipeline.execute()
+        pipeline.sensor_repo.update_country.assert_called_once()
+        self.assertEqual(pipeline.sensor_repo.update_country.call_args[0][1], "Testland")
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_strategies_receive_hits_with_typed_access(self, mock_factory, mock_scores):
+        """Hits reach the strategies wrapped, so they can use require/get_* from here on."""
+        from greedybear.cronjobs.extraction.hit import Hit
+
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "dest_port": 22})])
+        pipeline.execute()
+        delivered = mock_factory.return_value.get_strategy.return_value.extract_from_hits.call_args[0][0]
+        self.assertIsInstance(delivered[0], Hit)
+        self.assertEqual(delivered[0]["src_ip"], "1.2.3.4")
+        self.assertEqual(delivered[0].get_int("dest_port"), 22)
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_sensor_is_still_attached_to_the_hit(self, mock_factory, mock_scores):
+        """execute() writes _sensor onto the hit, so the wrapper has to stay mutable."""
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1"})])
+        pipeline.execute()
+        delivered = mock_factory.return_value.get_strategy.return_value.extract_from_hits.call_args[0][0]
+        self.assertIn("_sensor", delivered[0])

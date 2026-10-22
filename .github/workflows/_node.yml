@@ -33,6 +33,12 @@ on:
         type: boolean
         required: false
 
+      use_build:
+        description: Run a production build to catch import/export errors the tests miss
+        default: false
+        type: boolean
+        required: false
+
       use_eslint:
         description: Use eslint formatter
         default: true
@@ -56,12 +62,6 @@ on:
         required: false
       upload_coverage:
         description: Upload coverage report to GitHub
-        default: false
-        type: boolean
-        required: false
-
-      run_codeql:
-        description: Run codeql
         default: false
         type: boolean
         required: false
@@ -146,13 +146,6 @@ jobs:
           fail: 'StrongCopyleft,NetworkCopyleft,Error'
           fails-only: true
 
-      - name: Run CodeQL
-        if: inputs.run_codeql
-        uses: ./.github/actions/codeql
-        with:
-          language: javascript
-          working_directory: ${{ inputs.working_directory }}
-
       - name: Run custom command
         if: inputs.custom_command
         run: |
@@ -186,3 +179,35 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         shell: bash
 
+  # Separate job on purpose: the test/lint job can stay green while a production
+  # build breaks (e.g. an import that no longer exists after a dependency bump),
+  # because nothing here exercised the bundler. Running `npm run build` in its
+  # own job makes that class of failure fail CI.
+  build:
+    name: Run production build
+    if: ${{ inputs.use_build }}
+    runs-on: ubuntu-${{ inputs.ubuntu_version }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ inputs.max_timeout }}
+    strategy:
+      matrix:
+        node_version: ${{ fromJson(inputs.node_versions) }}
+    steps:
+      - name: Check out latest commit for current branch
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node_version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install packages
+        run: npm ci
+        working-directory: ${{ inputs.working_directory }}
+
+      - name: Run production build
+        run: npm run build
+        working-directory: ${{ inputs.working_directory }}
