@@ -166,3 +166,35 @@ class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
         sha = self.payload_with_file.sha256
         response = self.client.get(f"{PAYLOADS_URL}/{sha.upper()}/download")
         self.assertEqual(response.status_code, 403)
+
+
+class TestFilterPayloads(HoneypotPayloadViewSetTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_authenticate(user=self.regular_user)
+
+    def _shas(self, query):
+        response = self.client.get(f"{PAYLOADS_URL}?{query}")
+        self.assertEqual(response.status_code, 200)
+        return {r["sha256"] for r in response.json()["results"]}
+
+    def test_search_by_sha256_partial(self):
+        self.assertEqual(self._shas("search=e3b0c442"), {SAMPLE_SHA256})
+
+    def test_search_by_sha1_is_case_insensitive(self):
+        self.assertEqual(self._shas("search=DA39A3EE"), {SAMPLE_SHA256})
+
+    def test_search_by_md5(self):
+        self.assertEqual(self._shas("search=bbbbbbbb"), {self.payload_with_file.sha256})
+
+    def test_filter_by_mime_type_is_case_insensitive(self):
+        self.assertEqual(self._shas("mime_type=APPLICATION/X-ELF"), {self.payload_with_file.sha256})
+
+    def test_filter_by_honeypot(self):
+        self.assertEqual(len(self._shas("honeypot=dionaea")), 2)
+
+    def test_filter_by_unknown_honeypot_returns_nothing(self):
+        self.assertEqual(self._shas("honeypot=Cowrie"), set())
+
+    def test_filters_combine(self):
+        self.assertEqual(self._shas("honeypot=Dionaea&mime_type=application/octet-stream"), {SAMPLE_SHA256})
