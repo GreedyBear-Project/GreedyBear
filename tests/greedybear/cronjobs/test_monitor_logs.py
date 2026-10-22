@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+from django.conf import settings
 
 from greedybear.cronjobs.monitor_logs import MonitorLogs
 from tests import CustomTestCase
@@ -83,3 +86,7 @@ class MonitorLogsTestCase(CustomTestCase):
 
         mock_slack.assert_not_called()
         mock_ntfy.assert_not_called()
+
+    def test_init_default_log_directory(self):
+        cronjob = MonitorLogs()
+        self.assertEqual(cronjob.log_directory, Path(settings.DJANGO_LOG_DIRECTORY))

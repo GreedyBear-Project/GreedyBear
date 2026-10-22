@@ -1,5 +1,6 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
+import contextlib
 import logging
 import os
 import sys
@@ -19,7 +20,12 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET", None) or get_random_secret_key()
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
-DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
+DJANGO_LOG_DIRECTORY = os.environ.get(
+    "DJANGO_LOG_DIRECTORY",
+    str(BASE_DIR / "logs") if sys.platform == "win32" else "/var/log/greedybear/django",
+)
+with contextlib.suppress(OSError):
+    Path(DJANGO_LOG_DIRECTORY).mkdir(parents=True, exist_ok=True)
 TPOT_PAYLOAD_SERVER_URL = os.environ.get("TPOT_PAYLOAD_SERVER_URL", "")
 TPOT_PAYLOAD_SERVER_API_KEY = os.environ.get("TPOT_PAYLOAD_SERVER_API_KEY", "")
 MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
