@@ -157,10 +157,6 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 404)
 
     # # # # # Parameter Validation Tests # # # # #
-    def test_missing_query_parameter(self):
-        """Test that view returns BadRequest when query parameter is missing."""
-        response = self.client.get("/api/cowrie_session")
-        self.assertEqual(response.status_code, 400)
 
     def test_invalid_query_parameter(self):
         """Test that non-IP, non-hash queries are treated as password lookups."""
@@ -249,12 +245,6 @@ class CowrieSessionViewTestCase(CustomTestCase):
         response = self.client.get("/api/cowrie_session?query=140.246.171.141&id=ffffffffffff")
         self.assertEqual(response.status_code, 400)
         self.assertIn("not both", str(response.data))
-
-    def test_missing_query_and_id_message(self):
-        """With neither parameter the error should not mention "not both"."""
-        response = self.client.get("/api/cowrie_session")
-        self.assertEqual(response.status_code, 400)
-        self.assertNotIn("not both", str(response.data))
 
     # # # # # Hash Validation Tests # # # # #
     def test_nonexistent_hash(self):
@@ -437,3 +427,43 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.data["sessions"], [])
         self.assertEqual(response.data["commands"], [])
         self.assertEqual(response.data["sources"], [])
+
+    # # # # # No Query Tests # # # # #
+    def test_no_query_and_no_id_returns_all_sessions(self):
+        """Without query, id or dates, every session should be returned."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 5)
+        self.assertNotIn("query", response.data)
+        self.assertNotIn("id", response.data)
+
+    def test_no_query_with_date_range(self):
+        """Dates alone should return all sessions in the window."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2026-01-15&end_date=2026-01-25")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertEqual(response.data["sources"], [self.ioc_3.name])
+
+    def test_no_query_with_start_date_only(self):
+        """Only start_date should return all sessions on or after that day."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2026-01-20")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 4)
+
+    def test_no_query_with_end_date_only(self):
+        """Only end_date should return all sessions on or before that day."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&end_date=2026-01-20")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+    def test_no_query_with_empty_window_returns_200_empty(self):
+        """A window with no sessions should return empty lists, not a 404."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2099-01-01")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["sources"], [])
+
+    def test_no_query_start_date_after_end_date_is_rejected(self):
+        """The date order check should still work without a query."""
+        response = self.client.get("/api/cowrie_session?start_date=2026-01-20&end_date=2026-01-10")
+        self.assertEqual(response.status_code, 400)
