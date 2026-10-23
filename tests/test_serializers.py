@@ -102,7 +102,8 @@ class FeedsRequestSerializersTestCase(CustomTestCase):
                 f"{IpReputation.KNOWN_ATTACKER};{IpReputation.MASS_SCANNER}",
             ],
             "feed_size": [str(n) for n in [100, 200, 5000, 10_000_000]],
-            "ordering": [field.name for field in IOC._meta.get_fields()],
+            # only single valued columns can be ordered on, see validate_ordering
+            "ordering": [field.name for field in IOC._meta.get_fields() if field.concrete and not field.many_to_many],
             "verbose": ["true", "false"],
             "paginate": ["true", "false"],
             "format": ["txt", "json", "csv"],
@@ -262,6 +263,24 @@ class FeedsRequestSerializersTestCase(CustomTestCase):
         with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
         self.assertIn("min_expected_interactions", serializer.errors)
+
+    def test_ordering_rejects_multi_valued_relations(self):
+        """IOC relation names resolve via _meta.get_field but cannot be sorted on."""
+        for name in ("tags", "honeypots", "sensors", "credentials", "payloads", "related_ioc", "cowriesession"):
+            with self.subTest(ordering=name):
+                data_ = {**self._base_request_data(), "ordering": name}
+                serializer = AdvancedFeedRequestSerializer(data=data_)
+                with self.assertRaises(ValidationError):
+                    serializer.is_valid(raise_exception=True)
+                self.assertIn("ordering", serializer.errors)
+
+    def test_ordering_accepts_single_valued_fields(self):
+        """Guard against over-rejecting: plain columns and forward FKs stay sortable."""
+        for name in ("last_seen", "-last_seen", "value", "name", "-attack_count", "autonomous_system"):
+            with self.subTest(ordering=name):
+                data_ = {**self._base_request_data(), "ordering": name}
+                serializer = AdvancedFeedRequestSerializer(data=data_)
+                self.assertTrue(serializer.is_valid(raise_exception=True))
 
 
 class FeedResponseSerializersTestCase(CustomTestCase):

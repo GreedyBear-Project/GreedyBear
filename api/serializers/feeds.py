@@ -112,9 +112,13 @@ class BaseFeedRequestSerializer(serializers.Serializer):
         normalized_ordering = ordering.lower().replace("value", "name")
         field_name = normalized_ordering.removeprefix("-")
         try:
-            IOC._meta.get_field(field_name)
+            field = IOC._meta.get_field(field_name)
         except FieldDoesNotExist as exc:
             raise serializers.ValidationError(f"Invalid ordering: {ordering}") from exc
+        # get_field also resolves reverse relations and many-to-many fields,
+        # which are not sortable: the join returns one row per related row.
+        if not field.concrete or field.many_to_many:
+            raise serializers.ValidationError(f"Invalid ordering: {ordering}")
         return normalized_ordering
 
 
