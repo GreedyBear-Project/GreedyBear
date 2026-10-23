@@ -618,3 +618,42 @@ class TestFireHolCidrDataCleanup(MigrationTestCase):
 
         with self.assertRaises(IntegrityError):
             firehol_new.objects.create(ip_address="8.8.8.0/24", source="greensnow")
+
+
+@tag("migration")
+class TestRenameTorExitReputation(MigrationTestCase):
+    """Tests that the old Tor exit node label is renamed to the one T-Pot uses."""
+
+    migrate_from = "0073_alter_firehollist_ip_address_and_more"
+    migrate_to = "0074_rename_tor_exit_reputation"
+
+    def test_old_label_is_renamed(self):
+        """IOCs and Tor exit nodes stored with the old label get the new one."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        TorExitNode = self.old_state.apps.get_model(self.app_name, "TorExitNode")
+
+        IOC.objects.create(name="1.1.1.1", type="ip", ip_reputation="tor exit node")
+        TorExitNode.objects.create(ip_address="1.1.1.1", reason="tor exit node")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        TorExitNode = new_state.apps.get_model(self.app_name, "TorExitNode")
+
+        self.assertEqual(IOC.objects.get(name="1.1.1.1").ip_reputation, "tor exit")
+        self.assertEqual(TorExitNode.objects.get(ip_address="1.1.1.1").reason, "tor exit")
+
+    def test_other_reputations_are_kept(self):
+        """Other reputations are not touched by the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        IOC.objects.create(name="2.2.2.2", type="ip", ip_reputation="mass scanner")
+        IOC.objects.create(name="3.3.3.3", type="ip", ip_reputation="attack source")
+        IOC.objects.create(name="4.4.4.4", type="ip", ip_reputation="")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertEqual(
+            dict(IOC.objects.values_list("name", "ip_reputation")),
+            {"2.2.2.2": "mass scanner", "3.3.3.3": "attack source", "4.4.4.4": ""},
+        )
