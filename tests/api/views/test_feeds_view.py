@@ -195,6 +195,28 @@ class FeedsViewTestCase(CustomTestCase):
         values = [ioc["value"] for ioc in response.json()["results"]["iocs"]]
         self.assertEqual(values, sorted(values))
 
+    def test_400_feeds_ordering_multi_valued_relation(self):
+        """Relation names pass IOC._meta.get_field but join the related table, duplicating IOCs."""
+        for name in ("tags", "honeypots", "sensors", "credentials", "payloads", "related_ioc", "cowriesession"):
+            with self.subTest(ordering=name):
+                response = self.client.get(f"/api/feeds/all/all/recent.json?ordering={name}")
+                self.assertEqual(response.status_code, 400)
+                errors = response.json()
+                self.assertIn("ordering", errors.get("errors", errors))
+
+    def test_400_feeds_pagination_ordering_multi_valued_relation(self):
+        """The paginated feed inflated count/total_pages by the number of related rows."""
+        response = self.client.get("/api/feeds/?feed_type=all&attack_type=all&ordering=honeypots")
+        self.assertEqual(response.status_code, 400)
+
+    def test_200_feeds_returns_each_ioc_once(self):
+        """self.ioc sits on four honeypots; it must still produce a single feed row."""
+        response = self.client.get("/api/feeds/all/all/recent.json?ordering=-last_seen")
+        self.assertEqual(response.status_code, 200)
+        values = [ioc["value"] for ioc in response.json()["iocs"]]
+        self.assertEqual(len(values), len(set(values)))
+        self.assertEqual(values.count(self.ioc.name), 1)
+
     def test_feeds_endpoint_uses_feeds_throttle(self):
         cache.clear()
         try:
