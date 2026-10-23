@@ -2,6 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 
 from datetime import datetime
+from hashlib import sha256
 from ipaddress import ip_address
 
 from django.core.exceptions import FieldDoesNotExist
@@ -17,6 +18,7 @@ from greedybear.utils import (
     get_ioc_type,
     get_nested_value,
     get_time_window,
+    hash_command_sequence,
     is_ip_address,
     is_non_global_ip,
     is_sha256hash,
@@ -512,6 +514,18 @@ class TestClampToField(SimpleTestCase):
     def test_unknown_field_raises(self):
         with self.assertRaises(FieldDoesNotExist):
             clamp_to_field(Credential, "not_a_field", "value")
+
+
+class TestHashCommandSequence(SimpleTestCase):
+    def test_hash_is_sha256_of_newline_joined_commands(self):
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        self.assertEqual(hash_command_sequence(cmds), sha256("\n".join(cmds).encode()).hexdigest())
+
+    def test_order_matters(self):
+        self.assertNotEqual(hash_command_sequence(["ls", "id"]), hash_command_sequence(["id", "ls"]))
+
+    def test_single_command(self):
+        self.assertEqual(hash_command_sequence(["uname -a"]), sha256(b"uname -a").hexdigest())
 
 
 class TestTimeWindowCalculation(SimpleTestCase):

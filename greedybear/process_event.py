@@ -1,4 +1,3 @@
-import hashlib
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -16,7 +15,7 @@ from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, PayloadRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
 from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, RawEvent
-from greedybear.utils import get_attack_type, is_valid_url
+from greedybear.utils import get_attack_type, hash_command_sequence, is_valid_url
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +140,7 @@ def _process_commands(ip_hits: list[Hit]) -> None:
 
     # CommandSequence.commands_hash is a unique constraint. The hash
     # is the deduplication key, same commands = same hash = same row.
-    commands_hash = hashlib.sha256("|".join(unique_commands).encode()).hexdigest()
+    commands_hash = hash_command_sequence(unique_commands)
     _, created = CommandSequence.objects.get_or_create(
         commands_hash=commands_hash,
         defaults={
