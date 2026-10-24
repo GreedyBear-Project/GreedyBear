@@ -1,7 +1,7 @@
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from greedybear.models import IOC, CowrieSession, IocType
+from greedybear.models import IOC, CowrieSession, Credential, IocType
 from tests import CustomTestCase
 
 
@@ -379,6 +379,33 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertIn("sessions", response.data)
         self.assertEqual(response.data["sessions"][0]["source"], "140.246.171.141")
         self.assertEqual(response.data["sessions"][0]["credentials"][0], "root | root")
+
+    def test_password_query_dedupes_sessions_sharing_password(self):
+        """One session reusing a password across credentials must appear once.
+
+        No include_similar here: union() absorbs the dup when clusters
+        overlap, so only the plain password query reproduces it.
+        """
+        session = CowrieSession.objects.create(
+            session_id=999001,
+            start_time=self.current_time,
+            duration=5.0,
+            login_attempt=True,
+            interaction_count=2,
+            source=self.ioc,
+        )
+        first, _ = Credential.objects.get_or_create(username="root", password="samepw_1762")
+        second, _ = Credential.objects.get_or_create(username="admin", password="samepw_1762")
+        session.credentials.add(first, second)
+
+        response = self.client.get("/api/cowrie_session?query=samepw_1762&include_session_data=true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertCountEqual(
+            response.data["sessions"][0]["credentials"],
+            ["root | samepw_1762", "admin | samepw_1762"],
+        )
 
     def test_password_too_long(self):
         """Test that passwords exceeding max length return 400."""

@@ -92,7 +92,7 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
                 raise Http404(f"No session found with command sequences with hash: {observable}")
 
         else:
-            sessions = sessions_qs.filter(credentials__password=observable).prefetch_related("source", "commands", "credentials")
+            sessions = sessions_qs.filter(credentials__password=observable).distinct().prefetch_related("source", "commands", "credentials")
             if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for password: {observable}")
 
