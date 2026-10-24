@@ -1,4 +1,3 @@
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -6,13 +5,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.mixins import RequestLoggingMixin
 from api.serializers import SensorCreateResponseSerializer, SensorCreateSerializer
 from api.views.utils import create_or_get_sensor, resolve_active_api_source
 
 
 class SensorCreateView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     @extend_schema(

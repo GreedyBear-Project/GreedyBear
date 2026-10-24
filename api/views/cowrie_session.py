@@ -2,7 +2,6 @@
 # See the file 'LICENSE' for copying permission.
 import ipaddress
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django.conf import settings
 from django.http import Http404
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
@@ -12,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.mixins import RequestLoggingMixin
 from api.serializers import CowrieSessionRequestSerializer, CowrieSessionSerializer
 from api.views.utils import save_request_source
@@ -51,7 +51,7 @@ def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Ad
     )
 )
 class CowrieSessionView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request, *args, **kwargs):

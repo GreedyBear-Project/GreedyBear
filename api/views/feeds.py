@@ -4,7 +4,6 @@ import hashlib
 import json
 from datetime import timedelta
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
@@ -23,6 +22,7 @@ from rest_framework.serializers import Serializer
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.filters import FeedsFilterSet
 from api.mixins import CachedResponseMixin, RequestLoggingMixin
 from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedNDJSONRenderer, FeedTextRenderer, Stix21Renderer
@@ -89,7 +89,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     """
 
     # ACCESS CONTROL
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [AllowAny]
     throttle_classes = [FeedsThrottle]
     renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer, FeedNDJSONRenderer]
