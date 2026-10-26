@@ -33,6 +33,7 @@ class SensorSerializer(serializers.ModelSerializer):
 
 
 class IOCSerializer(serializers.ModelSerializer):
+    asn = serializers.IntegerField(source="autonomous_system_id", read_only=True, allow_null=True)
     honeypots = HoneypotRelatedField(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     sensors = SensorSerializer(many=True, read_only=True)

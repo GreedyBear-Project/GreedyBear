@@ -54,6 +54,19 @@ class EnrichmentViewTestCase(CustomTestCase):
             response.json()["ioc"]["expected_interactions"],
             self.ioc.expected_interactions,
         )
+        self.assertEqual(
+            response.json()["ioc"]["asn"],
+            self.ioc.autonomous_system_id,
+        )
+
+    def test_enrichment_ioc_without_asn(self):
+        """An IOC without autonomous_system returns null for asn."""
+        self.ioc.autonomous_system = None
+        self.ioc.save()
+        response = self.client.get(f"/api/enrichment?query={self.ioc.name}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["found"], True)
+        self.assertIsNone(response.json()["ioc"]["asn"])
 
     def test_for_invalid_authentication(self):
         """Check for a invalid authentication"""

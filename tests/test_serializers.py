@@ -372,6 +372,15 @@ class IOCSerializerTestCase(CustomTestCase):
         self.assertEqual(sensors_data[1]["address"], "10.0.0.2")
         self.assertEqual(sensors_data[1]["label"], "")
 
+    def test_ioc_serializer_asn(self):
+        serializer = IOCSerializer(self.ioc)
+        self.assertEqual(serializer.data["asn"], int(self.as_obj.asn))
+
+    def test_ioc_serializer_without_asn(self):
+        self.ioc.autonomous_system = None
+        serializer = IOCSerializer(self.ioc)
+        self.assertIsNone(serializer.data["asn"])
+
 
 class HoneypotPayloadSerializerTestCase(CustomTestCase):
     def test_empty_relations_serialize_as_empty_lists(self):
