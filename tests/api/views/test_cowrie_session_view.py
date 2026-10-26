@@ -467,3 +467,21 @@ class CowrieSessionViewTestCase(CustomTestCase):
         """The date order check should still work without a query."""
         response = self.client.get("/api/cowrie_session?start_date=2026-01-20&end_date=2026-01-10")
         self.assertEqual(response.status_code, 400)
+
+    # # # # # include_similar Rules # # # # #
+    def test_include_similar_without_query_or_id_is_rejected(self):
+        """include_similar needs a query or id to find related sessions."""
+        response = self.client.get("/api/cowrie_session?include_similar=true")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("include_similar", str(response.data))
+
+    def test_include_similar_with_only_dates_is_rejected(self):
+        """Dates alone are not enough for include_similar."""
+        response = self.client.get("/api/cowrie_session?include_similar=true&start_date=2026-01-15&end_date=2026-01-25")
+        self.assertEqual(response.status_code, 400)
+
+    def test_include_similar_with_id_is_allowed(self):
+        """include_similar still works together with id."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff&include_similar=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sources"]), 2)

@@ -28,7 +28,8 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
         help_text=(
             "When `true`, expands the result to include all sessions that executed command sequences "
             "belonging to the same cluster(s) as command sequences found in the initial query result. "
-            "Requires CLUSTER_COWRIE_COMMAND_SEQUENCES enabled in configuration."
+            "Requires CLUSTER_COWRIE_COMMAND_SEQUENCES enabled in configuration. "
+            "Only allowed together with `query` or `id`."
         ),
     )
     include_credentials = serializers.BooleanField(
@@ -52,7 +53,8 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if attrs.get("query") and attrs.get("id"):
             raise serializers.ValidationError("Provide either `query` or `id`, not both.")
-
+        if attrs.get("include_similar") and not attrs.get("query") and not attrs.get("id"):
+            raise serializers.ValidationError("`include_similar` needs either `query` or `id`.")
         start_date = attrs.get("start_date")
         end_date = attrs.get("end_date")
         if start_date and end_date and start_date > end_date:
