@@ -2,6 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 
 from datetime import datetime
+from hashlib import sha256
 from ipaddress import ip_address
 
 from django.core.exceptions import FieldDoesNotExist
@@ -17,6 +18,7 @@ from greedybear.utils import (
     get_ioc_type,
     get_nested_value,
     get_time_window,
+    hash_command_sequence,
     is_ip_address,
     is_non_global_ip,
     is_sha256hash,
@@ -147,6 +149,28 @@ class TestIsValidCIDR(CustomTestCase):
             is_valid, cidr = is_valid_cidr(value)
             self.assertFalse(is_valid)
             self.assertIsNone(cidr)
+
+    def test_invalid_cidr_mask_after_slash(self):
+        """Python accepts a mask after the slash, Postgres cidr does not."""
+        invalid = [
+            "192.168.1.0/255.255.255.0",
+            "192.168.1.0/0.0.0.255",
+        ]
+
+        for value in invalid:
+            is_valid, cidr = is_valid_cidr(value)
+            self.assertFalse(is_valid)
+            self.assertIsNone(cidr)
+
+    def test_invalid_cidr_host_bits_set(self):
+        """A network with host bits set cannot be stored in the cidr column."""
+        is_valid, cidr = is_valid_cidr("192.168.1.5/24")
+        self.assertFalse(is_valid)
+        self.assertIsNone(cidr)
+
+        is_valid, cidr = is_valid_cidr("10.0.0.1/8")
+        self.assertFalse(is_valid)
+        self.assertIsNone(cidr)
 
 
 class TestIsValidIpv4(CustomTestCase):
@@ -490,6 +514,18 @@ class TestClampToField(SimpleTestCase):
     def test_unknown_field_raises(self):
         with self.assertRaises(FieldDoesNotExist):
             clamp_to_field(Credential, "not_a_field", "value")
+
+
+class TestHashCommandSequence(SimpleTestCase):
+    def test_hash_is_sha256_of_newline_joined_commands(self):
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        self.assertEqual(hash_command_sequence(cmds), sha256("\n".join(cmds).encode()).hexdigest())
+
+    def test_order_matters(self):
+        self.assertNotEqual(hash_command_sequence(["ls", "id"]), hash_command_sequence(["id", "ls"]))
+
+    def test_single_command(self):
+        self.assertEqual(hash_command_sequence(["uname -a"]), sha256(b"uname -a").hexdigest())
 
 
 class TestTimeWindowCalculation(SimpleTestCase):
