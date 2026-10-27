@@ -4,6 +4,7 @@
 from datetime import datetime
 from hashlib import sha256
 from ipaddress import ip_address
+from typing import cast
 
 from django.core.exceptions import FieldDoesNotExist
 from django.test import SimpleTestCase
@@ -461,9 +462,8 @@ class TestParseUrlHostname(SimpleTestCase):
 
     def test_dns_limit_fits_the_ioc_name_column(self):
         """If IOC.name ever shrinks below the DNS limit, this guard stops protecting it."""
-        name_width = IOC._meta.get_field("name").max_length
-        self.assertEqual(name_width, 256)
-        self.assertLessEqual(MAX_HOSTNAME_LENGTH, 256)
+        name_width = cast("int", IOC._meta.get_field("name").max_length)
+        self.assertLessEqual(MAX_HOSTNAME_LENGTH, name_width)
 
 
 class TestGetNestedValue(SimpleTestCase):
