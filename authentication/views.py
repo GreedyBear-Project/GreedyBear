@@ -200,9 +200,4 @@ class TokenSessionsViewSet(durin_views.TokenSessionsViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class APIAccessTokenView(durin_views.APIAccessTokenView):
-    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
-
-
-class LogoutView(certego_views.LogoutView):
-    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
+APIAccessTokenView = durin_views.APIAccessTokenView
