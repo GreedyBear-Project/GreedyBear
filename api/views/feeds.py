@@ -476,7 +476,7 @@ class ConsumeFeedView(AdvancedFeedView):
 
     def get_allowed_query_params(self) -> set[str]:
         """The feed params come from the token, so the query string only carries the page params."""
-        return {"page", "page_size"}
+        return self.get_page_query_params()
 
 
 @extend_schema(tags=["Feed Sharing"])

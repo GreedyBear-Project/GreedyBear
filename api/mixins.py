@@ -101,15 +101,19 @@ class QueryParamValidationMixin(APIView):
     def get_allowed_query_params(self) -> set[str]:
         """Names of the query params the view accepts.
         Override for views whose query string does not map onto serializer_class."""
-        allowed_params = set()
+        allowed_params = self.get_page_query_params()
         serializer_class = getattr(self, "serializer_class", None)
         if serializer_class is not None:
-            allowed_params |= set(serializer_class().fields)
-        pagination_class = getattr(self, "pagination_class", None)
-        if pagination_class is not None:
-            page_params = (getattr(pagination_class, "page_query_param", None), getattr(pagination_class, "page_size_query_param", None))
-            allowed_params |= {param for param in page_params if param}
+            allowed_params |= set(serializer_class().fields.keys())
         return allowed_params
+
+    def get_page_query_params(self) -> set[str]:
+        """Names of the page params of the view's pagination_class, none when the view does not paginate."""
+        pagination_class = getattr(self, "pagination_class", None)
+        if pagination_class is None:
+            return set()
+        page_params = (getattr(pagination_class, "page_query_param", None), getattr(pagination_class, "page_size_query_param", None))
+        return {param for param in page_params if param}
 
     def initial(self, request: Request, *args, **kwargs):
         """Reject unknown query params after DRF's authentication, permission and throttling checks,
