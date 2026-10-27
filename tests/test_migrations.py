@@ -1,4 +1,6 @@
-from django.db import IntegrityError
+from datetime import datetime
+
+from django.db import IntegrityError, connection
 from django.test import tag
 
 from . import MigrationTestCase
@@ -495,3 +497,124 @@ class TestMigrateCredentialReuseTags(MigrationTestCase):
 
         self.assertEqual(Tag.objects.filter(source="threatfox", ioc__name="3.3.3.3").count(), 1)
         self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())
+
+
+@tag("migration")
+class TestMigrateFireHolCategories(MigrationTestCase):
+    """Tests that IOC.firehol_categories becomes blocklist tags."""
+
+    migrate_from = "0070_alter_credential_password_alter_credential_username"
+    migrate_to = "0071_migrate_firehol_categories_to_tags"
+
+    def test_each_category_becomes_a_tag(self):
+        """One IOC with two categories produces two tags."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        ioc = IOC.objects.create(name="1.1.1.1", type="ip", firehol_categories=["greensnow", "dshield"])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        tags = Tag.objects.filter(ioc_id=ioc.id, source="firehol")
+        self.assertEqual(tags.count(), 2)
+        self.assertEqual(sorted(tags.values_list("value", flat=True)), ["dshield", "greensnow"])
+        for stored_tag in tags:
+            self.assertEqual(stored_tag.key, "blocklist")
+
+    def test_empty_categories_produce_no_tags(self):
+        """An IOC with no categories is left alone."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        IOC.objects.create(name="2.2.2.2", type="ip", firehol_categories=[])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertFalse(Tag.objects.filter(source="firehol").exists())
+
+    def test_added_comes_from_last_seen(self):
+        """The tag timestamp is taken from the IOC's last_seen."""
+
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        seen_at = datetime(2026, 3, 1, 12, 0, 0)
+        ioc = IOC.objects.create(name="3.3.3.3", type="ip", last_seen=seen_at, firehol_categories=["greensnow"])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.get(ioc_id=ioc.id, source="firehol").added, seen_at)
+
+
+@tag("migration")
+class TestFireHolCidrIndex(MigrationTestCase):
+    """Tests that the CIDR lookup index is created with a usable predicate."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_alter_firehollist_ip_address_and_more"
+
+    def test_index_is_created(self):
+        """A wrong predicate would leave the index covering no rows."""
+        self.apply_tested_migration()
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'firehollist_cidr_gist'")
+            rows = cursor.fetchall()
+
+        self.assertEqual(len(rows), 1)
+        definition = rows[0][0]
+        self.assertIn("gist", definition)
+        self.assertIn("inet_ops", definition)
+        self.assertIn("masklen", definition)
+        self.assertIn("<= 31", definition)
+
+
+@tag("migration")
+class TestFireHolCidrDataCleanup(MigrationTestCase):
+    """Tests the cleanup that lets the ip_address column become cidr."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_alter_firehollist_ip_address_and_more"
+
+    def test_unstorable_values_are_dropped(self):
+        """cidr refuses host bits, a netmask after the slash, and non-addresses."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+
+        FireHolList.objects.create(ip_address="1.2.3.4/24", source="hostbits")
+        FireHolList.objects.create(ip_address="1.2.3.0/255.255.255.0", source="netmask")
+        FireHolList.objects.create(ip_address="w00tw00t.at.ISC", source="junk")
+        FireHolList.objects.create(ip_address="5.6.7.0/24", source="good")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        self.assertFalse(firehol_new.objects.filter(source__in=["hostbits", "netmask", "junk"]).exists())
+        self.assertEqual(str(firehol_new.objects.get(source="good").ip_address), "5.6.7.0/24")
+
+    def test_duplicates_collapse_to_the_newest_row(self):
+        """A bare address and its /32 form become one value, so one row has to go."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+
+        older = FireHolList.objects.create(ip_address="9.9.9.9", source="dshield")
+        newer = FireHolList.objects.create(ip_address="9.9.9.9/32", source="dshield")
+        FireHolList.objects.filter(pk=older.pk).update(added="2026-01-01T00:00:00Z")
+        FireHolList.objects.filter(pk=newer.pk).update(added="2026-06-01T00:00:00Z")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        remaining = list(firehol_new.objects.filter(source="dshield"))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].id, newer.id)
+        self.assertEqual(str(remaining[0].ip_address), "9.9.9.9/32")
+
+    def test_unique_constraint_is_enforced_after_migration(self):
+        """The constraint is what stops the duplicates coming back."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+        FireHolList.objects.create(ip_address="8.8.8.0/24", source="greensnow")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        with self.assertRaises(IntegrityError):
+            firehol_new.objects.create(ip_address="8.8.8.0/24", source="greensnow")

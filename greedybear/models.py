@@ -1,8 +1,10 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 from django.contrib.postgres import fields as pg_fields
+from django.contrib.postgres.indexes import GistIndex
 from django.db import models
 from django.db.models.functions import Lower, Now
+from netfields import CidrAddressField, NetManager
 
 from greedybear.enums import IpReputation
 from greedybear.settings import AUTH_USER_MODEL
@@ -122,13 +124,24 @@ class Honeypot(models.Model):
 
 
 class FireHolList(models.Model):
-    ip_address = models.CharField(max_length=256)
+    ip_address = CidrAddressField()
     added = models.DateTimeField(db_default=Now())
     source = models.CharField(max_length=64, blank=True, default="")
+
+    objects = NetManager()
 
     class Meta:
         indexes = [
             models.Index(fields=["ip_address"]),
+            GistIndex(
+                fields=["ip_address"],
+                opclasses=["inet_ops"],
+                condition=models.Q(ip_address__prefixlen__lte=31),
+                name="firehollist_cidr_gist",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["ip_address", "source"], name="unique_firehollist_identity"),
         ]
 
     def __str__(self):
@@ -172,7 +185,6 @@ class IOC(models.Model):
     http_attack_types = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     high_credential_reuse = models.BooleanField(default=False)
     ip_reputation = models.CharField(max_length=32, blank=True)
-    firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
     protocols = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
     cves = pg_fields.ArrayField(models.CharField(max_length=50), default=list)

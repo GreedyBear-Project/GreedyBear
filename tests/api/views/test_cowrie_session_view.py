@@ -1,7 +1,7 @@
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from greedybear.models import IOC, CowrieSession, IocType
+from greedybear.models import IOC, CowrieSession, Credential, IocType
 from tests import CustomTestCase
 
 
@@ -157,10 +157,6 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 404)
 
     # # # # # Parameter Validation Tests # # # # #
-    def test_missing_query_parameter(self):
-        """Test that view returns BadRequest when query parameter is missing."""
-        response = self.client.get("/api/cowrie_session")
-        self.assertEqual(response.status_code, 400)
 
     def test_invalid_query_parameter(self):
         """Test that non-IP, non-hash queries are treated as password lookups."""
@@ -249,12 +245,6 @@ class CowrieSessionViewTestCase(CustomTestCase):
         response = self.client.get("/api/cowrie_session?query=140.246.171.141&id=ffffffffffff")
         self.assertEqual(response.status_code, 400)
         self.assertIn("not both", str(response.data))
-
-    def test_missing_query_and_id_message(self):
-        """With neither parameter the error should not mention "not both"."""
-        response = self.client.get("/api/cowrie_session")
-        self.assertEqual(response.status_code, 400)
-        self.assertNotIn("not both", str(response.data))
 
     # # # # # Hash Validation Tests # # # # #
     def test_nonexistent_hash(self):
@@ -380,6 +370,33 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.data["sessions"][0]["source"], "140.246.171.141")
         self.assertEqual(response.data["sessions"][0]["credentials"][0], "root | root")
 
+    def test_password_query_dedupes_sessions_sharing_password(self):
+        """One session reusing a password across credentials must appear once.
+
+        No include_similar here: union() absorbs the dup when clusters
+        overlap, so only the plain password query reproduces it.
+        """
+        session = CowrieSession.objects.create(
+            session_id=999001,
+            start_time=self.current_time,
+            duration=5.0,
+            login_attempt=True,
+            interaction_count=2,
+            source=self.ioc,
+        )
+        first, _ = Credential.objects.get_or_create(username="root", password="samepw_1762")
+        second, _ = Credential.objects.get_or_create(username="admin", password="samepw_1762")
+        session.credentials.add(first, second)
+
+        response = self.client.get("/api/cowrie_session?query=samepw_1762&include_session_data=true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertCountEqual(
+            response.data["sessions"][0]["credentials"],
+            ["root | samepw_1762", "admin | samepw_1762"],
+        )
+
     def test_password_too_long(self):
         """Test that passwords exceeding max length return 400."""
         response = self.client.get(f"/api/cowrie_session?query={'a' * 257}")
@@ -437,3 +454,61 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.data["sessions"], [])
         self.assertEqual(response.data["commands"], [])
         self.assertEqual(response.data["sources"], [])
+
+    # # # # # No Query Tests # # # # #
+    def test_no_query_and_no_id_returns_all_sessions(self):
+        """Without query, id or dates, every session should be returned."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 5)
+        self.assertNotIn("query", response.data)
+        self.assertNotIn("id", response.data)
+
+    def test_no_query_with_date_range(self):
+        """Dates alone should return all sessions in the window."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2026-01-15&end_date=2026-01-25")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertEqual(response.data["sources"], [self.ioc_3.name])
+
+    def test_no_query_with_start_date_only(self):
+        """Only start_date should return all sessions on or after that day."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2026-01-20")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 4)
+
+    def test_no_query_with_end_date_only(self):
+        """Only end_date should return all sessions on or before that day."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&end_date=2026-01-20")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+    def test_no_query_with_empty_window_returns_200_empty(self):
+        """A window with no sessions should return empty lists, not a 404."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2099-01-01")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["sources"], [])
+
+    def test_no_query_start_date_after_end_date_is_rejected(self):
+        """The date order check should still work without a query."""
+        response = self.client.get("/api/cowrie_session?start_date=2026-01-20&end_date=2026-01-10")
+        self.assertEqual(response.status_code, 400)
+
+    # # # # # include_similar Rules # # # # #
+    def test_include_similar_without_query_or_id_is_rejected(self):
+        """include_similar needs a query or id to find related sessions."""
+        response = self.client.get("/api/cowrie_session?include_similar=true")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("include_similar", str(response.data))
+
+    def test_include_similar_with_only_dates_is_rejected(self):
+        """Dates alone are not enough for include_similar."""
+        response = self.client.get("/api/cowrie_session?include_similar=true&start_date=2026-01-15&end_date=2026-01-25")
+        self.assertEqual(response.status_code, 400)
+
+    def test_include_similar_with_id_is_allowed(self):
+        """include_similar still works together with id."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff&include_similar=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sources"]), 2)

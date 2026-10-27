@@ -608,7 +608,7 @@ class TestProcessCommandsStress(CustomTestCase):
         return {"_command": cmd}
 
     def _hash(self, cmds):
-        return hashlib.sha256("|".join(cmds).encode()).hexdigest()
+        return hashlib.sha256("\n".join(cmds).encode()).hexdigest()
 
     def test_200_unique_commands_stored_in_order(self):
         """A sequence of 200 unique commands must be stored in exact input order."""
