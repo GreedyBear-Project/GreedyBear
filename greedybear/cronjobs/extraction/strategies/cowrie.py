@@ -3,7 +3,6 @@
 import re
 from collections import defaultdict
 from datetime import datetime
-from hashlib import sha256
 
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
 from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
@@ -20,7 +19,7 @@ from greedybear.cronjobs.repositories import (
 )
 from greedybear.models import IOC, CommandSequence, CowrieSession
 from greedybear.regex import REGEX_URL_PROTOCOL
-from greedybear.utils import clamp_to_field, get_ioc_type, parse_url_hostname
+from greedybear.utils import clamp_to_field, get_ioc_type, hash_command_sequence, parse_url_hostname
 
 
 def normalize_command(message: str) -> str:
@@ -320,8 +319,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         Returns:
             True if merged with existing sequence, False if new sequence
         """
-        commands_str = "\n".join(session.commands.commands)
-        commands_hash = sha256(commands_str.encode()).hexdigest()
+        commands_hash = hash_command_sequence(session.commands.commands)
 
         cmd_seq = self.session_repo.get_command_sequence_by_hash(commands_hash=commands_hash)
         if cmd_seq is None:

@@ -2,7 +2,7 @@ import logging
 import re
 from collections import defaultdict
 from collections.abc import Sequence
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address
 from logging import Logger
 from urllib.parse import urlparse
 
@@ -14,7 +14,7 @@ from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, Credential, FireHolList, MassScanner
+from greedybear.models import IOC, Credential, MassScanner
 from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip
 
 log = logging.getLogger(__name__)
@@ -68,30 +68,6 @@ def correct_ip_reputation(ip: str, ip_reputation: str, mass_scanner_ips: set) ->
     return ip_reputation
 
 
-def get_firehol_categories(ip: str, extracted_ip, firehol_exact_map: dict, cidr_entries: list) -> list[str]:
-    """
-    Get FireHol categories for an IP address.
-    Checks both exact IP matches (for .ipset files) and network range
-    membership (for .netset files with CIDR notation).
-
-    Args:
-        ip: IP address string.
-        extracted_ip: Parsed IP address object from ipaddress library.
-        firehol_exact_map: Dict mapping IPs to lists of FireHol sources.
-        cidr_entries: List of tuples (ip_network, source) for CIDR entries.
-
-    Returns:
-        List of FireHol source categories.
-    """
-    firehol_categories = list(firehol_exact_map.get(ip, []))
-
-    for network, source in cidr_entries:
-        if source and extracted_ip in network and source not in firehol_categories:
-            firehol_categories.append(source)
-
-    return firehol_categories
-
-
 def group_valid_hits_by_ip(hits: Sequence[Hit]) -> dict[str, list[Hit]]:
     """
     Group hits by source IP, dropping malformed addresses.
@@ -130,8 +106,6 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
     Convert Elasticsearch hits into IOC objects with associated sensors.
     Groups hits by source IP, filters out non-global addresses unless allowed,
     and constructs IOC objects with aggregated data.
-    Enriches IOCs with FireHol categories at creation time to ensure
-    only fresh data is used.
 
     Performs bulk prefetching before the main loop to eliminate N+1 queries
     by injecting the bulk data into the helper evaluation functions.
@@ -147,22 +121,6 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
 
     all_ips = list(valid_hits_by_ip.keys())
 
-    # --- Bulk prefetch: FireHol exact matches ---
-    firehol_exact_map = defaultdict(list)
-    for entry_ip, source in FireHolList.objects.filter(
-        ip_address__in=all_ips,
-    ).values_list("ip_address", "source"):
-        if source:
-            firehol_exact_map[entry_ip].append(source)
-
-    # --- Bulk prefetch: FireHol CIDR entries ---
-    cidr_entries = []
-    for entry in FireHolList.objects.filter(ip_address__contains="/"):
-        try:
-            cidr_entries.append((ip_network(entry.ip_address, strict=False), entry.source))
-        except (ValueError, IndexError):
-            continue
-
     # --- Bulk prefetch: MassScanner IPs ---
     mass_scanner_ips = set(
         MassScanner.objects.filter(
@@ -176,8 +134,6 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
         extracted_ip = ip_address(ip)  # infallible: validated above
         if not allow_non_global and is_non_global_ip(extracted_ip):
             continue
-
-        firehol_categories = get_firehol_categories(ip, extracted_ip, firehol_exact_map, cidr_entries)
 
         # Single pass over ip_hits to accumulate all derived data
         dest_ports: set[int] = set()
@@ -239,7 +195,6 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
             autonomous_system=autonomous_system,
             destination_ports=sorted(dest_ports),
             login_attempts=login_attempts,
-            firehol_categories=firehol_categories,
             attacker_country=attacker_country,
             attacker_country_code=attacker_country_code,
             protocols=sorted(protocols),

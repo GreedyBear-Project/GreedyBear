@@ -117,6 +117,17 @@ class FeedsViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)
 
+    def test_tpot_tor_exit_label_is_excluded_by_default(self):
+        # T-Pot (listbot) labels Tor exit nodes as "tor exit"
+        self.ioc_3.ip_reputation = "tor exit"
+        self.ioc_3.save()
+
+        response = self.client.get("/api/feeds/all/all/recent.json")
+        self.assertNotIn(self.ioc_3.name, [ioc["value"] for ioc in response.json()["iocs"]])
+
+        response = self.client.get("/api/feeds/all/all/recent.json?include_tor_exit_nodes")
+        self.assertIn(self.ioc_3.name, [ioc["value"] for ioc in response.json()["iocs"]])
+
     def test_200_feeds_pagination_inclusion_mass_and_tor(self):
         response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&include_mass_scanners&include_tor_exit_nodes")
         self.assertEqual(response.status_code, 200)

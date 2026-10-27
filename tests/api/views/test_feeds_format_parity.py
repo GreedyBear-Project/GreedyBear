@@ -1,5 +1,6 @@
 from django.test import override_settings
 
+from greedybear.models import IOC, IocType
 from tests import CustomTestCase
 
 
@@ -77,3 +78,39 @@ class FeedsFormatParityTestCase(CustomTestCase):
         body = response.content.decode("utf-8")
         self.assertEqual(body.splitlines()[0], '# "License, but with a comma"')
         self.assertEqual(self._get_ioc_names("csv", response), {self.ioc.name, self.ioc_2.name, self.ioc_3.name, self.ioc_domain.name})
+
+    def _domain_ioc(self, name):
+        ioc = IOC.objects.create(
+            name=name,
+            type=IocType.DOMAIN.value,
+            first_seen=self.current_time,
+            last_seen=self.current_time,
+            days_seen=[self.current_time.date()],
+            number_of_days_seen=1,
+            attack_count=1,
+            interaction_count=1,
+            scanner=False,
+            payload_request=True,
+        )
+        ioc.honeypots.add(self.heralding)
+        return ioc
+
+    def test_csv_prefixes_formula_ioc_names_json_and_txt_do_not(self):
+        # Reproduction from #1738: RFI hostname stored as-is, CSV must not emit a formula.
+        formula_name = "=1+1.evil-test.example"
+        plus_name = "+cmd.evil-test.example"
+        self._domain_ioc(formula_name)
+        self._domain_ioc(plus_name)
+
+        csv_values = self._get_ioc_names("csv", self._get_response("csv", self.INCLUDE_ALL))
+        json_values = self._get_ioc_names("json", self._get_response("json", self.INCLUDE_ALL))
+        txt_values = self._get_ioc_names("txt", self._get_response("txt", self.INCLUDE_ALL))
+
+        for raw in (formula_name, plus_name):
+            with self.subTest(raw=raw):
+                self.assertIn(f"'{raw}", csv_values)
+                self.assertNotIn(raw, csv_values)
+                self.assertIn(raw, json_values)
+                self.assertIn(raw, txt_values)
+                self.assertNotIn(f"'{raw}", json_values)
+                self.assertNotIn(f"'{raw}", txt_values)

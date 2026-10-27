@@ -37,7 +37,7 @@ class SensorRepository:
         if get_ioc_type(ip) != IP:
             self.log.debug(f"{ip} is not an IP address - won't add as a sensor")
             return None
-        sensor, created = Sensor.objects.get_or_create(address=ip)
+        sensor, created = Sensor.objects.get_or_create(address=ip, api_source=None)
         self.cache[ip] = sensor
         if created:
             self.log.info(f"added sensor {ip} to the database")
@@ -46,7 +46,8 @@ class SensorRepository:
     def _fill_cache(self) -> None:
         """Load sensor objects from the database into the cache."""
         self.log.debug("populating sensor cache")
-        self.cache = {s.address: s for s in Sensor.objects.all()}
+        # sensors registered through the Event Collector API can share an address with a T-Pot sensor
+        self.cache = {s.address: s for s in Sensor.objects.filter(api_source__isnull=True)}
 
     def update_country(self, sensor: Sensor | None, country: str) -> None:
         """

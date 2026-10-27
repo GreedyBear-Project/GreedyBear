@@ -39,12 +39,14 @@ def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Ad
             "a SHA-256 hash to find sessions containing a specific command sequence, "
             "or a password to find all sessions where that password was used. "
             "Alternatively, pass `id` to look up one specific session by its hex ID, "
-            "as returned by the payloads API."
+            "as returned by the payloads API. "
+            "Leave out both `query` and `id` to get all sessions, "
+            "optionally limited to a time window with `start_date` and `end_date`."
         ),
         parameters=[CowrieSessionRequestSerializer],
         responses={
             200: CowrieSessionSerializer,
-            400: OpenApiResponse(description="Missing or invalid `query`/`id` parameter, or both were given."),
+            400: OpenApiResponse(description="Invalid parameter, or both `query` and `id` were given."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
             404: OpenApiResponse(description="No matching sessions found."),
         },
@@ -75,7 +77,8 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
             sessions = sessions_qs.filter(session_id=int(session_id, 16)).prefetch_related("source", "commands", "credentials")
             if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No session found with ID: {session_id}")
-
+        elif not observable:
+            sessions = sessions_qs.prefetch_related("source", "commands", "credentials")
         elif is_ip_address(observable):
             sessions = sessions_qs.filter(source__name=observable).prefetch_related("source", "commands", "credentials")
             if not sessions.exists() and not has_date_filter:
@@ -92,7 +95,7 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
                 raise Http404(f"No session found with command sequences with hash: {observable}")
 
         else:
-            sessions = sessions_qs.filter(credentials__password=observable).prefetch_related("source", "commands", "credentials")
+            sessions = sessions_qs.filter(credentials__password=observable).distinct().prefetch_related("source", "commands", "credentials")
             if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for password: {observable}")
 
@@ -104,7 +107,11 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
             )
             sessions = sessions.union(related_sessions)
 
-        data = {"id": session_id} if session_id is not None else {"query": observable}
+        data = {}
+        if session_id is not None:
+            data["id"] = session_id
+        elif observable:
+            data["query"] = observable
         if settings.FEEDS_LICENSE:
             data["license"] = settings.FEEDS_LICENSE
 
