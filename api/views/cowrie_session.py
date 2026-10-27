@@ -39,7 +39,7 @@ def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Ad
             "a SHA-256 hash to find sessions containing a specific command sequence, "
             "or a password to find all sessions where that password was used. "
             "Alternatively, pass `id` to look up one specific session by its hex ID, "
-            "as returned by the payloads API."
+            "as returned by the payloads API. "
             "Leave out both `query` and `id` to get all sessions, "
             "optionally limited to a time window with `start_date` and `end_date`."
         ),

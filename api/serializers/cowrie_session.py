@@ -12,7 +12,7 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
         help_text=(
             "The search term, can be an IP address, the SHA-256 hash of a command sequence, or a password. "
             'SHA-256 hashes should match command sequences generated using Python\'s `"\n".join(sequence)` format. '
-            "Mutually exclusive with `id`."
+            "Mutually exclusive with `id`. "
             "Leave out both `query` and `id` to get all sessions, optionally limited by `start_date` and `end_date`."
         ),
     )
