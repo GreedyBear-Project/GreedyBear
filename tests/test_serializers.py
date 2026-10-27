@@ -1,6 +1,7 @@
 import random
 from itertools import product
 
+from django.contrib.postgres.fields import ArrayField
 from django.test import override_settings
 from rest_framework.serializers import ValidationError
 
@@ -102,8 +103,8 @@ class FeedsRequestSerializersTestCase(CustomTestCase):
                 f"{IpReputation.KNOWN_ATTACKER};{IpReputation.MASS_SCANNER}",
             ],
             "feed_size": [str(n) for n in [100, 200, 5000, 10_000_000]],
-            # only single valued columns can be ordered on, see validate_ordering
-            "ordering": [field.name for field in IOC._meta.get_fields() if field.concrete and not field.many_to_many],
+            # ordering is restricted to a fixed allowlist, see validate_ordering
+            "ordering": sorted(AdvancedFeedRequestSerializer.ALLOWED_ORDERING_FIELDS),
             "verbose": ["true", "false"],
             "paginate": ["true", "false"],
             "format": ["txt", "json", "csv"],
@@ -265,8 +266,18 @@ class FeedsRequestSerializersTestCase(CustomTestCase):
         self.assertIn("min_expected_interactions", serializer.errors)
 
     def test_ordering_rejects_multi_valued_relations(self):
-        """IOC relation names resolve via _meta.get_field but cannot be sorted on."""
+        """Relation names are not in the allowlist: the join returns one row per related row."""
         for name in ("tags", "honeypots", "sensors", "credentials", "payloads", "related_ioc", "cowriesession"):
+            with self.subTest(ordering=name):
+                data_ = {**self._base_request_data(), "ordering": name}
+                serializer = AdvancedFeedRequestSerializer(data=data_)
+                with self.assertRaises(ValidationError):
+                    serializer.is_valid(raise_exception=True)
+                self.assertIn("ordering", serializer.errors)
+
+    def test_ordering_rejects_list_fields(self):
+        """Array columns are single rows, but sorting a feed by a list is not meaningful."""
+        for name in ("days_seen", "related_urls", "http_attack_types", "destination_ports", "protocols", "cves"):
             with self.subTest(ordering=name):
                 data_ = {**self._base_request_data(), "ordering": name}
                 serializer = AdvancedFeedRequestSerializer(data=data_)
@@ -281,6 +292,15 @@ class FeedsRequestSerializersTestCase(CustomTestCase):
                 data_ = {**self._base_request_data(), "ordering": name}
                 serializer = AdvancedFeedRequestSerializer(data=data_)
                 self.assertTrue(serializer.is_valid(raise_exception=True))
+
+    def test_allowed_ordering_fields_are_sortable_columns(self):
+        """Keep the allowlist from drifting: every name must be a single valued IOC column."""
+        for name in sorted(AdvancedFeedRequestSerializer.ALLOWED_ORDERING_FIELDS):
+            with self.subTest(field=name):
+                field = IOC._meta.get_field(name)
+                self.assertTrue(field.concrete)
+                self.assertFalse(field.many_to_many)
+                self.assertNotIsInstance(field, ArrayField)
 
 
 class FeedResponseSerializersTestCase(CustomTestCase):

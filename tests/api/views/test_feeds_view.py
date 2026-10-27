@@ -196,8 +196,17 @@ class FeedsViewTestCase(CustomTestCase):
         self.assertEqual(values, sorted(values))
 
     def test_400_feeds_ordering_multi_valued_relation(self):
-        """Relation names pass IOC._meta.get_field but join the related table, duplicating IOCs."""
+        """Relation names are off the allowlist; the join used to duplicate IOCs."""
         for name in ("tags", "honeypots", "sensors", "credentials", "payloads", "related_ioc", "cowriesession"):
+            with self.subTest(ordering=name):
+                response = self.client.get(f"/api/feeds/all/all/recent.json?ordering={name}")
+                self.assertEqual(response.status_code, 400)
+                errors = response.json()
+                self.assertIn("ordering", errors.get("errors", errors))
+
+    def test_400_feeds_ordering_list_field(self):
+        """Array columns are off the allowlist too."""
+        for name in ("days_seen", "related_urls", "http_attack_types", "destination_ports", "protocols", "cves"):
             with self.subTest(ordering=name):
                 response = self.client.get(f"/api/feeds/all/all/recent.json?ordering={name}")
                 self.assertEqual(response.status_code, 400)
