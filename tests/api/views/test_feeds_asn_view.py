@@ -301,3 +301,55 @@ class FeedsASNViewTestCase(CustomTestCase):
         # Cleanup DB
         self.ioc_high1.attack_count = original_attack_count
         self.ioc_high1.save(update_fields=["attack_count"])
+
+    def test_asn_feed_excludes_iocs_from_inactive_honeypots(self):
+        """
+        Regression test for: ASN feed includes IOCs from inactive honeypots due
+        to early return before honeypots__active check.
+
+        IOCs associated *only* with decommissioned (active=False) honeypots must
+        not appear in the ASN feed at all, and numeric aggregates for other IOCs
+        in the same ASN must not be inflated by the presence of those stale IOCs.
+        """
+        # Create an inactive honeypot and an IOC linked only to it.
+        inactive_pot, _ = Honeypot.objects.get_or_create(name="inactive_pot", active=False)
+        ioc_stale = IOC.objects.create(
+            name="stale.example.com",
+            type="ip",
+            autonomous_system=self.as_high,
+            attack_count=999,
+            interaction_count=999,
+            login_attempts=999,
+            first_seen=timezone.now() - timezone.timedelta(days=1),
+            recurrence_probability=0.99,
+            expected_interactions=999.0,
+        )
+        ioc_stale.honeypots.add(inactive_pot)
+
+        try:
+            cache.clear()
+            response = self.client.get(self.url)
+            self.assertEqual(response.status_code, 200)
+            results = self._get_results(response)
+
+            high_item = next((item for item in results if str(item["asn"]) == self.high_asn), None)
+            self.assertIsNotNone(high_item)
+
+            # The stale IOC must not inflate ioc_count — only the two active-honeypot
+            # IOCs (ioc_high1, ioc_high2) should be counted.
+            self.assertEqual(
+                high_item["ioc_count"],
+                2,
+                "IOC linked only to an inactive honeypot must be excluded from the ASN feed.",
+            )
+
+            # Numeric totals must reflect only the active-honeypot IOCs.
+            expected_attack = self.ioc_high1.attack_count + self.ioc_high2.attack_count
+            self.assertEqual(
+                high_item["total_attack_count"],
+                expected_attack,
+                "total_attack_count must not include counts from inactive-honeypot IOCs.",
+            )
+        finally:
+            ioc_stale.delete()
+            inactive_pot.delete()

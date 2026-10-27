@@ -8,7 +8,7 @@ from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
-from django.db.models import Count, F, Q, QuerySet, Value
+from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import JSONObject
 from django.http import HttpResponseBase, StreamingHttpResponse
 from django.utils import timezone
@@ -153,7 +153,17 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
             iocs = iocs.filter(type_filter)
 
         if self.is_aggregated:
-            return iocs
+            # Use an Exists subquery instead of a JOIN-based filter so that the
+            # active-honeypot check does not multiply rows when downstream
+            # aggregations (Sum / Count) are applied in aggregate_iocs_by_asn.
+            # A JOIN on the M2M through-table emits one row per (IOC, honeypot)
+            # pair, inflating every numeric aggregate; Exists turns it into a
+            # correlated semi-join that adds no extra rows.
+            active_honeypot_qs = IOC.honeypots.through.objects.filter(
+                ioc_id=OuterRef("pk"),
+                honeypot__active=True,
+            )
+            return iocs.filter(Exists(active_honeypot_qs))
 
         iocs = iocs.filter(honeypots__active=True)
         iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
