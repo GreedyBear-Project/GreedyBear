@@ -6,7 +6,7 @@ from rest_framework import serializers
 from api.serializers.utils import PresenceFlagField
 from greedybear.consts import REGEX_DOMAIN
 from greedybear.models import IOC, Sensor, Tag
-from greedybear.utils import is_ip_address
+from greedybear.utils import is_ip_address, normalize_ip
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,7 @@ class EnrichmentRequestSerializer(serializers.Serializer):
     def validate(self, attrs):
         """
         Validate that the query is a valid IP address (IPv4/IPv6) or domain.
+        IP addresses are normalized so equivalent IPv6 forms match the stored IOC.
         """
         observable = attrs["query"].strip()
         attrs["query"] = observable
@@ -64,6 +65,9 @@ class EnrichmentRequestSerializer(serializers.Serializer):
 
         if not is_ip_address(observable) and not is_domain:
             raise serializers.ValidationError("Observable is not a valid IP address or domain")
+
+        if is_ip_address(observable):
+            attrs["query"] = normalize_ip(observable)
         return attrs
 
 
