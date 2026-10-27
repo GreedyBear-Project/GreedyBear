@@ -15,9 +15,7 @@ export default function ScrollToTopButton({
   // Show button when page is scrolled upto given distance
   const toggleVisibility = React.useCallback(
     () =>
-      window.pageYOffset > scrollYOffset
-        ? setIsVisible(true)
-        : setIsVisible(false),
+      window.scrollY > scrollYOffset ? setIsVisible(true) : setIsVisible(false),
     [scrollYOffset, setIsVisible],
   );
 
@@ -45,6 +43,7 @@ export default function ScrollToTopButton({
           onClick={scrollToTop}
           color="accent-1"
           className="rounded-circle btn-md"
+          aria-label="Scroll to top"
         >
           <RiArrowUpSLine />
         </Button>
