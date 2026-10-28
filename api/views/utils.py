@@ -284,9 +284,6 @@ def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
     # Re-query by primary key to remove duplicate rows introduced by filtering joins.
     filtered_ioc_ids = iocs_qs.values("pk")
     base_iocs = IOC.objects.filter(pk__in=filtered_ioc_ids)
-    
-    filtered_ioc_ids = iocs_qs.values("pk")
-    base_iocs = IOC.objects.filter(pk__in=filtered_ioc_ids)
     with_asn = base_iocs.exclude(autonomous_system__isnull=True)
 
     numeric_agg = (
