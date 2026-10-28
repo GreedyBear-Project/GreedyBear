@@ -32,12 +32,11 @@ class HoneypotViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Ddospot", response.json())
 
-    def test_legacy_onlyactive_param_is_ignored(self):
-        # onlyActive is no longer a recognized parameter; it is silently dropped
-        # and has no effect, same as passing no parameter at all
+    def test_400_legacy_onlyactive_param(self):
+        # onlyActive is no longer a recognized parameter, so it is rejected instead of silently dropped
         response = self.client.get("/api/honeypot/?onlyActive=true")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Ddospot", response.json())
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"onlyActive": ["Unknown query parameter."]})
 
     def test_400_invalid_flag_value(self):
         response = self.client.get("/api/honeypot/?only_active=not_a_bool")

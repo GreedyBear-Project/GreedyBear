@@ -11,7 +11,7 @@ from greedybear.cronjobs.extraction.utils import (
 )
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import IOC
-from greedybear.utils import get_ioc_type, parse_timestamp
+from greedybear.utils import get_ioc_type, parse_timestamp, parse_url_hostname
 
 # Attack classification regex patterns.
 # Each pattern targets common signatures of its respective web attack class.
@@ -265,12 +265,14 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             if "?" not in url:
                 url = url.split("&")[0]
 
-            try:
-                hostname = urlparse(url).hostname
-            except (ValueError, AttributeError):
+            hostname = parse_url_hostname(url)
+            if not hostname:
+                # rejected before the insert, so it still counts as a dropped record
+                self.skipped += 1
+                self.log.warning(f"skipping RFI URL without a usable hostname: {url}")
                 continue
 
-            if not hostname or hostname in seen_hostnames:
+            if hostname in seen_hostnames:
                 continue
             seen_hostnames.add(hostname)
 
@@ -279,7 +281,7 @@ class TannerExtractionStrategy(BaseExtractionStrategy):
             ioc_kwargs: dict = {
                 "name": hostname,
                 "type": get_ioc_type(hostname),
-                "related_urls": [url],
+                "related_urls": self.related_urls_for(url),
             }
             if hit_time is not None:
                 ioc_kwargs["first_seen"] = hit_time

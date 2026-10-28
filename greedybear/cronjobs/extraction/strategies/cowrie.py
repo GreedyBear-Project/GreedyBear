@@ -3,8 +3,6 @@
 import re
 from collections import defaultdict
 from datetime import datetime
-from hashlib import sha256
-from urllib.parse import urlparse
 
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
 from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
@@ -21,25 +19,7 @@ from greedybear.cronjobs.repositories import (
 )
 from greedybear.models import IOC, CommandSequence, CowrieSession
 from greedybear.regex import REGEX_URL_PROTOCOL
-from greedybear.utils import clamp_to_field, get_ioc_type
-
-
-def parse_url_hostname(url: str) -> str | None:
-    """
-    Extract hostname from URL safely.
-
-    Args:
-        url: URL string to parse
-
-    Returns:
-        Hostname if parsing succeeds, None otherwise
-    """
-    try:
-        parsed = urlparse(url)
-    except (ValueError, AttributeError):
-        return None
-    else:
-        return parsed.hostname
+from greedybear.utils import clamp_to_field, get_ioc_type, hash_command_sequence, parse_url_hostname
 
 
 def normalize_command(message: str) -> str:
@@ -143,6 +123,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 payload_hostname = parse_url_hostname(payload_url)
 
                 if not payload_hostname:
+                    # rejected before the insert, so it still counts as a dropped record
+                    self.skipped += 1
                     self.log.warning(f"Failed to parse hostname from URL: {payload_url}")
                     continue
 
@@ -155,7 +137,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                     type=get_ioc_type(payload_hostname),
                     first_seen=hit_time,
                     last_seen=hit_time,
-                    related_urls=[payload_url],
+                    related_urls=self.related_urls_for(payload_url),
                 )
                 sensor = hit.get("_sensor")
                 if sensor:
@@ -190,6 +172,8 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 if download_url:
                     hostname = parse_url_hostname(download_url)
                     if not hostname:
+                        # rejected before the insert, so it still counts as a dropped record
+                        self.skipped += 1
                         self.log.warning(f"Failed to parse hostname from download URL: {download_url}")
                         continue
 
@@ -199,7 +183,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                         type=get_ioc_type(hostname),
                         first_seen=hit_time,
                         last_seen=hit_time,
-                        related_urls=[download_url],
+                        related_urls=self.related_urls_for(download_url),
                     )
                     sensor = hit.get("_sensor")
                     if sensor:
@@ -335,8 +319,7 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
         Returns:
             True if merged with existing sequence, False if new sequence
         """
-        commands_str = "\n".join(session.commands.commands)
-        commands_hash = sha256(commands_str.encode()).hexdigest()
+        commands_hash = hash_command_sequence(session.commands.commands)
 
         cmd_seq = self.session_repo.get_command_sequence_by_hash(commands_hash=commands_hash)
         if cmd_seq is None:

@@ -3,7 +3,7 @@ from unittest.mock import patch
 from greedybear.cronjobs.repositories import SensorRepository
 from greedybear.models import Sensor
 
-from . import CustomTestCase
+from . import CustomTestCase, make_api_source, make_sensor, make_user
 
 
 class TestSensorRepository(CustomTestCase):
@@ -70,6 +70,25 @@ class TestSensorRepository(CustomTestCase):
         """get_or_create_sensor should create a sensor with an empty label."""
         result = self.repo.get_or_create_sensor("192.168.1.10")
         self.assertEqual(result.label, "")
+
+    def test_cache_ignores_external_sensors(self):
+        internal = Sensor.objects.create(address="1.2.3.4")
+        make_sensor(make_api_source(make_user()), address="1.2.3.4")
+        repo = SensorRepository()
+        self.assertEqual(repo.cache["1.2.3.4"].pk, internal.pk)
+
+    def test_get_or_create_sensor_does_not_return_external_sensor(self):
+        external = make_sensor(make_api_source(make_user()), address="1.2.3.4")
+        result = self.repo.get_or_create_sensor("1.2.3.4")
+        self.assertNotEqual(result.pk, external.pk)
+        self.assertIsNone(result.api_source)
+
+    def test_get_or_create_sensor_not_cached_with_internal_and_external_sensor(self):
+        # both sensors are created after the cache was filled
+        internal = Sensor.objects.create(address="1.2.3.4")
+        make_sensor(make_api_source(make_user()), address="1.2.3.4")
+        result = self.repo.get_or_create_sensor("1.2.3.4")
+        self.assertEqual(result.pk, internal.pk)
 
     def test_update_country_sets_country(self):
         """update_country sets the Sensor's country if different."""

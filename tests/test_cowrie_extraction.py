@@ -13,7 +13,6 @@ from greedybear.cronjobs.extraction.strategies.cowrie import (
     CowrieExtractionStrategy,
     normalize_command,
     normalize_credential_field,
-    parse_url_hostname,
 )
 from greedybear.cronjobs.repositories import CowrieSessionRepository
 from greedybear.models import IOC, CommandSequence, CowrieSession, HoneypotPayload
@@ -22,36 +21,6 @@ from tests import CustomTestCase, ExtractionTestCase
 
 class TestHelperFunctions(ExtractionTestCase):
     """Test standalone helper functions."""
-
-    def test_parse_url_hostname_valid_http(self):
-        """Test URL parsing with valid HTTP URL."""
-        result = parse_url_hostname("http://example.com/path")
-        self.assertEqual(result, "example.com")
-
-    def test_parse_url_hostname_valid_https(self):
-        """Test URL parsing with valid HTTPS URL."""
-        result = parse_url_hostname("https://malware.site/payload.exe")
-        self.assertEqual(result, "malware.site")
-
-    def test_parse_url_hostname_with_port(self):
-        """Test URL parsing with port number."""
-        result = parse_url_hostname("http://evil.com:8080/download")
-        self.assertEqual(result, "evil.com")
-
-    def test_parse_url_hostname_ipv6(self):
-        """Test URL parsing with IPv6 address."""
-        result = parse_url_hostname("http://[2001:db8::1]/foo")
-        self.assertEqual(result, "2001:db8::1")
-
-    def test_parse_url_hostname_invalid_url(self):
-        """Test URL parsing with invalid URL."""
-        result = parse_url_hostname("not_a_url")
-        self.assertIsNone(result)
-
-    def test_parse_url_hostname_empty_string(self):
-        """Test URL parsing with empty string."""
-        result = parse_url_hostname("")
-        self.assertIsNone(result)
 
     def test_normalize_command_with_prefix(self):
         """Test command normalization with CMD prefix."""

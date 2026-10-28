@@ -2,21 +2,26 @@
 # See the file 'LICENSE' for copying permission.
 
 from datetime import datetime
+from hashlib import sha256
 from ipaddress import ip_address
+from typing import cast
 
 from django.core.exceptions import FieldDoesNotExist
 from django.test import SimpleTestCase
 
-from greedybear.consts import DOMAIN, IP
-from greedybear.models import CommandSequence, Credential
+from greedybear.consts import DOMAIN, IP, MAX_HOSTNAME_LENGTH
+from greedybear.models import IOC, CommandSequence, Credential
 from greedybear.utils import (
     PAYLOAD_REQUEST,
     SCANNER,
     clamp_to_field,
+    field_max_length,
+    fits_field,
     get_attack_type,
     get_ioc_type,
     get_nested_value,
     get_time_window,
+    hash_command_sequence,
     is_ip_address,
     is_non_global_ip,
     is_sha256hash,
@@ -24,6 +29,7 @@ from greedybear.utils import (
     is_valid_domain,
     is_valid_ipv4,
     is_valid_url,
+    parse_url_hostname,
 )
 
 from . import CustomTestCase
@@ -414,6 +420,52 @@ class UtilsTestCase(SimpleTestCase):
         self.assertEqual(get_attack_type([]), SCANNER)
 
 
+class TestParseUrlHostname(SimpleTestCase):
+    def test_valid_http(self):
+        """Test URL parsing with valid HTTP URL."""
+        self.assertEqual(parse_url_hostname("http://example.com/path"), "example.com")
+
+    def test_valid_https(self):
+        """Test URL parsing with valid HTTPS URL."""
+        self.assertEqual(parse_url_hostname("https://malware.site/payload.exe"), "malware.site")
+
+    def test_with_port(self):
+        """Test URL parsing with port number."""
+        self.assertEqual(parse_url_hostname("http://evil.com:8080/download"), "evil.com")
+
+    def test_ipv6(self):
+        """Test URL parsing with IPv6 address."""
+        self.assertEqual(parse_url_hostname("http://[2001:db8::1]/foo"), "2001:db8::1")
+
+    def test_invalid_url(self):
+        """Test URL parsing with invalid URL."""
+        self.assertIsNone(parse_url_hostname("not_a_url"))
+
+    def test_empty_string(self):
+        """Test URL parsing with empty string."""
+        self.assertIsNone(parse_url_hostname(""))
+
+    def test_hostname_at_dns_limit_is_accepted(self):
+        hostname = f"{'a' * (MAX_HOSTNAME_LENGTH - 4)}.com"
+        self.assertEqual(len(hostname), MAX_HOSTNAME_LENGTH)
+        self.assertEqual(parse_url_hostname(f"http://{hostname}/payload"), hostname)
+
+    def test_hostname_over_dns_limit_is_rejected(self):
+        hostname = f"{'a' * (MAX_HOSTNAME_LENGTH - 3)}.com"
+        self.assertEqual(len(hostname), MAX_HOSTNAME_LENGTH + 1)
+        self.assertIsNone(parse_url_hostname(f"http://{hostname}/payload"))
+
+    def test_hostname_over_ioc_name_width_is_rejected(self):
+        """A hostname wider than the IOC.name column never reaches it."""
+        hostname = f"{'a' * 300}.com"
+        self.assertIsNone(parse_url_hostname(f"http://{hostname}/payload"))
+
+    def test_dns_limit_fits_the_ioc_name_column(self):
+        """If IOC.name ever shrinks below the DNS limit, this guard stops protecting it."""
+        name_width = cast("int", IOC._meta.get_field("name").max_length)
+        self.assertLessEqual(MAX_HOSTNAME_LENGTH, name_width)
+
+
 class TestGetNestedValue(SimpleTestCase):
     def test_single_key_returns_value(self):
         result = get_nested_value({"protocol": "ssh"}, "protocol")
@@ -512,6 +564,55 @@ class TestClampToField(SimpleTestCase):
     def test_unknown_field_raises(self):
         with self.assertRaises(FieldDoesNotExist):
             clamp_to_field(Credential, "not_a_field", "value")
+
+
+class TestFitsField(SimpleTestCase):
+    def test_value_at_the_width_fits(self):
+        self.assertTrue(fits_field(Credential, "username", "x" * 256))
+
+    def test_value_over_the_width_does_not_fit(self):
+        self.assertFalse(fits_field(Credential, "username", "x" * 257))
+
+    def test_array_field_measures_the_inner_field(self):
+        """An ArrayField stores each element in its inner field, so that is the limit."""
+        self.assertTrue(fits_field(IOC, "related_urls", "x" * 900))
+        self.assertFalse(fits_field(IOC, "related_urls", "x" * 901))
+
+    def test_empty_value_fits(self):
+        self.assertTrue(fits_field(IOC, "related_urls", ""))
+
+    def test_field_without_max_length_always_fits(self):
+        self.assertTrue(fits_field(CommandSequence, "first_seen", "x" * 5000))
+
+
+class TestFieldMaxLength(SimpleTestCase):
+    def test_reads_char_field_width(self):
+        self.assertEqual(field_max_length(Credential, "username"), 256)
+
+    def test_reads_array_inner_field_width(self):
+        self.assertEqual(field_max_length(IOC, "related_urls"), 900)
+
+    def test_field_without_max_length_returns_none(self):
+        self.assertIsNone(field_max_length(CommandSequence, "first_seen"))
+
+    def test_reads_hash_field_width(self):
+        self.assertEqual(field_max_length(CommandSequence, "commands_hash"), 64)
+
+    def test_unknown_field_raises(self):
+        with self.assertRaises(FieldDoesNotExist):
+            field_max_length(IOC, "not_a_field")
+
+
+class TestHashCommandSequence(SimpleTestCase):
+    def test_hash_is_sha256_of_newline_joined_commands(self):
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        self.assertEqual(hash_command_sequence(cmds), sha256("\n".join(cmds).encode()).hexdigest())
+
+    def test_order_matters(self):
+        self.assertNotEqual(hash_command_sequence(["ls", "id"]), hash_command_sequence(["id", "ls"]))
+
+    def test_single_command(self):
+        self.assertEqual(hash_command_sequence(["uname -a"]), sha256(b"uname -a").hexdigest())
 
 
 class TestTimeWindowCalculation(SimpleTestCase):

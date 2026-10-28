@@ -71,6 +71,12 @@ class EnrichmentViewTestCase(CustomTestCase):
         response = self.client.get("/api/enrichment?query=256.1.1.1")
         self.assertEqual(response.status_code, 400)
 
+    def test_unknown_param_is_rejected(self):
+        """Query params other than query are rejected instead of silently ignored"""
+        response = self.client.get("/api/enrichment?query=1.2.3.4&verbose=true")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"verbose": ["Unknown query parameter."]})
+
     def test_valid_ipv6_address(self):
         """Valid IPv6 addresses should be accepted"""
         response = self.client.get("/api/enrichment?query=2001:db8::1")

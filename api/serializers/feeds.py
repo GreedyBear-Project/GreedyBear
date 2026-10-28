@@ -4,7 +4,6 @@ from collections.abc import Mapping
 
 from django.conf import settings
 from django.core import signing
-from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
@@ -12,7 +11,7 @@ from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_vali
 from greedybear.consts import SHARE_TOKEN_MAX_AGE, SHARE_TOKEN_SALT
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, ShareToken
+from greedybear.models import ShareToken
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +81,31 @@ class BaseFeedRequestSerializer(serializers.Serializer):
 
     Not used directly as an endpoint serializer;
     subclasses add their own fields and validation logic.
+
+    Ordering is restricted to the single-valued IOC columns in ALLOWED_ORDERING_FIELDS.
     """
+
+    ALLOWED_ORDERING_FIELDS = frozenset(
+        {
+            "name",
+            "type",
+            "first_seen",
+            "last_seen",
+            "number_of_days_seen",
+            "attack_count",
+            "interaction_count",
+            "attacker_country",
+            "attacker_country_code",
+            "autonomous_system",
+            "scanner",
+            "payload_request",
+            "high_credential_reuse",
+            "ip_reputation",
+            "login_attempts",
+            "recurrence_probability",
+            "expected_interactions",
+        }
+    )
 
     feed_type = FeedTypeField(default="all", help_text="Honeypot name (e.g. `cowrie`), a comma-separated list, or `all`.")
     attack_type = serializers.ChoiceField(
@@ -93,28 +116,21 @@ class BaseFeedRequestSerializer(serializers.Serializer):
     format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21", "ndjson"], default="json", help_text="Output representation.")
 
     def to_internal_value(self, data: Mapping) -> dict:
-        """Normalize raw query params before field validation:
-        - lower-case all string values
-        - accept format_ (legacy name) as an alias for format
-        """
+        """Normalize raw query params before field validation by lower-casing all string values."""
         logger.debug("Normalizing raw query")
         if isinstance(data, Mapping):
             data = {key: value.lower() if isinstance(value, str) else value for key, value in data.items()}
-            if "format_" in data and "format" not in data:
-                data["format"] = data["format_"]
         return super().to_internal_value(data)
 
     def validate_ordering(self, ordering: str) -> str:
-        """Validate ordering against the IOC model fields and return it normalized."""
+        """Validate ordering against ALLOWED_ORDERING_FIELDS and return it normalized."""
         logger.debug(f"Validating ordering: {ordering}")
         if not ordering:
             raise serializers.ValidationError("Invalid ordering: <empty string>")
         normalized_ordering = ordering.lower().replace("value", "name")
         field_name = normalized_ordering.removeprefix("-")
-        try:
-            IOC._meta.get_field(field_name)
-        except FieldDoesNotExist as exc:
-            raise serializers.ValidationError(f"Invalid ordering: {ordering}") from exc
+        if field_name not in self.ALLOWED_ORDERING_FIELDS:
+            raise serializers.ValidationError(f"Invalid ordering: '{field_name}'. Allowed fields: {', '.join(sorted(self.ALLOWED_ORDERING_FIELDS))}")
         return normalized_ordering
 
 

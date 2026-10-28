@@ -17,7 +17,7 @@ from stix2 import Bundle, ExternalReference, Indicator
 
 from greedybear.consts import APISOURCE_LOCKED_THRESHOLD, CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.models import APISource, AutonomousSystem, EventStatus, EventStatusType, RawEvent, Sensor, SourceType, Statistics
+from greedybear.models import IOC, APISource, AutonomousSystem, EventStatus, EventStatusType, RawEvent, Sensor, SourceType, Statistics
 from greedybear.utils import is_ip_address, is_valid_domain
 
 logger = logging.getLogger(__name__)
@@ -273,7 +273,6 @@ def _asn_honeypot_lookup(with_asn) -> dict:
 
 def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
     """Aggregate a filtered IOC queryset into per-ASN metric rows.
-
     Pure data logic: no request/cache concerns. IOCs without an ASN are dropped.
 
     Args:
@@ -282,7 +281,10 @@ def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
 
     Returns: A list of dicts with aggregated metrics and honeypot arrays per ASN.
     """
-    with_asn = iocs_qs.exclude(autonomous_system__isnull=True)
+    # Re-query by primary key to remove duplicate rows introduced by filtering joins.
+    filtered_ioc_ids = iocs_qs.values("pk")
+    base_iocs = IOC.objects.filter(pk__in=filtered_ioc_ids)
+    with_asn = base_iocs.exclude(autonomous_system__isnull=True)
 
     numeric_agg = (
         with_asn.values(
@@ -303,7 +305,6 @@ def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
     )
 
     hp_lookup = _asn_honeypot_lookup(with_asn)
-
     return [{**row, "honeypots": sorted(hp_lookup.get(row["asn"], []))} for row in numeric_agg]
 
 

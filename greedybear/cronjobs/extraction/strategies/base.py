@@ -9,6 +9,8 @@ from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.ioc_processor import IocProcessor
 from greedybear.cronjobs.extraction.utils import threatfox_submission
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
+from greedybear.models import IOC
+from greedybear.utils import fits_field
 
 
 class BaseExtractionStrategy(metaclass=ABCMeta):
@@ -43,6 +45,26 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
         self.ioc_records = []
         self.skipped = 0
         self._threatfox_queue: list[tuple] = []
+
+    def related_urls_for(self, url: str) -> list[str]:
+        """
+        Wrap an attacker URL as a related_urls value, dropping it if it is too
+        long for the column.
+
+        The hostname is the identifying part of the IOC and is stored
+        separately, so a URL that does not fit costs the URL and not the
+        record.
+
+        Args:
+            url: The attacker URL to store alongside the IOC.
+
+        Returns:
+            A single element list, or an empty list if the URL does not fit.
+        """
+        if fits_field(IOC, "related_urls", url):
+            return [url]
+        self.log.warning(f"dropping over long related URL from honeypot {self.honeypot}: {len(url)} characters")
+        return []
 
     def queue_threatfox(self, ioc_record, related_urls) -> None:
         """

@@ -89,6 +89,12 @@ class FeedsTokensListTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
 
+    def test_list_rejects_query_params(self):
+        """The token list takes no query params, so any query param is rejected."""
+        response = self.client.get("/api/feeds/tokens/?reason=x")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"reason": ["Unknown query parameter."]})
+
     def test_list_returns_own_tokens(self):
         """After creating two tokens, the list endpoint returns both."""
         self.client.post("/api/feeds/share?reason=alpha")

@@ -3,6 +3,7 @@ import urllib.parse
 from functools import cached_property
 
 from django.http import HttpResponse
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -91,3 +92,36 @@ class RequestLoggingMixin(APIView):
         params = {k: v for k, v in request.query_params.items() if k not in self.EXCLUDED_LOG_PARAMS}
         logger.info(f"request {request.method} /{route} params: {params}")
         super().initial(request, *args, **kwargs)
+
+
+class QueryParamValidationMixin(APIView):
+    """Rejects requests carrying query params the view does not accept (HTTP 400).
+    Accepted are the fields of serializer_class and, when the view paginates, the page params."""
+
+    def get_allowed_query_params(self) -> set[str]:
+        """Names of the query params the view accepts.
+        Override for views whose query string does not map onto serializer_class."""
+        allowed_params = self.get_page_query_params()
+        serializer_class = getattr(self, "serializer_class", None)
+        if serializer_class is not None:
+            allowed_params |= set(serializer_class().fields.keys())
+        return allowed_params
+
+    def get_page_query_params(self) -> set[str]:
+        """Names of the page params of the view's pagination_class, none when the view does not paginate."""
+        pagination_class = getattr(self, "pagination_class", None)
+        if pagination_class is None:
+            return set()
+        page_params = (getattr(pagination_class, "page_query_param", None), getattr(pagination_class, "page_size_query_param", None))
+        return {param for param in page_params if param}
+
+    def initial(self, request: Request, *args, **kwargs):
+        """Reject unknown query params after DRF's authentication, permission and throttling checks,
+        so unauthenticated or throttled requests keep their usual error responses.
+        Requests with an HTTP method the view does not handle are left to DRF's 405."""
+        super().initial(request, *args, **kwargs)
+        if request.method is None or not hasattr(self, request.method.lower()):
+            return
+        unknown_params = set(request.query_params) - self.get_allowed_query_params()
+        if unknown_params:
+            raise ValidationError({param: ["Unknown query parameter."] for param in sorted(unknown_params)})

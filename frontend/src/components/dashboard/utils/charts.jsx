@@ -181,10 +181,17 @@ export const FeedsTypesChart = React.memo(() => {
 
   const bars = React.useMemo(() => {
     if (!data || data.length === 0) return null;
-    // Extract feed type keys from first data point (everything except "date")
-    const feedsTypes = Object.keys(data[0]).filter((k) => k !== "date");
+    // Honeypot names live under counts so a name such as "date" cannot
+    // overwrite the top-level time-bucket value used by the chart.
+    const feedsTypes = Object.keys(data[0].counts ?? {});
     return feedsTypes.map((dKey, i) => (
-      <Bar stackId="feedtype" key={dKey} dataKey={dKey} fill={colors[i]} />
+      <Bar
+        stackId="feedtype"
+        key={dKey}
+        dataKey={(row) => row.counts?.[dKey] ?? 0}
+        name={dKey}
+        fill={colors[i]}
+      />
     ));
   }, [data]);
 
