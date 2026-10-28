@@ -129,7 +129,7 @@ describe("Enrichment Lookup Integration Tests", () => {
       scanner: true,
       payload_request: true,
       ip_reputation: "malicious",
-      asn: "12345",
+      autonomous_system: 12345,
       destination_ports: [22, 80, 443],
       tags: [{ key: "blocklist", value: "greensnow", source: "firehol" }],
       honeypots: ["Cowrie", "Heralding"],
@@ -175,6 +175,7 @@ describe("Enrichment Lookup Integration Tests", () => {
       expect(screen.getByText("42")).toBeInTheDocument(); // attack_count
       expect(screen.getByText("150")).toBeInTheDocument(); // interaction_count
       expect(screen.getByText("malicious")).toBeInTheDocument(); // ip_reputation
+      expect(screen.getByText("12345")).toBeInTheDocument(); // autonomous_system (ASN)
       expect(screen.getByText("Cowrie")).toBeInTheDocument(); // honeypot
     });
   });
