@@ -272,7 +272,19 @@ def _asn_honeypot_lookup(with_asn) -> dict:
 
 
 def aggregate_iocs_by_asn(iocs_qs, ordering: str) -> list[dict]:
-    """Aggregate a filtered IOC queryset into per-ASN metric rows."""
+    """Aggregate a filtered IOC queryset into per-ASN metric rows.
+    Pure data logic: no request/cache concerns. IOCs without an ASN are dropped.
+
+    Args:
+        iocs_qs (QuerySet): Filtered IOC queryset from the view's get_queryset;
+        ordering (str): Validated aggregate ordering field (e.g. "-ioc_count").
+
+    Returns: A list of dicts with aggregated metrics and honeypot arrays per ASN.
+    """
+    # Re-query by primary key to remove duplicate rows introduced by filtering joins.
+    filtered_ioc_ids = iocs_qs.values("pk")
+    base_iocs = IOC.objects.filter(pk__in=filtered_ioc_ids)
+    
     filtered_ioc_ids = iocs_qs.values("pk")
     base_iocs = IOC.objects.filter(pk__in=filtered_ioc_ids)
     with_asn = base_iocs.exclude(autonomous_system__isnull=True)
