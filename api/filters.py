@@ -1,10 +1,10 @@
 from datetime import date, timedelta
 
 import django_filters
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
-from greedybear.models import IOC
+from greedybear.models import IOC, HoneypotPayload
 
 
 class FeedsFilterSet(django_filters.FilterSet):
@@ -75,3 +75,22 @@ class FeedsFilterSet(django_filters.FilterSet):
             return queryset
         cutoff = timezone.now() - timedelta(days=int(value))
         return queryset.filter(last_seen__gte=cutoff)
+
+
+class HoneypotPayloadFilterSet(django_filters.FilterSet):
+    search = django_filters.CharFilter(method="filter_hash")
+    honeypot = django_filters.CharFilter(
+        field_name="source_honeypots__name",
+        lookup_expr="iexact",
+    )
+    mime_type = django_filters.CharFilter(
+        field_name="mime_type",
+        lookup_expr="iexact",
+    )
+
+    def filter_hash(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
+        return queryset.filter(Q(sha256__icontains=value) | Q(sha1__icontains=value) | Q(md5__icontains=value))
+
+    class Meta:
+        model = HoneypotPayload
+        fields = ["search", "honeypot", "mime_type"]

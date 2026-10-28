@@ -4,6 +4,7 @@ import logging
 
 from django.db.models import QuerySet
 from django.http import FileResponse
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status, viewsets
@@ -12,6 +13,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from api.filters import HoneypotPayloadFilterSet
 from api.permissions import IsThreatResearcherOrAdmin
 from api.serializers.payloads import HoneypotPayloadSerializer
 from greedybear.cronjobs.repositories import PayloadRepository
@@ -55,6 +57,8 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = HoneypotPayloadSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "sha256"
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = HoneypotPayloadFilterSet
 
     def get_queryset(self) -> QuerySet:
         return PayloadRepository().list_payloads()
