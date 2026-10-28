@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
 import django_filters
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
 from greedybear.models import IOC, HoneypotPayload
@@ -88,9 +88,7 @@ class HoneypotPayloadFilterSet(django_filters.FilterSet):
         lookup_expr="iexact",
     )
 
-    def filter_hash(self, queryset, name, value):
-        from django.db.models import Q
-
+    def filter_hash(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         return queryset.filter(Q(sha256__icontains=value) | Q(sha1__icontains=value) | Q(md5__icontains=value))
 
     class Meta:
