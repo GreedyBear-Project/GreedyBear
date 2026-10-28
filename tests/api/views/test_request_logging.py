@@ -17,7 +17,7 @@ class RequestLoggingMixinTestCase(CustomTestCase):
 
     def test_excludes_reason_param_from_log(self):
         with self.assertLogs(self.LOGGER, level="INFO") as logs:
-            response = self.client.get("/api/feeds/share?reason=super-secret-note&ioc_type=ip")
+            response = self.client.post("/api/feeds/share?reason=super-secret-note&ioc_type=ip")
         self.assertIn(response.status_code, (401, 403))
         line = logs.output[0]
         self.assertNotIn("super-secret-note", line)

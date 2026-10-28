@@ -512,6 +512,22 @@ ensure_django_secret() {
     fi
 }
 
+# Ensures the nginx SSL config exists before starting with HTTPS enabled.
+ensure_ssl_config() {
+    [ "$ENABLE_HTTPS" != true ] && return
+
+    local ssl_conf="${SCRIPT_DIR}/configuration/nginx/ssl.conf"
+
+    if [ -f "$ssl_conf" ]; then
+        return
+    fi
+
+    log_error "HTTPS is enabled but configuration/nginx/ssl.conf is missing."
+    log_info "Create it from the template and adapt the certificate paths:"
+    log_info "  cp configuration/nginx/ssl.conf.template configuration/nginx/ssl.conf"
+    exit 1
+}
+
 # Execute docker compose command
 # --project-directory points to docker/ so that relative env_file paths
 # in compose files resolve correctly. --env-file loads .env from the
@@ -662,6 +678,7 @@ cmd_up() {
     check_git_version_mismatch
 
     ensure_django_secret
+    ensure_ssl_config
     execute_compose up -d "$@"
     log_success "GreedyBear services started successfully!"
 }

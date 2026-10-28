@@ -1,5 +1,6 @@
 import requests
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.models import IOC, WhatsMyIPDomain
@@ -33,6 +34,8 @@ class WhatsMyIPCron(Cronjob):
                 WhatsMyIPDomain(domain=domain).save()
                 self.log.info(f"added new whatsmyip domain {domain=}")
                 self._remove_old_ioc(domain)
+
+        invalidate_ioc_cache()
 
     def _remove_old_ioc(self, domain):
         try:

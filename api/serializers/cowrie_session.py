@@ -12,7 +12,8 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
         help_text=(
             "The search term, can be an IP address, the SHA-256 hash of a command sequence, or a password. "
             'SHA-256 hashes should match command sequences generated using Python\'s `"\n".join(sequence)` format. '
-            "Mutually exclusive with `id`."
+            "Mutually exclusive with `id`. "
+            "Leave out both `query` and `id` to get all sessions, optionally limited by `start_date` and `end_date`."
         ),
     )
     id = serializers.CharField(
@@ -27,7 +28,8 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
         help_text=(
             "When `true`, expands the result to include all sessions that executed command sequences "
             "belonging to the same cluster(s) as command sequences found in the initial query result. "
-            "Requires CLUSTER_COWRIE_COMMAND_SEQUENCES enabled in configuration."
+            "Requires CLUSTER_COWRIE_COMMAND_SEQUENCES enabled in configuration. "
+            "Only allowed together with `query` or `id`."
         ),
     )
     include_credentials = serializers.BooleanField(
@@ -36,18 +38,29 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
     include_session_data = serializers.BooleanField(
         required=False, default=False, help_text="When `true`, includes detailed information about matching Cowrie sessions."
     )
+    start_date = serializers.DateField(
+        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or after this date (YYYY-MM-DD)."
+    )
+    end_date = serializers.DateField(
+        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or before this date (YYYY-MM-DD)."
+    )
 
     def validate_id(self, value: str) -> str:
         if not re.fullmatch(REGEX_COWRIE_SESSION_ID, value):
             raise serializers.ValidationError(f"Not a valid hex session ID: {value}")
         return value
 
-    def validate(self, data: dict) -> dict:
-        if data.get("query") and data.get("id"):
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("query") and attrs.get("id"):
             raise serializers.ValidationError("Provide either `query` or `id`, not both.")
-        if not data.get("query") and not data.get("id"):
-            raise serializers.ValidationError("Provide either `query` or `id`.")
-        return data
+        if attrs.get("include_similar") and not attrs.get("query") and not attrs.get("id"):
+            raise serializers.ValidationError("`include_similar` needs either `query` or `id`.")
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError("`start_date` must be less than or equal to `end_date`.")
+
+        return attrs
 
 
 class SessionDetailSerializer(serializers.Serializer):

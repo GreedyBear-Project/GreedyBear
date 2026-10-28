@@ -12,6 +12,7 @@ class FireHolCron(Cronjob):
 
     Downloads IP blocklists from multiple sources and stores them in the database.
     Automatically cleans up entries older than 30 days.
+    Tagging is done separately by FireHolBlocklistCron.
     """
 
     def __init__(self, firehol_repo=None):

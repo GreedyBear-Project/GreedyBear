@@ -1,7 +1,8 @@
 import logging
 import re
 from collections import defaultdict
-from ipaddress import ip_address, ip_network
+from collections.abc import Sequence
+from ipaddress import ip_address
 from logging import Logger
 from urllib.parse import urlparse
 
@@ -9,28 +10,29 @@ import requests
 from django.conf import settings
 
 from greedybear.consts import CVE_FIELD_MAP, PROTOCOL_FIELD_MAP
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, FireHolList, MassScanner
-from greedybear.utils import get_ioc_type, get_nested_value, is_non_global_ip, parse_timestamp
+from greedybear.models import IOC, Credential, MassScanner
+from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip
 
 log = logging.getLogger(__name__)
 
 
-def normalize_credential_field(value: object, max_length: int = 256) -> str:
+def normalize_credential_field(value: object) -> str:
     """
     Normalize a credential field from untrusted input.
 
     Args:
         value: Raw field value.
-        max_length: Maximum length allowed by the model field.
 
     Returns:
-        Sanitized credential field string.
+        Sanitized credential field string, truncated to the width of the
+        column it is stored in. Credential.password has the same width.
     """
     text = "" if value is None else str(value)
-    return text.replace("\x00", "[NUL]")[:max_length]
+    return clamp_to_field(Credential, "username", text.replace("\x00", "[NUL]"))
 
 
 def is_whatsmyip_domain(domain: str, whatsmyip_domains: set) -> bool:
@@ -66,31 +68,7 @@ def correct_ip_reputation(ip: str, ip_reputation: str, mass_scanner_ips: set) ->
     return ip_reputation
 
 
-def get_firehol_categories(ip: str, extracted_ip, firehol_exact_map: dict, cidr_entries: list) -> list[str]:
-    """
-    Get FireHol categories for an IP address.
-    Checks both exact IP matches (for .ipset files) and network range
-    membership (for .netset files with CIDR notation).
-
-    Args:
-        ip: IP address string.
-        extracted_ip: Parsed IP address object from ipaddress library.
-        firehol_exact_map: Dict mapping IPs to lists of FireHol sources.
-        cidr_entries: List of tuples (ip_network, source) for CIDR entries.
-
-    Returns:
-        List of FireHol source categories.
-    """
-    firehol_categories = list(firehol_exact_map.get(ip, []))
-
-    for network, source in cidr_entries:
-        if source and extracted_ip in network and source not in firehol_categories:
-            firehol_categories.append(source)
-
-    return firehol_categories
-
-
-def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
+def group_valid_hits_by_ip(hits: Sequence[Hit]) -> dict[str, list[Hit]]:
     """
     Group hits by source IP, dropping malformed addresses.
 
@@ -103,11 +81,14 @@ def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
         hits: List of raw hit dictionaries with a "src_ip" key.
 
     Returns:
-        Mapping of valid source IP to its hits (plain dict).
+        Mapping of valid source IP to its wrapped hits.
     """
-    hits_by_ip: dict[str, list[dict]] = defaultdict(list)
+    hits_by_ip: dict[str, list[Hit]] = defaultdict(list)
     for hit in hits:
-        hits_by_ip[hit["src_ip"]].append(hit)
+        try:
+            hits_by_ip[hit.require_str("src_ip")].append(hit)
+        except InvalidHitError as exc:
+            log.debug(f"skipping hit: {exc}")
 
     valid_hits_by_ip = {}
     for ip, ip_hits in hits_by_ip.items():
@@ -120,19 +101,18 @@ def group_valid_hits_by_ip(hits: list[dict]) -> dict[str, list[dict]]:
     return valid_hits_by_ip
 
 
-def iocs_from_hits(hits: list[dict]) -> list[IOC]:
+def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[IOC]:
     """
     Convert Elasticsearch hits into IOC objects with associated sensors.
-    Groups hits by source IP, filters out non-global addresses, and
-    constructs IOC objects with aggregated data.
-    Enriches IOCs with FireHol categories at creation time to ensure
-    only fresh data is used.
+    Groups hits by source IP, filters out non-global addresses unless allowed,
+    and constructs IOC objects with aggregated data.
 
     Performs bulk prefetching before the main loop to eliminate N+1 queries
     by injecting the bulk data into the helper evaluation functions.
 
     Args:
         hits: List of Elasticsearch hit dictionaries.
+        allow_non_global: Keep IOCs for non-global addresses.
 
     Returns:
         List of IOC instances, one per unique source IP.
@@ -140,22 +120,6 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
     valid_hits_by_ip = group_valid_hits_by_ip(hits)
 
     all_ips = list(valid_hits_by_ip.keys())
-
-    # --- Bulk prefetch: FireHol exact matches ---
-    firehol_exact_map = defaultdict(list)
-    for entry_ip, source in FireHolList.objects.filter(
-        ip_address__in=all_ips,
-    ).values_list("ip_address", "source"):
-        if source:
-            firehol_exact_map[entry_ip].append(source)
-
-    # --- Bulk prefetch: FireHol CIDR entries ---
-    cidr_entries = []
-    for entry in FireHolList.objects.filter(ip_address__contains="/"):
-        try:
-            cidr_entries.append((ip_network(entry.ip_address, strict=False), entry.source))
-        except (ValueError, IndexError):
-            continue
 
     # --- Bulk prefetch: MassScanner IPs ---
     mass_scanner_ips = set(
@@ -166,34 +130,34 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
 
     iocs = []
     as_repository = ASRepository()  # single instance for this batch
-    for ip, hits in valid_hits_by_ip.items():
+    for ip, ip_hits in valid_hits_by_ip.items():
         extracted_ip = ip_address(ip)  # infallible: validated above
-        if is_non_global_ip(extracted_ip):
+        if not allow_non_global and is_non_global_ip(extracted_ip):
             continue
 
-        firehol_categories = get_firehol_categories(ip, extracted_ip, firehol_exact_map, cidr_entries)
-
-        # Single pass over hits to accumulate all derived data
+        # Single pass over ip_hits to accumulate all derived data
         dest_ports: set[int] = set()
         sensors_map = {}
         timestamps = []
         login_attempts = 0
         protocols: set[str] = set()
         cves: set[str] = set()
-        for hit in hits:
-            if "dest_port" in hit:
-                dest_ports.add(hit["dest_port"])
+        for hit in ip_hits:
+            dest_port = hit.get_int("dest_port")
+            if dest_port is not None:
+                dest_ports.add(dest_port)
             sensor = hit.get("_sensor")
             if sensor is not None and getattr(sensor, "id", None):
                 sensors_map[sensor.id] = sensor
-            if "@timestamp" in hit:
-                timestamps.append(hit["@timestamp"])
+            timestamp = hit.get_time("@timestamp")
+            if timestamp is not None:
+                timestamps.append(timestamp)
             if hit.get("username") or hit.get("password"):
                 login_attempts += 1
 
             # cve and protocol extraction, mapped explicitly by honeypot type
             # to avoid ambiguity (e.g. Suricata has both proto=TCP and app_proto=rfb)
-            honeypot_type = hit.get("type", "").lower()
+            honeypot_type = hit.get_str("type").lower()
             cve_field_path = CVE_FIELD_MAP.get(honeypot_type, ())
             cve_value = get_nested_value(hit, *cve_field_path)
             if cve_value:
@@ -214,7 +178,7 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         # Sort sensors by ID for consistent processing order
         sensors = sorted(sensors_map.values(), key=lambda s: s.id)
 
-        geoip = next((h.get("geoip") for h in hits if h.get("geoip")), {})
+        geoip = next((h.get_dict("geoip") for h in ip_hits if h.get("geoip")), {})
         attacker_country = geoip.get("country_name", "")
         raw_country_code = geoip.get("country_code2", "")
         attacker_country_code = raw_country_code.upper() if len(raw_country_code) == 2 else ""
@@ -226,12 +190,11 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         ioc = IOC(
             name=ip,
             type=get_ioc_type(ip),
-            interaction_count=len(hits),
-            ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in hits if h.get("ip_rep")), ""), mass_scanner_ips),
+            interaction_count=len(ip_hits),
+            ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in ip_hits if h.get("ip_rep")), ""), mass_scanner_ips),
             autonomous_system=autonomous_system,
             destination_ports=sorted(dest_ports),
             login_attempts=login_attempts,
-            firehol_categories=firehol_categories,
             attacker_country=attacker_country,
             attacker_country_code=attacker_country_code,
             protocols=sorted(protocols),
@@ -243,8 +206,10 @@ def iocs_from_hits(hits: list[dict]) -> list[IOC]:
         ioc._sensors_to_add = sensors
 
         if timestamps:
-            ioc.first_seen = parse_timestamp(min(timestamps))
-            ioc.last_seen = parse_timestamp(max(timestamps))
+            # already datetimes: get_time parses per hit, so one unparsable
+            # value is skipped instead of raising out of the whole chunk here
+            ioc.first_seen = min(timestamps)
+            ioc.last_seen = max(timestamps)
         iocs.append(ioc)
     return iocs
 

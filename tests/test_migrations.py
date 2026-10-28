@@ -1,4 +1,6 @@
-from django.db import IntegrityError
+from datetime import datetime
+
+from django.db import IntegrityError, connection
 from django.test import tag
 
 from . import MigrationTestCase
@@ -342,6 +344,46 @@ class TestIocIdentityDeduplication(MigrationTestCase):
 
 
 @tag("migration")
+class TestTannerHttpAttackTypesMigration(MigrationTestCase):
+    """Tests that the Tanner data migration only touches Tanner attack_type tags."""
+
+    migrate_from = "0065_ioc_http_attack_types"
+    migrate_to = "0066_migrate_tanner_attack_types"
+
+    def test_other_sources_untouched(self):
+        """Tags from other enrichment sources must survive the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.7", type="ip")
+        Tag.objects.create(ioc=ioc, key="malware", value="Mirai", source="threatfox")
+        Tag.objects.create(ioc=ioc, key="ptr_record", value="scanner.example.com", source="rdns")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="sqli", source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="rdns").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="tanner", key="attack_type").count(), 0)
+        self.assertEqual(IOC.objects.get(name="1.2.3.7").http_attack_types, ["sqli"])
+
+    def test_long_value_truncated(self):
+        """A stray value longer than the field's max_length must not abort the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.2.3.8", type="ip")
+        Tag.objects.create(ioc=ioc, key="attack_type", value="x" * 200, source="tanner")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertEqual(IOC.objects.get(name="1.2.3.8").http_attack_types, ["x" * 64])
+
+
+@tag("migration")
 class TestTagIdentityDeduplication(MigrationTestCase):
     """Tests Tag deduplication before enforcing the identity uniqueness constraint."""
 
@@ -415,3 +457,203 @@ class TestTagIdentityDeduplication(MigrationTestCase):
 
         with self.assertRaises(IntegrityError):
             tag_new.objects.create(ioc=ioc_new_ref, source="tanner", key="attack_type", value="rfi")
+
+
+@tag("migration")
+class TestMigrateCredentialReuseTags(MigrationTestCase):
+    """Tests that credential_reuse tags become the IOC.high_credential_reuse flag."""
+
+    migrate_from = "0068_ioc_high_credential_reuse"
+    migrate_to = "0069_migrate_credential_reuse_tags"
+
+    def test_credential_reuse_tag_becomes_flag(self):
+        """IOCs with the credential_reuse tag get flagged, and the tag is deleted."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        flagged = IOC.objects.create(name="1.1.1.1", type="ip")
+        IOC.objects.create(name="2.2.2.2", type="ip")
+        Tag.objects.create(ioc=flagged, source="credential_reuse", key="behavior", value="high_credential_reuse")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertIs(IOC.objects.get(name="1.1.1.1").high_credential_reuse, True)
+        self.assertIs(IOC.objects.get(name="2.2.2.2").high_credential_reuse, False)
+        self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())
+
+    def test_other_tags_are_kept(self):
+        """Tags from other sources are not touched by the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="3.3.3.3", type="ip")
+        Tag.objects.create(ioc=ioc, source="credential_reuse", key="behavior", value="high_credential_reuse")
+        Tag.objects.create(ioc=ioc, source="threatfox", key="malware", value="mirai")
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.filter(source="threatfox", ioc__name="3.3.3.3").count(), 1)
+        self.assertFalse(Tag.objects.filter(source="credential_reuse").exists())
+
+
+@tag("migration")
+class TestMigrateFireHolCategories(MigrationTestCase):
+    """Tests that IOC.firehol_categories becomes blocklist tags."""
+
+    migrate_from = "0070_alter_credential_password_alter_credential_username"
+    migrate_to = "0071_migrate_firehol_categories_to_tags"
+
+    def test_each_category_becomes_a_tag(self):
+        """One IOC with two categories produces two tags."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        ioc = IOC.objects.create(name="1.1.1.1", type="ip", firehol_categories=["greensnow", "dshield"])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        tags = Tag.objects.filter(ioc_id=ioc.id, source="firehol")
+        self.assertEqual(tags.count(), 2)
+        self.assertEqual(sorted(tags.values_list("value", flat=True)), ["dshield", "greensnow"])
+        for stored_tag in tags:
+            self.assertEqual(stored_tag.key, "blocklist")
+
+    def test_empty_categories_produce_no_tags(self):
+        """An IOC with no categories is left alone."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        IOC.objects.create(name="2.2.2.2", type="ip", firehol_categories=[])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertFalse(Tag.objects.filter(source="firehol").exists())
+
+    def test_added_comes_from_last_seen(self):
+        """The tag timestamp is taken from the IOC's last_seen."""
+
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        seen_at = datetime(2026, 3, 1, 12, 0, 0)
+        ioc = IOC.objects.create(name="3.3.3.3", type="ip", last_seen=seen_at, firehol_categories=["greensnow"])
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(Tag.objects.get(ioc_id=ioc.id, source="firehol").added, seen_at)
+
+
+@tag("migration")
+class TestFireHolCidrIndex(MigrationTestCase):
+    """Tests that the CIDR lookup index is created with a usable predicate."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_alter_firehollist_ip_address_and_more"
+
+    def test_index_is_created(self):
+        """A wrong predicate would leave the index covering no rows."""
+        self.apply_tested_migration()
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'firehollist_cidr_gist'")
+            rows = cursor.fetchall()
+
+        self.assertEqual(len(rows), 1)
+        definition = rows[0][0]
+        self.assertIn("gist", definition)
+        self.assertIn("inet_ops", definition)
+        self.assertIn("masklen", definition)
+        self.assertIn("<= 31", definition)
+
+
+@tag("migration")
+class TestFireHolCidrDataCleanup(MigrationTestCase):
+    """Tests the cleanup that lets the ip_address column become cidr."""
+
+    migrate_from = "0072_remove_ioc_firehol_categories"
+    migrate_to = "0073_alter_firehollist_ip_address_and_more"
+
+    def test_unstorable_values_are_dropped(self):
+        """cidr refuses host bits, a netmask after the slash, and non-addresses."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+
+        FireHolList.objects.create(ip_address="1.2.3.4/24", source="hostbits")
+        FireHolList.objects.create(ip_address="1.2.3.0/255.255.255.0", source="netmask")
+        FireHolList.objects.create(ip_address="w00tw00t.at.ISC", source="junk")
+        FireHolList.objects.create(ip_address="5.6.7.0/24", source="good")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        self.assertFalse(firehol_new.objects.filter(source__in=["hostbits", "netmask", "junk"]).exists())
+        self.assertEqual(str(firehol_new.objects.get(source="good").ip_address), "5.6.7.0/24")
+
+    def test_duplicates_collapse_to_the_newest_row(self):
+        """A bare address and its /32 form become one value, so one row has to go."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+
+        older = FireHolList.objects.create(ip_address="9.9.9.9", source="dshield")
+        newer = FireHolList.objects.create(ip_address="9.9.9.9/32", source="dshield")
+        FireHolList.objects.filter(pk=older.pk).update(added="2026-01-01T00:00:00Z")
+        FireHolList.objects.filter(pk=newer.pk).update(added="2026-06-01T00:00:00Z")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        remaining = list(firehol_new.objects.filter(source="dshield"))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].id, newer.id)
+        self.assertEqual(str(remaining[0].ip_address), "9.9.9.9/32")
+
+    def test_unique_constraint_is_enforced_after_migration(self):
+        """The constraint is what stops the duplicates coming back."""
+        FireHolList = self.old_state.apps.get_model(self.app_name, "FireHolList")
+        FireHolList.objects.create(ip_address="8.8.8.0/24", source="greensnow")
+
+        new_state = self.apply_tested_migration()
+        firehol_new = new_state.apps.get_model(self.app_name, "FireHolList")
+
+        with self.assertRaises(IntegrityError):
+            firehol_new.objects.create(ip_address="8.8.8.0/24", source="greensnow")
+
+
+@tag("migration")
+class TestRenameTorExitReputation(MigrationTestCase):
+    """Tests that the old Tor exit node label is renamed to the one T-Pot uses."""
+
+    migrate_from = "0073_alter_firehollist_ip_address_and_more"
+    migrate_to = "0074_rename_tor_exit_reputation"
+
+    def test_old_label_is_renamed(self):
+        """IOCs and Tor exit nodes stored with the old label get the new one."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        TorExitNode = self.old_state.apps.get_model(self.app_name, "TorExitNode")
+
+        IOC.objects.create(name="1.1.1.1", type="ip", ip_reputation="tor exit node")
+        TorExitNode.objects.create(ip_address="1.1.1.1", reason="tor exit node")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+        TorExitNode = new_state.apps.get_model(self.app_name, "TorExitNode")
+
+        self.assertEqual(IOC.objects.get(name="1.1.1.1").ip_reputation, "tor exit")
+        self.assertEqual(TorExitNode.objects.get(ip_address="1.1.1.1").reason, "tor exit")
+
+    def test_other_reputations_are_kept(self):
+        """Other reputations are not touched by the migration."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+
+        IOC.objects.create(name="2.2.2.2", type="ip", ip_reputation="mass scanner")
+        IOC.objects.create(name="3.3.3.3", type="ip", ip_reputation="attack source")
+        IOC.objects.create(name="4.4.4.4", type="ip", ip_reputation="")
+
+        new_state = self.apply_tested_migration()
+        IOC = new_state.apps.get_model(self.app_name, "IOC")
+
+        self.assertEqual(
+            dict(IOC.objects.values_list("name", "ip_reputation")),
+            {"2.2.2.2": "mass scanner", "3.3.3.3": "attack source", "4.4.4.4": ""},
+        )

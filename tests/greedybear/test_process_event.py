@@ -5,10 +5,16 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.utils import timezone
 
-from greedybear.cronjobs.repositories import IocRepository
-from greedybear.models import IOC, CommandSequence, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
+from api.serializers.events import EventSerializer
+from greedybear.cache import Cache
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+from greedybear.cronjobs.extraction.hit import InvalidHitError
+from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
+from greedybear.cronjobs.repositories import CowrieSessionRepository, IocRepository, PayloadRepository
+from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
     DEFAULT_EXTERNAL_HONEYPOT,
     HONEYPOT_NAME_MAX_LENGTH,
@@ -88,13 +94,20 @@ class TestNormalizeRawEventToHit(CustomTestCase):
         self.assertEqual(result["_credential"]["username"], "admin")
         self.assertEqual(result["_credential"]["password"], "secret")
 
-    def test_no_credential_key_without_password(self):
+    def test_credential_key_added_without_password(self):
         raw = self._raw(src_ip="1.2.3.4", username="admin", password="")
         result = _normalize_raw_event_to_hit(raw)
-        self.assertNotIn("_credential", result)
+        self.assertEqual(result["_credential"]["username"], "admin")
+        self.assertEqual(result["_credential"]["password"], "")
 
-    def test_no_credential_key_without_username(self):
+    def test_credential_key_added_without_username(self):
         raw = self._raw(src_ip="1.2.3.4", username="", password="secret")
+        result = _normalize_raw_event_to_hit(raw)
+        self.assertEqual(result["_credential"]["username"], "")
+        self.assertEqual(result["_credential"]["password"], "secret")
+
+    def test_no_credential_key_without_username_and_password(self):
+        raw = self._raw(src_ip="1.2.3.4", username="", password="")
         result = _normalize_raw_event_to_hit(raw)
         self.assertNotIn("_credential", result)
 
@@ -218,6 +231,28 @@ class TestProcessRelatedUrls(CustomTestCase):
         self.ioc.refresh_from_db()
         self.assertEqual(self.ioc.related_urls or [], [])
 
+    def test_over_long_url_dropped_but_ioc_kept(self):
+        """The column truncates silently, so an over long URL is rejected rather than stored."""
+        long_url = f"http://evil.com/{'a' * 900}"
+        _process_related_urls(self.ioc, [self._hit(long_url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls or [], [])
+        self.assertTrue(IOC.objects.filter(name=self.ioc.name).exists())
+
+    def test_over_long_url_does_not_cost_the_valid_ones(self):
+        long_url = f"http://evil.com/{'a' * 900}"
+        good_url = "http://evil.com/stage2"
+        _process_related_urls(self.ioc, [self._hit(long_url), self._hit(good_url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls, [good_url])
+
+    def test_url_at_the_column_width_is_stored_whole(self):
+        url = f"http://evil.com/{'a' * (900 - len('http://evil.com/'))}"
+        self.assertEqual(len(url), 900)
+        _process_related_urls(self.ioc, [self._hit(url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls, [url])
+
     def test_duplicate_url_not_added_twice(self):
         url = "http://evil.com/stage2"
         _process_related_urls(self.ioc, [self._hit(url)])
@@ -286,9 +321,35 @@ class TestProcessCommands(CustomTestCase):
     def test_hash_is_sha256_of_joined_commands(self):
         cmds = ["ls", "pwd"]
         _process_commands([self._hit(c) for c in cmds])
-        expected_hash = hashlib.sha256("|".join(cmds).encode()).hexdigest()
+        expected_hash = hashlib.sha256("\n".join(cmds).encode()).hexdigest()
         seq = CommandSequence.objects.first()
         self.assertEqual(seq.commands_hash, expected_hash)
+
+    def test_reuses_sequence_stored_by_cowrie_extraction(self):
+        """A sequence Cowrie extraction already stored must not be stored again by the event path."""
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        cowrie_seq = CommandSequence.objects.create(
+            commands=cmds,
+            commands_hash=hashlib.sha256("\n".join(cmds).encode()).hexdigest(),
+            first_seen=timezone.now(),
+            last_seen=timezone.now(),
+        )
+        _process_commands([self._hit(c) for c in cmds])
+        self.assertEqual(CommandSequence.objects.count(), 1)
+        self.assertEqual(CommandSequence.objects.get().pk, cowrie_seq.pk)
+
+    def test_cowrie_extraction_reuses_sequence_stored_by_event_path(self):
+        """Cowrie extraction must find a sequence the event path stored first."""
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        _process_commands([self._hit(c) for c in cmds])
+        event_seq = CommandSequence.objects.get()
+
+        session = CowrieSession(session_id=0xABC, source=IOC.objects.create(name="5.6.7.8", type="ip"))
+        session.commands = CommandSequence(commands=list(cmds), first_seen=timezone.now(), last_seen=timezone.now())
+        strategy = CowrieExtractionStrategy("Cowrie", ioc_repo=None, sensor_repo=None, session_repo=CowrieSessionRepository())
+
+        self.assertTrue(strategy._deduplicate_command_sequence(session))
+        self.assertEqual(session.commands.pk, event_seq.pk)
 
     def test_empty_hits_creates_nothing(self):
         _process_commands([{"src_ip": "1.1.1.1"}])
@@ -380,6 +441,17 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.batch.refresh_from_db()
         self.assertEqual(self.batch.status, "failed")
         self.assertIn("0 IOCs", self.batch.last_error)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_non_global_source_ip_is_kept(self, mock_scores_cls):
+        self._make_raw(src_ip="192.168.1.50")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.ioc_count, 1)
+        self.assertTrue(IOC.objects.filter(name="192.168.1.50").exists())
 
     @patch(PATCH_UPDATE_SCORES)
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
@@ -599,7 +671,7 @@ class TestProcessIncomingEvent(CustomTestCase):
         raw_event = RawEvent.objects.filter(batch=self.batch).first()
         self.assertFalse(raw_event.processed)
 
-    @patch("greedybear.process_event._normalize_raw_event_to_hit", return_value={"src_ip": "192.168.1.1"})
+    @patch("greedybear.process_event._normalize_raw_event_to_hit", side_effect=InvalidHitError("no source address"))
     def test_eliminated_raise_all_events_invalid_graceful_return(self, mock_normalize):
         """
         Verifies that when all events fail normalization, the function
@@ -619,6 +691,7 @@ class TestProcessIncomingEvent(CustomTestCase):
 
         # Assert that control flow handled it perfectly
         self.assertEqual(self.batch.status, "failed")
+        self.assertIn("invalid after normalization", self.batch.last_error)
 
         self.assertEqual(self.batch.ioc_count, 0)
 
@@ -687,53 +760,54 @@ class TestProcessPayloadHashes(CustomTestCase):
         HoneypotPayload.objects.all().delete()
         self.ioc = IOC.objects.create(name="10.0.0.5", type="ip")
         self.sha256 = "a" * 64
+        self.payload_repo = PayloadRepository()
 
     def _hit(self, sha256):
         return {"_payload_hash": sha256}
 
     def test_stub_payload_created_and_linked(self):
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
         self.assertIn(self.ioc, payload.iocs.all())
 
     def test_stub_payload_has_no_file(self):
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
         self.assertFalse(payload.payload_file)
 
     def test_idempotent_double_call_no_duplicate_row(self):
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         self.assertEqual(HoneypotPayload.objects.filter(sha256=self.sha256).count(), 1)
 
     def test_existing_payload_with_file_not_overwritten(self):
         """If PayloadExtractionJob already quarantined the file, we must not clobber it."""
         existing = HoneypotPayload.objects.create(sha256=self.sha256, md5="deadbeef")
         existing.payload_file.save("sample.bin", ContentFile(b"data"))
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         existing.refresh_from_db()
         self.assertTrue(existing.payload_file)
         self.assertIn(self.ioc, existing.iocs.all())
 
     def test_multiple_hashes_all_linked(self):
         hits = [self._hit("a" * 64), self._hit("b" * 64)]
-        _process_payload_hashes(self.ioc, hits)
+        _process_payload_hashes(self.payload_repo, self.ioc, hits)
         self.assertEqual(self.ioc.payloads.count(), 2)
 
     def test_same_hash_linked_to_multiple_iocs(self):
         ioc2 = IOC.objects.create(name="10.0.0.6", type="ip")
-        _process_payload_hashes(self.ioc, [self._hit(self.sha256)])
-        _process_payload_hashes(ioc2, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        _process_payload_hashes(self.payload_repo, ioc2, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
         self.assertIn(self.ioc, payload.iocs.all())
         self.assertIn(ioc2, payload.iocs.all())
 
     def test_no_payload_hash_in_hits_no_db_write(self):
         with self.assertNumQueries(0):
-            _process_payload_hashes(self.ioc, [{"src_ip": "1.1.1.1"}])
+            _process_payload_hashes(self.payload_repo, self.ioc, [{"src_ip": "1.1.1.1"}])
 
     def test_empty_hash_string_skipped(self):
-        _process_payload_hashes(self.ioc, [self._hit("")])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("")])
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
     def test_uppercase_hash_deduplicates_with_lowercase(self):
@@ -741,10 +815,38 @@ class TestProcessPayloadHashes(CustomTestCase):
         DB-level Lower() constraint must treat the same hash in different
         cases as the same row, no duplicate created.
         """
-        _process_payload_hashes(self.ioc, [self._hit("a" * 64)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("a" * 64)])
         # same hash, uppercase, should find existing row, not create a second
-        _process_payload_hashes(self.ioc, [self._hit("A" * 64)])
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("A" * 64)])
         self.assertEqual(HoneypotPayload.objects.count(), 1)
+
+    def test_stub_links_preexisting_session(self):
+        # transfer recorded FIRST, external hit carrying same hash SECOND
+        _, session = self._make_session_with_transfer(self.sha256)
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertIn(session, payload.cowrie_sessions.all())
+
+    def test_stub_links_cowrie_attacker_ioc(self):
+        cowrie_ioc, _ = self._make_session_with_transfer(self.sha256)
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertIn(cowrie_ioc, payload.iocs.all())
+
+    def test_existing_stub_skips_linking(self):
+        # stub FIRST (no sessions exist yet), transfer recorded SECOND
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        cowrie_ioc, _ = self._make_session_with_transfer(self.sha256)
+        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
+        payload = HoneypotPayload.objects.get(sha256=self.sha256)
+        self.assertEqual(payload.cowrie_sessions.count(), 0)
+        self.assertNotIn(cowrie_ioc, payload.iocs.all())
+
+    def _make_session_with_transfer(self, sha256):
+        cowrie_ioc = IOC.objects.create(name="9.9.9.9", type="ip")
+        session = CowrieSession.objects.create(session_id=0xABCDEF, source=cowrie_ioc)
+        CowrieFileTransfer.objects.create(session=session, shasum=sha256, timestamp=timezone.now())
+        return cowrie_ioc, session
 
 
 class TestSensorHoneypotNames(CustomTestCase):
@@ -775,8 +877,9 @@ class TestSensorHoneypotNames(CustomTestCase):
         The serializer caps honeypot_software, but sensors registered before that
         cap can still hold a longer value, which must not break the batch.
         """
-        name = _sensor_honeypot_names([self._hit("a" * 40)])[0]
-        self.assertEqual(name, "a" * HONEYPOT_NAME_MAX_LENGTH)
+        software = "a" * 40
+        name = _sensor_honeypot_names([self._hit(software)])[0]
+        self.assertEqual(name, software[:HONEYPOT_NAME_MAX_LENGTH])
 
 
 class TestLinkSensorHoneypots(CustomTestCase):
@@ -931,3 +1034,125 @@ class TestExternalIocsReachFeeds(CustomTestCase):
         values = self._feed_values()
         self.assertIn(self.ATTACKER_IP, values)
         self.assertIn("185.220.101.7", values)
+
+
+class TestLongProtocolDoesNotFailBatch(CustomTestCase):
+    """
+    A protocol accepted by EventSerializer must fit Credential.protocol.
+
+    Both are 50 characters wide; when Credential.protocol was narrower, an event
+    carrying a longer value raised a DataError inside the atomic block and rolled
+    back every IOC in the batch.
+    """
+
+    ATTACKER_A = "193.32.162.44"
+    ATTACKER_B = "185.220.101.7"
+
+    def setUp(self):
+        self.user = make_user(username="long_proto_user")
+        self.api_source = make_api_source(self.user, name="LongProtoSource")
+        self.sensor = make_sensor(api_source=self.api_source, address="203.0.113.55", honeypot_software="Cowrie")
+        self.batch = make_batch(self.api_source, task_id="task-long-proto")
+
+    def _event(self, src_ip, protocol):
+        make_raw_event(
+            self.batch,
+            self.sensor,
+            src_ip=src_ip,
+            event_type="login_attempt",
+            username="admin",
+            password="hunter2",
+            protocol=protocol,
+        )
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_max_length_protocol_completes_the_batch(self, mock_scores):
+        self._event(self.ATTACKER_A, "p" * 50)
+        self._event(self.ATTACKER_B, "ssh")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.last_error, "")
+        self.assertEqual(self.batch.ioc_count, 2)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_long_protocol_does_not_discard_the_other_iocs(self, mock_scores):
+        self._event(self.ATTACKER_A, "p" * 50)
+        self._event(self.ATTACKER_B, "ssh")
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.assertTrue(IOC.objects.filter(name=self.ATTACKER_A).exists())
+        self.assertTrue(IOC.objects.filter(name=self.ATTACKER_B).exists())
+        self.assertEqual(RawEvent.objects.filter(batch=self.batch, processed=False).count(), 0)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_long_protocol_is_stored_untruncated(self, mock_scores):
+        self._event(self.ATTACKER_A, "p" * 50)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        credential = Credential.objects.get(username="admin", password="hunter2")
+        self.assertEqual(credential.protocol, "p" * 50)
+
+    def test_credential_protocol_matches_the_event_field_widths(self):
+        """The three widths must agree, otherwise an accepted event cannot be persisted."""
+        credential_width = Credential._meta.get_field("protocol").max_length
+        self.assertEqual(credential_width, RawEvent._meta.get_field("protocol").max_length)
+        self.assertEqual(credential_width, EventSerializer().fields["protocol"].max_length)
+
+
+INVALIDATION_CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "greedybear-invalidation-default",
+    },
+    "api": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "greedybear-invalidation-api-cache",
+    },
+}
+
+
+@override_settings(CACHES=INVALIDATION_CACHES)
+class TestBatchCompletionInvalidatesCache(CustomTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = make_user(username="invalidation_user")
+        self.api_source = make_api_source(self.user, name="InvalidationSource")
+        self.sensor = make_sensor(api_source=self.api_source)
+        self.batch = make_batch(self.api_source, task_id="task-invalidation")
+        make_raw_event(self.batch, self.sensor, src_ip="10.9.9.9", event_type="ssh")
+
+    def _version(self) -> int:
+        return Cache(API_CACHE_ALIAS).get_data_version(IOC_DATA_VERSION_KEY)
+
+    @patch(PATCH_UPDATE_SCORES)
+    @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
+    @patch(PATCH_IOC_PROCESSOR)
+    @patch(PATCH_IOCS_FROM_HITS)
+    def test_completed_batch_bumps_version(self, mock_hits, mock_processor_cls, mock_attack, mock_scores_cls):
+        saved_ioc = IOC.objects.create(name="10.9.9.9", type="ip")
+        mock_hits.return_value = [make_ioc("10.9.9.9")]
+        processor_instance = MagicMock()
+        processor_instance.add_ioc.return_value = saved_ioc
+        mock_processor_cls.return_value = processor_instance
+        mock_scores_cls.return_value = MagicMock()
+
+        before = self._version()
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self._version(), before + 1)
+
+    @patch(PATCH_IOCS_FROM_HITS, side_effect=RuntimeError("boom"))
+    def test_failed_batch_does_not_bump_version(self, mock_hits):
+        before = self._version()
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "failed")
+        self.assertEqual(self._version(), before)

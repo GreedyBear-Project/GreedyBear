@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils.html import format_html
 from django.utils.translation import ngettext
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.models import (
     IOC,
     APISource,
@@ -35,9 +36,26 @@ TITLE_MAX_CHARS = 2000
 
 
 class GreedyBearModelAdmin(admin.ModelAdmin):
-    """Base admin class for all GreedyBear models."""
+    """Base admin class for all GreedyBear models.
+
+    Every admin write invalidates the IOC cache, so feeds and statistics
+    reflect the change on the next request.
+    """
 
     show_facets = admin.ShowFacets.NEVER  # disable facet counts ("Show counts" button)
+
+    def save_related(self, request, form, formsets, change):
+        # runs after save_model, once M2M fields and inlines are saved too
+        super().save_related(request, form, formsets, change)
+        invalidate_ioc_cache()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        invalidate_ioc_cache()
+
+    def delete_queryset(self, request, queryset):
+        super().delete_queryset(request, queryset)
+        invalidate_ioc_cache()
 
 
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
@@ -199,10 +217,11 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "related_urls_display",
         "scanner",
         "payload_request",
+        "http_attack_types_display",
+        "high_credential_reuse",
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
-        "firehol_categories_display",
         "autonomous_system_display",
         "destination_ports_display",
         "protocols_display",
@@ -215,6 +234,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "type",
         "scanner",
         "payload_request",
+        "high_credential_reuse",
         "ip_reputation",
         "autonomous_system",
     ]
@@ -229,11 +249,12 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     honeypots_display = collapsed_list_display("honeypots")
     sensors_display = collapsed_list_display("sensors")
     related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
-    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
     destination_ports_display = collapsed_list_display("destination_ports")
     protocols_display = collapsed_list_display("protocols")
     cves_display = collapsed_list_display("cves", description="CVEs")
+    http_attack_types_display = collapsed_list_display("http_attack_types", description="HTTP Attack Types")
 
+    @admin.display(description="Autonomous System", ordering="autonomous_system__asn")
     def autonomous_system_display(self, ioc):
         """
         Shows ASN and AS name neatly in list_display.
@@ -244,16 +265,13 @@ class IOCModelAdmin(GreedyBearModelAdmin):
             return f"{asn} ({name})" if name else str(asn)
         return "-"
 
-    autonomous_system_display.short_description = "Autonomous System"
-    autonomous_system_display.admin_order_field = "autonomous_system__asn"
-
     def get_queryset(self, request):
         """Override to optimize queries and avoid N+1 problems."""
         return super().get_queryset(request).select_related("autonomous_system").prefetch_related("sensors", "honeypots")
 
 
 @admin.register(AttackerActivityBucket)
-class AttackerActivityBucketAdmin(admin.ModelAdmin):
+class AttackerActivityBucketAdmin(GreedyBearModelAdmin):
     list_display = ["attacker_ip", "feed_type", "bucket_start", "interaction_count"]
     list_filter = ["feed_type"]
     search_fields = ["attacker_ip"]
@@ -275,6 +293,9 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         disableable = Q(active=True)
         honeypots = queryset.filter(disableable).all()
         number_updated = honeypots.update(active=False)
+        # update() bypasses save_related, so invalidate explicitly
+        if number_updated:
+            invalidate_ioc_cache()
         self.message_user(
             request,
             ngettext(
@@ -291,6 +312,8 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         enableable = Q(active=False)
         honeypots = queryset.filter(enableable).all()
         number_updated = honeypots.update(active=True)
+        if number_updated:
+            invalidate_ioc_cache()
         self.message_user(
             request,
             ngettext(

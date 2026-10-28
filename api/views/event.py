@@ -41,7 +41,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
     )
     def post(self, request: Request, *args, **kwargs):
         api_source, error_response = resolve_active_api_source(request)
-        if error_response:
+        if api_source is None:
             return error_response
 
         serializer = InjectionSerializer(data=request.data)
@@ -70,7 +70,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
             # enqueue background task
             async_task(
                 "greedybear.process_event.process_incoming_event",
-                api_source.id,
+                api_source.pk,
                 batch.task_id,
             )
         except Exception as e:
@@ -131,7 +131,7 @@ class BatchStatusView(RequestLoggingMixin, APIView):
     )
     def get(self, request: Request, task_id: str, *args, **kwargs):
         api_source, error_response = resolve_active_api_source(request)
-        if error_response:
+        if api_source is None:
             return error_response
 
         # task_id arrives as a path segment, so it is wrapped into a mapping to be validated.

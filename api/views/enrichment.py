@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.mixins import RequestLoggingMixin
+from api.mixins import QueryParamValidationMixin, RequestLoggingMixin
 from api.serializers import EnrichmentRequestSerializer, EnrichmentSerializer
 from api.views.utils import save_request_source
 from greedybear.models import IOC, ViewType
@@ -26,17 +26,20 @@ from greedybear.models import IOC, ViewType
         parameters=[EnrichmentRequestSerializer],
         responses={
             200: EnrichmentSerializer,
-            400: OpenApiResponse(description="The `query` parameter is missing or is not a valid IP address or domain."),
+            400: OpenApiResponse(
+                description="The `query` parameter is missing or is not a valid IP address or domain, or an unknown query parameter was given."
+            ),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
         },
     )
 )
-class EnrichmentView(RequestLoggingMixin, APIView):
+class EnrichmentView(RequestLoggingMixin, QueryParamValidationMixin, APIView):
     authentication_classes = [CookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
+    serializer_class = EnrichmentRequestSerializer
 
     def get(self, request: Request, *args, **kwargs):
-        request_serializer = EnrichmentRequestSerializer(data=request.query_params.dict())
+        request_serializer = self.serializer_class(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
         save_request_source(request, ViewType.ENRICHMENT_VIEW.value)
 
@@ -44,7 +47,7 @@ class EnrichmentView(RequestLoggingMixin, APIView):
         try:
             data = {
                 "found": True,
-                "ioc": IOC.objects.prefetch_related("tags", "sensors").get(name=query),
+                "ioc": IOC.objects.prefetch_related("tags", "sensors", "payloads").get(name=query),
                 "query": query,
             }
         except IOC.DoesNotExist:

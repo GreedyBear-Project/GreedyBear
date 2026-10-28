@@ -3,8 +3,10 @@ import urllib.parse
 from functools import cached_property
 
 from django.http import HttpResponse
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from greedybear.cache import Cache, build_versioned_key
 from greedybear.consts import API_CACHE_ALIAS, API_CACHE_TIMEOUT_SECONDS, IOC_DATA_VERSION_KEY
@@ -12,7 +14,7 @@ from greedybear.consts import API_CACHE_ALIAS, API_CACHE_TIMEOUT_SECONDS, IOC_DA
 logger = logging.getLogger(__name__)
 
 
-class CachedResponseMixin:
+class CachedResponseMixin(APIView):
     """Adds versioned response caching to an APIView.
     Subclasses opt in by setting cache_namespace."""
 
@@ -25,13 +27,16 @@ class CachedResponseMixin:
     def cache_key(self) -> str | None:
         """Versioned cache key for this request, or None when caching is disabled.
         Computed once on first access (during the read)
-        and memoized on the per-request view instance."""
-        if not self._cache_enabled():
+        and memoized on the per-request view instance.
+        The negotiated media type is part of the key material,
+        because a view may select its output format from the Accept header."""
+        if self.cache_namespace is None or not self._cache_enabled():
             return None
         version = self.cache.get_data_version(self.cache_version_key)
         sorted_params = sorted(self.request.query_params.lists())
         params_string = urllib.parse.urlencode(sorted_params, doseq=True)
-        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}"
+        media_type = getattr(self.request, "accepted_media_type", None) or ""
+        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}|{media_type}"
         return build_versioned_key(self.cache_namespace, version, key_material)
 
     def get_cached_response(self) -> HttpResponse | None:
@@ -51,9 +56,9 @@ class CachedResponseMixin:
         return response
 
     def _cache_enabled(self) -> bool:
-        """Determines if cache was enabled
-        by checking if cache_namespace is set."""
-        return self.cache_namespace is not None
+        """Hook for subclasses to disable caching per request.
+        Only consulted when cache_namespace is set."""
+        return True
 
     def _store_api_response(self, response: Response) -> bool:
         """Store a successful (200) and rendered DRF Response under cache_key."""
@@ -77,7 +82,7 @@ class CachedResponseMixin:
         return True
 
 
-class RequestLoggingMixin:
+class RequestLoggingMixin(APIView):
     """Emit a access-log line per request for any APIView/ViewSet it is mixed into."""
 
     EXCLUDED_LOG_PARAMS = frozenset({"reason"})
@@ -87,3 +92,36 @@ class RequestLoggingMixin:
         params = {k: v for k, v in request.query_params.items() if k not in self.EXCLUDED_LOG_PARAMS}
         logger.info(f"request {request.method} /{route} params: {params}")
         super().initial(request, *args, **kwargs)
+
+
+class QueryParamValidationMixin(APIView):
+    """Rejects requests carrying query params the view does not accept (HTTP 400).
+    Accepted are the fields of serializer_class and, when the view paginates, the page params."""
+
+    def get_allowed_query_params(self) -> set[str]:
+        """Names of the query params the view accepts.
+        Override for views whose query string does not map onto serializer_class."""
+        allowed_params = self.get_page_query_params()
+        serializer_class = getattr(self, "serializer_class", None)
+        if serializer_class is not None:
+            allowed_params |= set(serializer_class().fields.keys())
+        return allowed_params
+
+    def get_page_query_params(self) -> set[str]:
+        """Names of the page params of the view's pagination_class, none when the view does not paginate."""
+        pagination_class = getattr(self, "pagination_class", None)
+        if pagination_class is None:
+            return set()
+        page_params = (getattr(pagination_class, "page_query_param", None), getattr(pagination_class, "page_size_query_param", None))
+        return {param for param in page_params if param}
+
+    def initial(self, request: Request, *args, **kwargs):
+        """Reject unknown query params after DRF's authentication, permission and throttling checks,
+        so unauthenticated or throttled requests keep their usual error responses.
+        Requests with an HTTP method the view does not handle are left to DRF's 405."""
+        super().initial(request, *args, **kwargs)
+        if request.method is None or not hasattr(self, request.method.lower()):
+            return
+        unknown_params = set(request.query_params) - self.get_allowed_query_params()
+        if unknown_params:
+            raise ValidationError({param: ["Unknown query parameter."] for param in sorted(unknown_params)})

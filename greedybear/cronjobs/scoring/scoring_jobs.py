@@ -6,6 +6,7 @@ import pandas as pd
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories import IocRepository
 from greedybear.cronjobs.repositories.ioc import BULK_UPDATE_BATCH_SIZE
@@ -242,15 +243,15 @@ class UpdateScores(Cronjob):
         Returns:
             int: Number of objects updated
         """
-        iocs = set(iocs)
-        primary_keys = {ioc.pk for ioc in iocs}
+        unique_iocs = set(iocs)
+        primary_keys = {ioc.pk for ioc in unique_iocs}
         data = get_data_by_pks(primary_keys)
         current_date = str(date.today())
         self.log.info("extracting features: score_only")
         df = get_features(data, current_date)
         for s in SCORERS:
             df = s.score(df)
-        return self.update_db(df, iocs)
+        return self.update_db(df, unique_iocs)
 
     def run(self):
         """
@@ -281,3 +282,4 @@ class UpdateScores(Cronjob):
         for s in SCORERS:
             df = s.score(df)
         self.update_db(df)
+        invalidate_ioc_cache()

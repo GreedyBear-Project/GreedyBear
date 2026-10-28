@@ -1,14 +1,17 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import re
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+from hashlib import sha256
 from ipaddress import IPv4Address, IPv4Network, ip_address
 from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db.models import Model
 
-from greedybear.consts import DOMAIN, IP, PAYLOAD_REQUEST, SCANNER
+from greedybear.consts import DOMAIN, IP, MAX_HOSTNAME_LENGTH, PAYLOAD_REQUEST, SCANNER
 
 
 def is_ip_address(string: str) -> bool:
@@ -95,19 +98,31 @@ def parse_timestamp(timestamp: str) -> datetime:
 
 def is_valid_cidr(candidate: str) -> tuple[bool, str | None]:
     """
-    Validate if a string is a valid CIDR notation.
+    Validate if a string is a CIDR notation the cidr column can store.
+
+    A value with host bits set, like 1.2.3.5/24, is rejected: the column
+    stores networks, not hosts inside them.
 
     Args:
         candidate: String to validate as CIDR.
 
     Returns:
-        True if valid CIDR, False otherwise.
+        Tuple of (is_valid, cleaned_cidr). If valid, cleaned_cidr is the
+        stripped value; otherwise, it is None.
     """
+    candidate = candidate.strip()
     try:
-        IPv4Network(candidate.strip(), strict=False)
-        return True, candidate.strip()
+        IPv4Network(candidate, strict=True)
     except ValueError:
         return False, None
+
+    # Python accepts a netmask after the slash, like 1.2.3.0/255.255.255.0.
+    # The cidr column only accepts a prefix length, so that form is rejected
+    # here too. strict=True above covers the other mismatch, host bits.
+    if "/" in candidate and not candidate.split("/", 1)[1].isdigit():
+        return False, None
+
+    return True, candidate
 
 
 def is_valid_ipv4(candidate: str) -> tuple[bool, str | None]:
@@ -136,13 +151,12 @@ def get_ioc_type(ioc: str) -> str:
         ioc: IOC name string (IP address or domain).
 
     Returns:
-        IP if the value is a valid IPv4 address, DOMAIN otherwise.
+        IP if the value is a valid IP address (IPv4 or IPv6), DOMAIN otherwise.
     """
-    is_valid, _ = is_valid_ipv4(ioc)
-    return IP if is_valid else DOMAIN
+    return IP if is_ip_address(ioc.strip()) else DOMAIN
 
 
-def get_attack_type(ip_hits: list[dict]) -> str:
+def get_attack_type(ip_hits: Sequence[Mapping]) -> str:
     """
     Determines the attack type based on the raw hits for a specific IP.
 
@@ -159,7 +173,29 @@ def get_attack_type(ip_hits: list[dict]) -> str:
     return SCANNER
 
 
-def is_valid_url(url: str | None) -> bool:
+def parse_url_hostname(url: str) -> str | None:
+    """
+    Extract hostname from URL safely.
+
+    Args:
+        url: URL string to parse
+
+    Returns:
+        Hostname if parsing succeeds and the hostname is a valid length,
+        None otherwise
+    """
+    try:
+        parsed = urlparse(url)
+    except (ValueError, AttributeError):
+        return None
+    else:
+        hostname = parsed.hostname
+        if not hostname or len(hostname) > MAX_HOSTNAME_LENGTH:
+            return None
+        return hostname
+
+
+def is_valid_url(url: str) -> bool:
     allowed_schemes = {"http", "https"}
     try:
         parsed = urlparse(url)
@@ -179,13 +215,89 @@ def is_valid_url(url: str | None) -> bool:
         return False
 
 
-def get_nested_value(d: dict, *keys: str) -> Any | None:
+def hash_command_sequence(commands: Sequence[str]) -> str:
+    """
+    Compute the deduplication key of a command sequence.
+
+    Every ingestion path must hash commands through this function, otherwise
+    the same sequence gets a different CommandSequence.commands_hash and is
+    stored twice.
+
+    Args:
+        commands: Commands in execution order.
+
+    Returns:
+        SHA-256 hex digest of the commands joined by newlines.
+    """
+    return sha256("\n".join(commands).encode()).hexdigest()
+
+
+def field_max_length(model: type[Model], field_name: str) -> int | None:
+    """
+    Read max_length off a model field.
+
+    Reading it from the field means the limit cannot drift from the schema.
+    An ArrayField takes its limit from the inner field, because that is what
+    each element is stored in; the outer max_length would be the number of
+    elements.
+
+    Args:
+        model: Model owning the field.
+        field_name: Name of the field on the model.
+
+    Returns:
+        The field's max_length, or None if it does not declare one.
+    """
+    field = model._meta.get_field(field_name)
+    base_field = getattr(field, "base_field", None)
+    return getattr(base_field if base_field is not None else field, "max_length", None)
+
+
+def clamp_to_field(model: type[Model], field_name: str, value: str) -> str:
+    """
+    Truncate a string to the width of the column it is headed for.
+
+    Args:
+        model: Model owning the field.
+        field_name: Name of the field on the model.
+        value: String to truncate.
+
+    Returns:
+        The value cut to the field's max_length, or unchanged if the field
+        does not declare one.
+    """
+    max_length = field_max_length(model, field_name)
+    return value if max_length is None else value[:max_length]
+
+
+def fits_field(model: type[Model], field_name: str, value: str) -> bool:
+    """
+    Whether a string fits the column it is headed for.
+
+    Postgres truncates rather than raising when Django casts a value
+    explicitly, so an over long value is lost silently. Checking first
+    lets the caller reject it instead.
+
+    Args:
+        model: Model owning the field.
+        field_name: Name of the field on the model.
+        value: String to measure.
+
+    Returns:
+        True if the value fits, or if the field declares no max_length.
+    """
+    max_length = field_max_length(model, field_name)
+    return max_length is None or len(value) <= max_length
+
+
+def get_nested_value(d: Any, *keys: str) -> Any | None:
     """
     Traverse a nested dictionary along a path of keys without raising.
     Failed traversals yield None instead of an error.
 
     Args:
-        d: Dict to traverse.
+        d: Mapping to traverse. Anything else yields None rather than raising,
+            which is why this is not narrowed to Mapping.
         *keys: Key path to follow, e.g. "connection", "protocol".
 
     Returns:
@@ -196,7 +308,8 @@ def get_nested_value(d: dict, *keys: str) -> Any | None:
         return None
     current = d
     for key in keys:
-        if not isinstance(current, dict):
+        # Mapping rather than dict, so a wrapped hit traverses like a plain one
+        if not isinstance(current, Mapping):
             return None
         current = current.get(key)
     return current

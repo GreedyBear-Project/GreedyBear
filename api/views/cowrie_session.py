@@ -12,11 +12,21 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.mixins import RequestLoggingMixin
+from api.mixins import QueryParamValidationMixin, RequestLoggingMixin
 from api.serializers import CowrieSessionRequestSerializer, CowrieSessionSerializer
 from api.views.utils import save_request_source
 from greedybear.models import CommandSequence, CowrieSession, ViewType
 from greedybear.utils import is_ip_address, is_sha256hash
+
+
+def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Sort key for IP addresses that orders IPv4 before IPv6.
+
+    Addresses of different versions are not comparable with each other,
+    so the version is used as the primary key.
+    """
+    address = ipaddress.ip_address(ip)
+    return address.version, address
 
 
 @extend_schema_view(
@@ -29,37 +39,50 @@ from greedybear.utils import is_ip_address, is_sha256hash
             "a SHA-256 hash to find sessions containing a specific command sequence, "
             "or a password to find all sessions where that password was used. "
             "Alternatively, pass `id` to look up one specific session by its hex ID, "
-            "as returned by the payloads API."
+            "as returned by the payloads API. "
+            "Leave out both `query` and `id` to get all sessions, "
+            "optionally limited to a time window with `start_date` and `end_date`."
         ),
         parameters=[CowrieSessionRequestSerializer],
         responses={
             200: CowrieSessionSerializer,
-            400: OpenApiResponse(description="Missing or invalid `query`/`id` parameter, or both were given."),
+            400: OpenApiResponse(description="Invalid or unknown parameter, or both `query` and `id` were given."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
             404: OpenApiResponse(description="No matching sessions found."),
         },
     )
 )
-class CowrieSessionView(RequestLoggingMixin, APIView):
+class CowrieSessionView(RequestLoggingMixin, QueryParamValidationMixin, APIView):
     authentication_classes = [CookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
+    serializer_class = CowrieSessionRequestSerializer
 
     def get(self, request: Request, *args, **kwargs):
-        request_serializer = CowrieSessionRequestSerializer(data=request.query_params.dict())
+        request_serializer = self.serializer_class(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
         save_request_source(request, ViewType.COWRIE_SESSION_VIEW.value)
 
         session_id = request_serializer.validated_data.get("id")
         observable = request_serializer.validated_data.get("query")
+        start_date = request_serializer.validated_data.get("start_date")
+        end_date = request_serializer.validated_data.get("end_date")
+        has_date_filter = bool(start_date or end_date)
 
-        if session_id is not None:
-            sessions = CowrieSession.objects.filter(session_id=int(session_id, 16), duration__gt=0).prefetch_related("source", "commands", "credentials")
-            if not sessions.exists():
+        sessions_qs = CowrieSession.objects.filter(duration__gt=0)
+        if start_date:
+            sessions_qs = sessions_qs.filter(start_time__date__gte=start_date)
+        if end_date:
+            sessions_qs = sessions_qs.filter(start_time__date__lte=end_date)
+
+        if session_id:
+            sessions = sessions_qs.filter(session_id=int(session_id, 16)).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No session found with ID: {session_id}")
-
+        elif not observable:
+            sessions = sessions_qs.prefetch_related("source", "commands", "credentials")
         elif is_ip_address(observable):
-            sessions = CowrieSession.objects.filter(source__name=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
-            if not sessions.exists():
+            sessions = sessions_qs.filter(source__name=observable).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for IP: {observable}")
 
         elif is_sha256hash(observable):
@@ -67,10 +90,14 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
                 commands = CommandSequence.objects.get(commands_hash=observable.lower())
             except CommandSequence.DoesNotExist as exc:
                 raise Http404(f"No command sequences found with hash: {observable}") from exc
-            sessions = CowrieSession.objects.filter(commands=commands, duration__gt=0).prefetch_related("source", "commands", "credentials")
+
+            sessions = sessions_qs.filter(commands=commands).prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
+                raise Http404(f"No session found with command sequences with hash: {observable}")
+
         else:
-            sessions = CowrieSession.objects.filter(credentials__password=observable, duration__gt=0).prefetch_related("source", "commands", "credentials")
-            if not sessions.exists():
+            sessions = sessions_qs.filter(credentials__password=observable).distinct().prefetch_related("source", "commands", "credentials")
+            if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for password: {observable}")
 
         if request_serializer.validated_data["include_similar"]:
@@ -81,13 +108,17 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
             )
             sessions = sessions.union(related_sessions)
 
-        data = {"id": session_id} if session_id is not None else {"query": observable}
+        data = {}
+        if session_id is not None:
+            data["id"] = session_id
+        elif observable:
+            data["query"] = observable
         if settings.FEEDS_LICENSE:
             data["license"] = settings.FEEDS_LICENSE
 
         unique_commands = {s.commands for s in sessions if s.commands}
         data["commands"] = sorted("\n".join(cmd.commands) for cmd in unique_commands)
-        data["sources"] = sorted({s.source.name for s in sessions}, key=lambda ip: ipaddress.ip_address(ip))
+        data["sources"] = sorted({s.source.name for s in sessions}, key=_ip_sort_key)
         if request_serializer.validated_data["include_credentials"]:
             data["credentials"] = sorted({str(c) for s in sessions for c in s.credentials.all()})
         if request_serializer.validated_data["include_session_data"]:

@@ -207,6 +207,51 @@ class CustomTestCase(TestCase):
         cls.cowrie_session_2.credentials.add(credential_2)
         cls.cowrie_session_2.save()
 
+        cls.cmd_seq_3 = ["cat /etc/os-release", "whoami"]
+        cls.command_sequence_3 = CommandSequence.objects.create(
+            first_seen=cls.current_time,
+            last_seen=cls.current_time,
+            commands=cls.cmd_seq_3,
+            commands_hash=sha256("\n".join(cls.cmd_seq_3).encode()).hexdigest(),
+            cluster=12,
+        )
+
+        cls.session_early = CowrieSession.objects.create(
+            session_id=101,
+            source=cls.ioc_3,
+            start_time=datetime(2026, 1, 10, 12, 0, 0),
+            duration=15.0,
+            login_attempt=True,
+            commands=cls.command_sequence_3,
+        )
+
+        cls.session_target = CowrieSession.objects.create(
+            session_id=102,
+            source=cls.ioc_3,
+            start_time=datetime(2026, 1, 20, 12, 0, 0),
+            duration=20.0,
+            login_attempt=True,
+            commands=cls.command_sequence_3,
+        )
+
+        cls.session_late = CowrieSession.objects.create(
+            session_id=103,
+            source=cls.ioc_3,
+            start_time=datetime(2026, 1, 30, 12, 0, 0),
+            duration=25.0,
+            login_attempt=True,
+            commands=cls.command_sequence_3,
+        )
+
+        cls.cmd_seq_4 = ["cat /etc/passwd"]
+        cls.command_sequence_not_used = CommandSequence.objects.create(
+            first_seen=cls.current_time,
+            last_seen=cls.current_time,
+            commands=cls.cmd_seq_4,
+            commands_hash=sha256("\n".join(cls.cmd_seq_4).encode()).hexdigest(),
+            cluster=13,
+        )
+
         try:
             cls.superuser = User.objects.get(is_superuser=True)
         except User.DoesNotExist:
@@ -244,11 +289,12 @@ class ExtractionTestCase(CustomTestCase):
         last_seen=None,
         ip_reputation="",
         asn=1234,
-        firehol_categories=None,
         attacker_country="",
         attacker_country_code="",
         protocols=None,
         cves=None,
+        http_attack_types=None,
+        high_credential_reuse=False,
     ):
         mock = Mock(spec=IOC)
         mock.name = name
@@ -264,7 +310,6 @@ class ExtractionTestCase(CustomTestCase):
         mock.first_seen = first_seen if first_seen is not None else datetime.now()
         mock.last_seen = last_seen if last_seen is not None else datetime.now()
         mock.ip_reputation = ip_reputation
-        mock.firehol_categories = firehol_categories if firehol_categories is not None else []
         mock.number_of_days_seen = len(mock.days_seen)
         mock.attacker_country = attacker_country
         mock.attacker_country_code = attacker_country_code
@@ -277,6 +322,8 @@ class ExtractionTestCase(CustomTestCase):
 
         mock.protocols = protocols if protocols is not None else []
         mock.cves = cves if cves is not None else []
+        mock.http_attack_types = http_attack_types if http_attack_types is not None else []
+        mock.high_credential_reuse = high_credential_reuse
 
         return mock
 

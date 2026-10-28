@@ -89,36 +89,45 @@ class FeedsViewTestCase(CustomTestCase):
         # Expecting 3 because setupTestData creates 3 IOCs (ioc, ioc_2, ioc_domain) associated with Heralding
         self.assertEqual(len(response.json()["iocs"]), 3)
 
-    def test_200_feeds_ignores_undocumented_params(self):
-        # Setup data has multiple IOCs. We pass feed_size=1.
-        # If the undocumented param is correctly ignored/filtered,
-        # the response should fallback to the default feed_size and return >1 items.
+    def test_400_feeds_rejects_advanced_only_params(self):
+        # feed_size is only accepted by the advanced feed
         response = self.client.get("/api/feeds/all/all/recent.json?feed_size=1")
-        self.assertEqual(response.status_code, 200)
-        self.assertGreater(len(response.json()["iocs"]), 1)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"feed_size": ["Unknown query parameter."]})
 
     def test_400_feeds(self):
         response = self.client.get("/api/feeds/test/all/recent.json")
         self.assertEqual(response.status_code, 400)
 
     def test_200_feeds_pagination(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 2)
         self.assertEqual(response.json()["total_pages"], 1)
 
     def test_200_feeds_pagination_inclusion_mass(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&include_mass_scanners")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&include_mass_scanners")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)
 
     def test_200_feeds_pagination_inclusion_tor(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&include_tor_exit_nodes")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&include_tor_exit_nodes")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)
 
+    def test_tpot_tor_exit_label_is_excluded_by_default(self):
+        # T-Pot (listbot) labels Tor exit nodes as "tor exit"
+        self.ioc_3.ip_reputation = "tor exit"
+        self.ioc_3.save()
+
+        response = self.client.get("/api/feeds/all/all/recent.json")
+        self.assertNotIn(self.ioc_3.name, [ioc["value"] for ioc in response.json()["iocs"]])
+
+        response = self.client.get("/api/feeds/all/all/recent.json?include_tor_exit_nodes")
+        self.assertIn(self.ioc_3.name, [ioc["value"] for ioc in response.json()["iocs"]])
+
     def test_200_feeds_pagination_inclusion_mass_and_tor(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&include_mass_scanners&include_tor_exit_nodes")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&include_mass_scanners&include_tor_exit_nodes")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 4)
 
@@ -140,41 +149,49 @@ class FeedsViewTestCase(CustomTestCase):
             self.assertRegex(ioc["value"], r"[a-zA-Z]")
 
     def test_200_feeds_pagination_filter_ip(self):
-        response = self.client.get(
-            "/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&ioc_type=ip&include_mass_scanners&include_tor_exit_nodes"
-        )
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&ioc_type=ip&include_mass_scanners&include_tor_exit_nodes")
         self.assertEqual(response.status_code, 200)
         # Should return only IPs (3 in test data)
         self.assertEqual(response.json()["count"], 3)
 
     def test_200_feeds_pagination_filter_domain(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&ioc_type=domain")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&ioc_type=domain")
         self.assertEqual(response.status_code, 200)
         # Should return only domains (1 in test data)
         self.assertEqual(response.json()["count"], 1)
 
     def test_200_feeds_multi_type_union(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=cowrie,heralding&attack_type=all&age=recent")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=cowrie,heralding&attack_type=all")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 2)
         returned_values = {ioc["value"] for ioc in response.json()["results"]["iocs"]}
         self.assertIn(self.ioc.name, returned_values)
         self.assertIn(self.ioc_domain.name, returned_values)
 
-    def test_200_feeds_pagination_ignores_undocumented_params(self):
-        # Setup data has multiple IOCs. We pass feed_size=1.
-        # If the undocumented param is correctly ignored/filtered,
-        # the pagination response should fallback to the default feed_size and return count > 1.
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent&feed_size=1")
-        self.assertEqual(response.status_code, 200)
-        self.assertGreater(response.json()["count"], 1)
+    def test_400_feeds_pagination_rejects_advanced_only_params(self):
+        # feed_size is only accepted by the advanced feed
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&feed_size=1")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"feed_size": ["Unknown query parameter."]})
+
+    def test_400_feeds_pagination_rejects_format(self):
+        # the paginated feed is always JSON
+        response = self.client.get("/api/feeds/?page_size=10&page=1&format=csv")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"format": ["Unknown query parameter."]})
+
+    def test_400_feeds_rejects_path_params_in_query(self):
+        # the URL path already sets these, so query params with the same names would be ignored
+        response = self.client.get("/api/feeds/all/all/recent.json?feed_type=cowrie&attack_type=scanner&prioritize=persistent&format=csv")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.json()["errors"]), {"feed_type", "attack_type", "prioritize", "format"})
 
     def test_400_feeds_multi_type_with_invalid(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=cowrie,invalid_type&attack_type=all&age=recent")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=cowrie,invalid_type&attack_type=all")
         self.assertEqual(response.status_code, 400)
 
     def test_400_feeds_pagination(self):
-        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=test&age=recent")
+        response = self.client.get("/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=test")
         self.assertEqual(response.status_code, 400)
 
     def test_200_feeds_pagination_ordering_value_desc(self):
@@ -195,6 +212,37 @@ class FeedsViewTestCase(CustomTestCase):
         values = [ioc["value"] for ioc in response.json()["results"]["iocs"]]
         self.assertEqual(values, sorted(values))
 
+    def test_400_feeds_ordering_multi_valued_relation(self):
+        """Relation names are off the allowlist; the join used to duplicate IOCs."""
+        for name in ("tags", "honeypots", "sensors", "credentials", "payloads", "related_ioc", "cowriesession"):
+            with self.subTest(ordering=name):
+                response = self.client.get(f"/api/feeds/all/all/recent.json?ordering={name}")
+                self.assertEqual(response.status_code, 400)
+                errors = response.json()
+                self.assertIn("ordering", errors.get("errors", errors))
+
+    def test_400_feeds_ordering_list_field(self):
+        """Array columns are off the allowlist too."""
+        for name in ("days_seen", "related_urls", "http_attack_types", "destination_ports", "protocols", "cves"):
+            with self.subTest(ordering=name):
+                response = self.client.get(f"/api/feeds/all/all/recent.json?ordering={name}")
+                self.assertEqual(response.status_code, 400)
+                errors = response.json()
+                self.assertIn("ordering", errors.get("errors", errors))
+
+    def test_400_feeds_pagination_ordering_multi_valued_relation(self):
+        """The paginated feed inflated count/total_pages by the number of related rows."""
+        response = self.client.get("/api/feeds/?feed_type=all&attack_type=all&ordering=honeypots")
+        self.assertEqual(response.status_code, 400)
+
+    def test_200_feeds_returns_each_ioc_once(self):
+        """self.ioc sits on four honeypots; it must still produce a single feed row."""
+        response = self.client.get("/api/feeds/all/all/recent.json?ordering=-last_seen")
+        self.assertEqual(response.status_code, 200)
+        values = [ioc["value"] for ioc in response.json()["iocs"]]
+        self.assertEqual(len(values), len(set(values)))
+        self.assertEqual(values.count(self.ioc.name), 1)
+
     def test_feeds_endpoint_uses_feeds_throttle(self):
         cache.clear()
         try:
@@ -208,7 +256,7 @@ class FeedsViewTestCase(CustomTestCase):
         self.assertEqual(second.status_code, 429)
 
     def test_feeds_pagination_endpoint_uses_feeds_throttle(self):
-        url = "/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all&age=recent"
+        url = "/api/feeds/?page_size=10&page=1&feed_type=all&attack_type=all"
         cache.clear()
         try:
             with patch.object(FeedsThrottle, "THROTTLE_RATES", {"feeds": "1/minute"}):

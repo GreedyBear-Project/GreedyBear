@@ -8,5 +8,5 @@ class FrontendPage(enum.Enum):
 
 class IpReputation(enum.StrEnum):
     MASS_SCANNER = "mass scanner"
-    TOR_EXIT_NODE = "tor exit node"
+    TOR_EXIT_NODE = "tor exit"
     KNOWN_ATTACKER = "known attacker"
