@@ -394,4 +394,3 @@ class FeedsASNViewTestCase(CustomTestCase):
         finally:
             ioc_stale.delete()
             inactive_pot.delete()
-
