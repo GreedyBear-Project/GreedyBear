@@ -1,7 +1,10 @@
+from datetime import datetime
+from hashlib import sha256
+
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from greedybear.models import IOC, CowrieSession, Credential, IocType
+from greedybear.models import IOC, CommandSequence, CowrieSession, Credential, IocType
 from tests import CustomTestCase
 
 
@@ -518,3 +521,68 @@ class CowrieSessionViewTestCase(CustomTestCase):
         response = self.client.get("/api/cowrie_session?id=ffffffffffff&include_similar=true")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data["sources"]), 2)
+
+    def test_include_similar_is_not_bounded_by_the_date_window(self):
+        """Sessions added by include_similar are not bounded by the date window.
+
+        The expansion is seeded from the sessions inside the window, then adds
+        every session in their cluster(s), whenever it was seen. This is the
+        behaviour chosen in #1515, so it is pinned here on purpose.
+        """
+        response = self.client.get(
+            f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&include_similar=true&start_date=2026-01-15&end_date=2026-01-25"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted(session["time"][:10] for session in response.data["sessions"]),
+            ["2026-01-10", "2026-01-20", "2026-01-30"],
+        )
+
+    def test_include_similar_adds_nothing_when_the_window_is_empty(self):
+        """A window that matches nothing stays empty.
+
+        The expansion needs an in-window session to take its cluster(s) from,
+        so an empty window cannot pull in the rest of a cluster.
+        """
+        response = self.client.get(
+            f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&include_similar=true&start_date=2026-03-01&end_date=2026-03-05"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["commands"], [])
+        self.assertEqual(response.data["sources"], [])
+
+    def test_include_similar_adds_out_of_window_data_to_the_aggregated_fields(self):
+        """commands, sources and credentials are aggregated after the expansion.
+
+        They are built from the expanded set, so they carry data from outside
+        the window too, even without include_session_data.
+        """
+        out_of_window_commands = CommandSequence.objects.create(
+            first_seen=self.current_time,
+            last_seen=self.current_time,
+            commands=["uname -a"],
+            commands_hash=sha256(b"uname -a").hexdigest(),
+            cluster=self.command_sequence_3.cluster,
+        )
+        out_of_window_session = CowrieSession.objects.create(
+            session_id=int("cccccccccccc", 16),
+            source=self.ioc_2,
+            start_time=datetime(2026, 3, 15, 12, 0, 0),
+            duration=30.0,
+            login_attempt=True,
+            commands=out_of_window_commands,
+        )
+        credential, _ = Credential.objects.get_or_create(username="admin", password="admin1729", protocol="")
+        out_of_window_session.credentials.add(credential)
+
+        response = self.client.get(
+            f"/api/cowrie_session?query={self.ioc_3.name}&include_credentials=true&include_similar=true&start_date=2026-01-15&end_date=2026-01-25"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("uname -a", response.data["commands"])
+        self.assertIn(self.ioc_2.name, response.data["sources"])
+        self.assertIn("admin | admin1729", response.data["credentials"])

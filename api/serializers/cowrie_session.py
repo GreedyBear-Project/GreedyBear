@@ -29,7 +29,10 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
             "When `true`, expands the result to include all sessions that executed command sequences "
             "belonging to the same cluster(s) as command sequences found in the initial query result. "
             "Requires CLUSTER_COWRIE_COMMAND_SEQUENCES enabled in configuration. "
-            "Only allowed together with `query` or `id`."
+            "Only allowed together with `query` or `id`. "
+            "Sessions added this way are not bounded by the date window, so the response, "
+            "including the aggregated `commands`, `sources` and `credentials`, "
+            "can contain data from outside `start_date` and `end_date`."
         ),
     )
     include_credentials = serializers.BooleanField(
@@ -39,10 +42,16 @@ class CowrieSessionRequestSerializer(serializers.Serializer):
         required=False, default=False, help_text="When `true`, includes detailed information about matching Cowrie sessions."
     )
     start_date = serializers.DateField(
-        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or after this date (YYYY-MM-DD)."
+        format="%Y-%m-%d",
+        required=False,
+        allow_null=True,
+        help_text="Only sessions occurring on or after this date (YYYY-MM-DD). Does not apply to sessions added by `include_similar`.",
     )
     end_date = serializers.DateField(
-        format="%Y-%m-%d", required=False, allow_null=True, help_text="Only sessions occurring on or before this date (YYYY-MM-DD)."
+        format="%Y-%m-%d",
+        required=False,
+        allow_null=True,
+        help_text="Only sessions occurring on or before this date (YYYY-MM-DD). Does not apply to sessions added by `include_similar`.",
     )
 
     def validate_id(self, value: str) -> str:
