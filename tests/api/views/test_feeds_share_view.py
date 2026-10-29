@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+from certego_saas.apps.user.models import User
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -41,7 +44,8 @@ class FeedsShareReasonTestCase(CustomTestCase):
         share_token = ShareToken.objects.get(token_hash=token_hash)
         self.assertEqual(len(share_token.reason), 256)
 
-    def test_share_reason_only_set_on_create(self):
+    @patch("django.core.signing.time.time", return_value=1_800_000_000)
+    def test_share_reason_only_set_on_create(self, _mock_time):
         """get_or_create: when the same token already exists, reason is NOT overwritten."""
         r1 = self.client.post("/api/feeds/share?reason=first")
         self.assertEqual(r1.status_code, 200)
@@ -59,6 +63,53 @@ class FeedsShareReasonTestCase(CustomTestCase):
 
         share_token = ShareToken.objects.get(token_hash=token_hash)
         self.assertEqual(share_token.reason, "first")
+
+    @patch("django.core.signing.time.time", return_value=1_800_000_000)
+    def test_same_second_shares_are_scoped_to_their_owners(self, _mock_time):
+        """Identical feed params from two regular users must produce independently owned tokens."""
+        first_user = User.objects.create_user(
+            username="share-owner-a",
+            email="share-owner-a@example.com",
+            password="test-password",
+        )
+        second_user = User.objects.create_user(
+            username="share-owner-b",
+            email="share-owner-b@example.com",
+            password="test-password",
+        )
+        self.assertFalse(first_user.is_staff)
+        self.assertFalse(second_user.is_staff)
+
+        first_client = APIClient()
+        first_client.force_authenticate(user=first_user)
+        first_response = first_client.post("/api/feeds/share?asn=11111&reason=first")
+        self.assertEqual(first_response.status_code, 200)
+        first_url = first_response.json()["url"]
+        first_token = first_url.split("/api/feeds/consume/")[1]
+        first_hash = self._hash_from_url(first_url)
+
+        second_client = APIClient()
+        second_client.force_authenticate(user=second_user)
+        second_response = second_client.post("/api/feeds/share?asn=11111&reason=second")
+        self.assertEqual(second_response.status_code, 200)
+        second_url = second_response.json()["url"]
+        second_token = second_url.split("/api/feeds/consume/")[1]
+        second_hash = self._hash_from_url(second_url)
+
+        self.assertNotEqual(first_token, second_token)
+        self.assertEqual(ShareToken.objects.count(), 2)
+        self.assertEqual(ShareToken.objects.get(token_hash=first_hash).user, first_user)
+        self.assertEqual(ShareToken.objects.get(token_hash=first_hash).reason, "first")
+        self.assertEqual(ShareToken.objects.get(token_hash=second_hash).user, second_user)
+        self.assertEqual(ShareToken.objects.get(token_hash=second_hash).reason, "second")
+
+        self.assertEqual(len(first_client.get("/api/feeds/tokens/").json()), 1)
+        self.assertEqual(len(second_client.get("/api/feeds/tokens/").json()), 1)
+
+        self.assertEqual(second_client.post(f"/api/feeds/revoke/{first_token}").status_code, 403)
+        self.assertEqual(first_client.post(f"/api/feeds/revoke/{first_token}").status_code, 200)
+        self.assertEqual(first_client.post(f"/api/feeds/revoke/{second_token}").status_code, 403)
+        self.assertEqual(second_client.post(f"/api/feeds/revoke/{second_token}").status_code, 200)
 
     def test_get_method_not_allowed(self):
         """GET is no longer accepted on the share endpoint; it must be POSTed."""

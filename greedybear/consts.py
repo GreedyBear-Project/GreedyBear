@@ -94,6 +94,12 @@ START_TIME = time.time()
 SHARE_TOKEN_SALT = "greedybear-feeds"
 SHARE_TOKEN_MAX_AGE = 86400 * 30  # 30 days
 
+
+def share_token_salt_for_user(user_id: int) -> str:
+    """Derive a signing salt scoped to the user who created a share token."""
+    return f"{SHARE_TOKEN_SALT}:{user_id}"
+
+
 # Event injection API
 APISOURCE_LOCKED_THRESHOLD = 10
 

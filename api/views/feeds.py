@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import timedelta
+from typing import cast
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
@@ -49,7 +50,7 @@ from api.views.utils import (
     save_request_source,
     stream_ioc_objects,
 )
-from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
+from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY, share_token_salt_for_user
 from greedybear.cronjobs.repositories import PayloadRepository, TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
 from greedybear.models import IOC, ShareToken, ViewType
@@ -524,7 +525,9 @@ class ShareTokenViewSet(RequestLoggingMixin, QueryParamValidationMixin, ViewSet)
         # so the token format and consume-time replay stay unchanged.
         data = request.query_params.dict()
         data.pop("reason", None)
-        token = signing.dumps(data, salt=SHARE_TOKEN_SALT)
+        # IsAuthenticated guarantees request.user is a persisted user.
+        user_id = cast("int", request.user.pk)
+        token = signing.dumps(data, salt=share_token_salt_for_user(user_id))
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         ShareToken.objects.get_or_create(
             token_hash=token_hash,
