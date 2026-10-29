@@ -771,7 +771,6 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(stub.size, len(b"\x01\x02\x03"))
         self.assertEqual(stub.locator, "cowrie/hhh")
 
-
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="https://payload-server:64445",
         TPOT_PAYLOAD_SERVER_API_KEY="",

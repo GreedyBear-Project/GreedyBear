@@ -57,7 +57,7 @@ class HttpClient:
 
         # Use fingerprint
         self.session.mount("https://", FingerprintAdapter(cert_fingerprint, max_retries=retry_strategy))
-        self.session.verify = False # the pinned fingerprint replaces CA validation
+        self.session.verify = False  # the pinned fingerprint replaces CA validation
 
     def request(self, method, url, **kwargs):
         """
