@@ -176,6 +176,7 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
 
     max_age = serializers.IntegerField(
         min_value=1,
+        max_value=36500,
         default=FEED_DEFAULTS["max_age"],
         help_text="Maximum age in days since an IOC was last seen. Ignored when `start_date` or `end_date` is given.",
     )
