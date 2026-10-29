@@ -1,6 +1,8 @@
 import logging
 import re
+from datetime import datetime
 
+from certego_saas.ext.helpers import parse_humanized_range
 from rest_framework import serializers
 
 from api.serializers.utils import PresenceFlagField
@@ -77,3 +79,17 @@ class HoneypotRequestSerializer(serializers.Serializer):
     """Query params for the honeypot list endpoint."""
 
     only_active = PresenceFlagField(default=False, help_text="Include only active honeypots.")
+
+
+class StatisticsRequestSerializer(serializers.Serializer):
+    """Query params for the statistics endpoints."""
+
+    range = serializers.CharField(default="7d", help_text="Time range to aggregate over, e.g. `7d`, `24h` or `30d`.")
+
+    def validate_range(self, value: str) -> tuple[datetime, str]:
+        """Parse the range into the start of the time window and the basis to truncate dates to."""
+        try:
+            return parse_humanized_range(value)
+        except (OverflowError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            logger.info(f"Invalid range parameter '{value}': {exc}")
+            raise serializers.ValidationError(f"Invalid 'range' parameter: '{value}'. Expected format like '7d', '24h', or '30d'.") from exc
