@@ -7,6 +7,8 @@ from unittest import mock
 from django.conf import settings
 from django.test import SimpleTestCase
 
+SHA256_FINGERPRINT = ":".join(["AB"] * 32)
+
 
 class SecuritySettingsTests(SimpleTestCase):
     def test_content_type_nosniff_enabled(self):
@@ -112,3 +114,31 @@ class SettingsWithoutElasticsearchTestCase(SimpleTestCase):
             reloaded = importlib.reload(greedybear_settings)
 
         self.assertIsNotNone(reloaded.ELASTIC_CLIENT)
+
+    def test_cert_fingerprint_pins_https_elastic_endpoint(self):
+        """TPOT_CERT_FINGERPRINT must be pinned for an HTTPS Elasticsearch endpoint."""
+        import greedybear.settings as greedybear_settings
+
+        self.addCleanup(importlib.reload, greedybear_settings)
+
+        env = {"ELASTIC_ENDPOINT": "https://tpot-host:64297/es/", "ENVIRONMENT": "local", "TPOT_CERT_FINGERPRINT": SHA256_FINGERPRINT}
+        with mock.patch.dict("os.environ", env):
+            reloaded = importlib.reload(greedybear_settings)
+
+        node = reloaded.ELASTIC_CLIENT.transport.node_pool.all()[0]
+        self.assertEqual(node.config.ssl_assert_fingerprint, SHA256_FINGERPRINT)
+
+    def test_cert_fingerprint_ignored_for_http_elastic_endpoint(self):
+        """A plain HTTP endpoint has no certificate to pin, so the fingerprint must not break the client."""
+        import greedybear.settings as greedybear_settings
+
+        self.addCleanup(importlib.reload, greedybear_settings)
+
+        # The fingerprint may still be set for the payload server.
+        env = {"ELASTIC_ENDPOINT": "http://tpot-host:64298", "ENVIRONMENT": "local", "TPOT_CERT_FINGERPRINT": SHA256_FINGERPRINT}
+        with mock.patch.dict("os.environ", env):
+            # the client raises ValueError if TLS options are set for an HTTP endpoint
+            reloaded = importlib.reload(greedybear_settings)
+
+        node = reloaded.ELASTIC_CLIENT.transport.node_pool.all()[0]
+        self.assertIsNone(node.config.ssl_assert_fingerprint)

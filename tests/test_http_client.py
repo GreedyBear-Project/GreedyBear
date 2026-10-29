@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import requests
 from django.test import TestCase
 
-from greedybear.cronjobs.http_client import HttpClient
+from greedybear.cronjobs.http_client import FingerprintAdapter, HttpClient
 
 
 class RetryHandler(BaseHTTPRequestHandler):
@@ -83,6 +83,37 @@ class TestHttpClient(TestCase):
             with HttpClient() as client:
                 self.assertIsInstance(client, HttpClient)
             mock_close.assert_called_once()
+
+    def test_no_fingerprint_keeps_default_verification(self):
+        """Without a fingerprint, HTTPS uses the plain adapter and normal CA verification."""
+        client = HttpClient()
+
+        adapter = client.session.get_adapter("https://example.com")
+        self.assertNotIsInstance(adapter, FingerprintAdapter)
+        self.assertIs(client.session.verify, True)
+
+    def test_fingerprint_pins_https_connections(self):
+        """With a fingerprint, HTTPS connections pin it instead of validating the CA chain."""
+        client = HttpClient(retries=5, cert_fingerprint="AB:CD:EF")
+
+        adapter = client.session.get_adapter("https://example.com")
+        self.assertIsInstance(adapter, FingerprintAdapter)
+        self.assertEqual(adapter.poolmanager.connection_pool_kw["assert_fingerprint"], "AB:CD:EF")
+        self.assertIs(adapter.poolmanager.connection_pool_kw["assert_hostname"], False)
+        self.assertIs(client.session.verify, False)
+        # Retries still apply to the pinned adapter.
+        self.assertEqual(adapter.max_retries.total, 5)
+        # Plain HTTP has no certificate to pin.
+        self.assertNotIsInstance(client.session.get_adapter("http://example.com"), FingerprintAdapter)
+
+    def test_fingerprint_pins_proxied_connections(self):
+        """Connections through a proxy must pin the fingerprint as well."""
+        adapter = FingerprintAdapter("AB:CD:EF")
+
+        proxy_manager = adapter.proxy_manager_for("http://proxy:3128")
+
+        self.assertEqual(proxy_manager.connection_pool_kw["assert_fingerprint"], "AB:CD:EF")
+        self.assertIs(proxy_manager.connection_pool_kw["assert_hostname"], False)
 
     def test_get_retry_logic(self):
         """Test that GET requests are correctly retried upon receiving server errors."""

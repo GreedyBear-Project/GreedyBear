@@ -115,6 +115,7 @@ class TestElasticRepository(CustomTestCase):
 
         mock_get_time_window.assert_called_once()
 
+    @patch("greedybear.cronjobs.repositories.elastic.EXTRACTION_INTERVAL", 10)
     @patch("greedybear.cronjobs.repositories.elastic.get_time_window")
     @patch("greedybear.cronjobs.repositories.elastic.Search")
     def test_search_scans_reassigned_source_filtered_search(self, mock_search_class, mock_get_time_window):

@@ -772,6 +772,46 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(stub.locator, "cowrie/hhh")
 
 
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="https://payload-server:64445",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        TPOT_CERT_FINGERPRINT="AB:CD:EF",
+    )
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_pins_certificate_when_fingerprint_configured(self, mock_http_class):
+        """The configured fingerprint must be passed to the client, and verification left to it."""
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+        mock_client.get.return_value.json.return_value = []
+
+        self.job.run()
+
+        self.assertEqual(mock_http_class.call_args.kwargs["cert_fingerprint"], "AB:CD:EF")
+        # The job itself must not switch off verification.
+        self.assertIsNot(mock_client.session.verify, False)
+        self.assertNotIn("verify", mock_client.get.call_args.kwargs)
+
+    @override_settings(
+        TPOT_PAYLOAD_SERVER_URL="https://payload-server:64445",
+        TPOT_PAYLOAD_SERVER_API_KEY="",
+        TPOT_CERT_FINGERPRINT="",
+    )
+    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
+    def test_verifies_certificate_without_fingerprint(self, mock_http_class):
+        """Without a fingerprint, the server certificate is still verified against the CA store."""
+        mock_client = MagicMock()
+        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+        mock_client.get.return_value.json.return_value = []
+
+        self.job.run()
+
+        self.assertIsNone(mock_http_class.call_args.kwargs["cert_fingerprint"])
+        self.assertIsNot(mock_client.session.verify, False)
+        self.assertNotIn("verify", mock_client.get.call_args.kwargs)
+
+
 class TestExtractAllPayloadIntegration(CustomTestCase):
     """Test that extract_all calls extract_honeypot_payloads."""
 
