@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.core.management.utils import get_random_secret_key
+from elastic_transport.client_utils import DEFAULT
 from elasticsearch import Elasticsearch
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -46,11 +47,13 @@ else:
     print("WARNING: Elasticsearch endpoint not configured. Elasticsearch-dependent features (extraction, monitoring) will be unavailable.")
 
 if ELASTIC_ENDPOINT and not STAGE_CI:
+    pin_elastic_cert = bool(TPOT_CERT_FINGERPRINT) and all(endpoint.startswith("https://") for endpoint in ELASTIC_ENDPOINT)
     ELASTIC_CLIENT = Elasticsearch(
         ELASTIC_ENDPOINT,
         connections_per_node=20,
         retry_on_timeout=True,
         request_timeout=30,
+        ssl_assert_fingerprint=TPOT_CERT_FINGERPRINT if pin_elastic_cert else DEFAULT,
     )
 else:
     ELASTIC_CLIENT = None
