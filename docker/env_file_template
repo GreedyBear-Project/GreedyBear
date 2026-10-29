@@ -116,12 +116,19 @@ FEEDS_LICENSE=
 
 # T-Pot Payload Server URL for downloading honeypot payloads.
 # If not set, payload extraction is disabled.
-# Example: https://tpot.example.com:64299
+# Example: https://tpot.example.com:64445
 TPOT_PAYLOAD_SERVER_URL=
 
 # Optional API key for authenticating with the T-Pot Payload Server.
 # When empty, authentication is disabled on both sides.
 TPOT_PAYLOAD_SERVER_API_KEY=
+
+# SHA-256 fingerprint of T-Pot's TLS certificate. 
+# This certificate is usally valid for 10 years, counted from the T-Pot installation.
+# Read it on the T-Pot host and use the part after "Fingerprint=":
+# openssl x509 -in ~/tpotce/data/nginx/cert/nginx.crt -noout -fingerprint -sha256
+# Example: DE:5D:25:EB:0A:51:62:53:FA:CC:64:D2:F9:BB:DE:AF:54:D2:1E:86:85:2D:1B:E6:E6:04:48:7E:CD
+TPOT_CERT_FINGERPRINT=
 
 # Maximum disk usage (in GB) for the quarantine directory.
 # Payload downloads are paused when this limit is reached.
