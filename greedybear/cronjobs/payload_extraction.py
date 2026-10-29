@@ -50,7 +50,7 @@ class PayloadExtractionJob(Cronjob):
 
         max_size_bytes = settings.MAX_QUARANTINE_SIZE_GB * (1024**3)
 
-        with HttpClient(default_timeout=self.METADATA_TIMEOUT) as client:
+        with HttpClient(default_timeout=self.METADATA_TIMEOUT, cert_fingerprint=settings.TPOT_CERT_FINGERPRINT or None) as client:
             # Step 1: Fetch payload metadata from the server.
             payloads = self._fetch_metadata(client, server_url)
             if not payloads:
@@ -119,7 +119,7 @@ class PayloadExtractionJob(Cronjob):
         headers = self._build_auth_headers()
 
         try:
-            response = client.get(url, params=params, headers=headers, verify=False)
+            response = client.get(url, params=params, headers=headers)
             data = response.json()
         except requests.RequestException:
             self.log.exception("Failed to fetch payload metadata from server.")
@@ -257,7 +257,7 @@ class PayloadExtractionJob(Cronjob):
         headers = self._build_auth_headers()
 
         try:
-            response = client.get(download_url, timeout=self.DOWNLOAD_TIMEOUT, headers=headers, verify=False)
+            response = client.get(download_url, timeout=self.DOWNLOAD_TIMEOUT, headers=headers)
         except requests.RequestException:
             self.log.exception(f"Failed to download payload {sha256[:12]}…")
             return False
