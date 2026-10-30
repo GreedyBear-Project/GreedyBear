@@ -201,6 +201,21 @@ class FeedsCacheInvalidationEndpointTest(CustomTestCase):
         self.assertIn(new_ip, self._get_ioc_names(fresh))
         self.assertEqual(self._get_ioc_names(fresh), baseline | {new_ip})
 
+    @override_settings(FEEDS_LICENSE="")
+    def test_empty_text_feeds_are_not_cached(self):
+        IOC.objects.all().delete()
+
+        for feed_format in ("txt", "csv"):
+            with self.subTest(feed_format=feed_format):
+                url = f"/api/feeds/all/all/recent.{feed_format}"
+                first = self.client.get(url)
+                second = self.client.get(url)
+
+                self.assertEqual(first.status_code, 200)
+                self.assertEqual(first.content, b"")
+                self.assertEqual(second.status_code, 200)
+                self.assertEqual(second.content, b"")
+
 
 @override_settings(CACHES=TEST_CACHES)
 class CacheKeyMediaTypeTest(CustomTestCase):
