@@ -22,6 +22,15 @@ class TestAddIoc(ExtractionTestCase):
 
         self.assertIsNone(result)
         self.mock_ioc_repo.save.assert_not_called()
+    
+    def test_filters_sensor_ips_with_uncompressed_ipv6(self):
+        self.mock_sensor_repo.cache = {"2001:db8::1": Mock()}
+        ioc = self._create_mock_ioc(name="2001:DB8:0:0:0:0:0:1", ioc_type=IocType.IP)
+
+        result = self.processor.add_ioc(ioc, attack_type=SCANNER)
+
+        self.assertIsNone(result)
+        self.mock_ioc_repo.save.assert_not_called()
 
     def test_filters_whatsmyip_domains(self):
         self.processor._whatsmyip_domains = {"some.domain.com"}
