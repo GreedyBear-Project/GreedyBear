@@ -18,7 +18,7 @@ from stix2 import Bundle, ExternalReference, Indicator
 from greedybear.consts import APISOURCE_LOCKED_THRESHOLD, CACHE_KEY_GREEDYBEAR_NEWS, CACHE_TIMEOUT_SECONDS, RSS_FEED_URL
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.models import IOC, APISource, AutonomousSystem, EventStatus, EventStatusType, RawEvent, Sensor, SourceType, Statistics
-from greedybear.utils import is_ip_address, is_valid_domain,normalize_ip
+from greedybear.utils import is_ip_address, is_valid_domain, normalize_ip
 
 logger = logging.getLogger(__name__)
 
