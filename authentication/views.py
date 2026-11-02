@@ -83,11 +83,6 @@ class ResendVerificationView(rest_email_auth.views.ResendVerificationView):
 @authentication_classes([CSRFProtectedCookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def check_authentication(request):
-    # Calling get_token() marks the CSRF cookie as needed, so CsrfViewMiddleware
-    # sets it on the response. This is the frontend's startup call, so it's the
-    # natural place to guarantee the browser has a csrftoken cookie before any
-    # unsafe request is attempted.
-    get_token(request._request)
     logger.info(f"User: {request.user}, Administrator: {request.user.is_superuser}")
     return Response({"is_superuser": request.user.is_superuser}, status=status.HTTP_200_OK)
 
@@ -149,6 +144,10 @@ class LoginView(certego_views.LoginView):
                 logger.info(f"administrator:'{uname}' was logged in.")
             except Exception:
                 logger.exception(f"administrator:'{uname}' login failed.")
+        # Every user, not just superusers, needs a csrftoken cookie after login.
+        # Covers clients that don't load the HTML through Django (e.g. Vite dev
+        # server only proxies /api, so ensure_csrf_cookie on render_reactapp never runs).
+        get_token(request._request)
         return response
 
 

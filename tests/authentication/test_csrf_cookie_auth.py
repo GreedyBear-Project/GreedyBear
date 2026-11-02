@@ -1,8 +1,12 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
-from certego_saas.apps.auth.backend import TOKEN_COOKIE_NAME
+import tempfile
+from pathlib import Path
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.test import override_settings
 from durin.models import AuthToken, Client
 from rest_framework.reverse import reverse
 from rest_framework.test import APIClient, APITestCase
@@ -10,6 +14,7 @@ from rest_framework.test import APIClient, APITestCase
 User = get_user_model()
 
 login_uri = reverse("auth_login")
+logout_uri = "/api/auth/logout"
 check_authentication_uri = "/api/auth/authentication"
 dashboard_config_uri = "/api/dashboard-config/"
 share_uri = "/api/feeds/share"
@@ -27,10 +32,12 @@ class CSRFCookieAuthTestCase(APITestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.superuser = User.objects.create_superuser("csrf_test_superuser", "csrf_test_superuser@example.com", "hunter2")
+        cls.regular_user = User.objects.create_user("csrf_test_user", "csrf_test_user@example.com", "hunter2")
 
     @classmethod
     def tearDownClass(cls):
         cls.superuser.delete()
+        cls.regular_user.delete()
         super().tearDownClass()
 
     def setUp(self):
@@ -43,10 +50,10 @@ class CSRFCookieAuthTestCase(APITestCase):
     def tearDown(self):
         cache.clear()
 
-    def _login_with_cookie(self):
+    def _login_with_cookie(self, username="csrf_test_superuser", password="hunter2"):
         """Log in with real credentials so the client carries the real auth cookie,
         the same way a browser does - not via force_authenticate()."""
-        response = self.client.post(login_uri, {"username": "csrf_test_superuser", "password": "hunter2"})
+        response = self.client.post(login_uri, {"username": username, "password": password})
         assert response.status_code == 200, response.content
         return response
 
@@ -86,17 +93,35 @@ class CSRFCookieAuthTestCase(APITestCase):
 
         self.assertEqual(response.status_code, 200, msg=response.content)
 
-    def test_check_authentication_sets_csrftoken_cookie(self):
-        # Sets the auth cookie directly rather than via _login_with_cookie(): Django's
-        # login() rotates the CSRF token as a side effect (session-fixation defense),
-        # which would already set the cookie and mask what this test checks - that
-        # check_authentication itself guarantees it, e.g. for a session carried over
-        # from an earlier visit rather than a fresh login in this request.
-        token = AuthToken.objects.create(user=self.superuser, client=Client.objects.create(name="csrf-test-cookie-client"))
-        self.client.cookies[TOKEN_COOKIE_NAME] = token.token
-        self.assertNotIn("csrftoken", self.client.cookies)
+    def test_non_superuser_login_sets_csrftoken_cookie(self):
+        response = self._login_with_cookie("csrf_test_user", "hunter2")
 
-        response = self.client.get(check_authentication_uri)
+        self.assertIn("csrftoken", response.cookies)
+
+    def test_non_superuser_logout_with_csrf_token_succeeds(self):
+        self._login_with_cookie("csrf_test_user", "hunter2")
+        csrf_token = self.client.cookies["csrftoken"].value
+
+        response = self.client.post(logout_uri, HTTP_X_CSRFTOKEN=csrf_token)
+
+        self.assertEqual(response.status_code, 204, msg=response.content)
+
+    def test_non_superuser_logout_without_csrf_token_returns_403(self):
+        self._login_with_cookie("csrf_test_user", "hunter2")
+
+        response = self.client.post(logout_uri)
+
+        self.assertEqual(response.status_code, 403, msg=response.content)
+
+    def test_frontend_route_sets_csrftoken_cookie(self):
+        # index.html is a frontend build artifact and is not present in the test
+        # environment, so a temp template dir stands in for it rather than adding
+        # a real one to the repo.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            Path(tmp_dir, "index.html").write_text("<html></html>")
+            template_settings = [{**settings.TEMPLATES[0], "DIRS": [tmp_dir, *settings.TEMPLATES[0]["DIRS"]]}]
+            with override_settings(TEMPLATES=template_settings):
+                response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200, msg=response.content)
         self.assertIn("csrftoken", response.cookies)
