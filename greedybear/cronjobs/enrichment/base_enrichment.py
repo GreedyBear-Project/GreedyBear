@@ -6,6 +6,7 @@ from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC
 from greedybear.utils import normalize_ip
 
+
 class BaseEnrichmentJob(Cronjob, ABC):
     """
     Shared base for enrichment cronjobs that write Tag records.
@@ -32,7 +33,7 @@ class BaseEnrichmentJob(Cronjob, ABC):
         Returns:
             QuerySet of (ioc_id, name) tuples.
         """
-        normalized_keys = {normalize_ip(ip) for ip in ip_dict.keys()}
+        normalized_keys = {normalize_ip(ip) for ip in ip_dict}
         return IOC.objects.filter(name__in=normalized_keys).values_list("id", "name")
 
     def _write_tags(self, tag_entries):

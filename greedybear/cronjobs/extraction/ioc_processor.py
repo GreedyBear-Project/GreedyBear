@@ -6,6 +6,7 @@ from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import IOC, IocType, WhatsMyIPDomain
 from greedybear.utils import normalize_ip
 
+
 class IocProcessor:
     """
     Processor for creating and updating IOC records.
