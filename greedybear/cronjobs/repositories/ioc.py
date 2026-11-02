@@ -190,6 +190,7 @@ class IocRepository:
         Returns:
             The saved IOC instance.
         """
+        ioc.name = normalize_ip(ioc.name)
         ioc.save()
         return ioc
 

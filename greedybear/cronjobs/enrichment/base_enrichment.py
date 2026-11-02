@@ -4,7 +4,7 @@ from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC
-
+from greedybear.utils import normalize_ip
 
 class BaseEnrichmentJob(Cronjob, ABC):
     """
@@ -32,7 +32,8 @@ class BaseEnrichmentJob(Cronjob, ABC):
         Returns:
             QuerySet of (ioc_id, name) tuples.
         """
-        return IOC.objects.filter(name__in=ip_dict.keys()).values_list("id", "name")
+        normalized_keys = {normalize_ip(ip) for ip in ip_dict.keys()}
+        return IOC.objects.filter(name__in=normalized_keys).values_list("id", "name")
 
     def _write_tags(self, tag_entries):
         if self.WRITE_METHOD == "replace":

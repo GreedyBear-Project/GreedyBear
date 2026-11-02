@@ -34,6 +34,12 @@ class TestIocRepository(CustomTestCase):
         self.assertIsNotNone(result.pk)
         self.assertTrue(IOC.objects.filter(name="1.2.3.4").exists())
 
+    def test_save_normalizes_ip_before_saving(self):
+        ioc = IOC(name="2001:DB8:0:0:0:0:0:1", type="ip")
+        result = self.repo.save(ioc)
+        self.assertEqual(result.name, "2001:db8::1")
+        self.assertTrue(IOC.objects.filter(name="2001:db8::1").exists())
+
     def test_save_updates_existing_ioc(self):
         ioc = self.repo.get_ioc_by_name("140.246.171.141")
         original_attack_count = ioc.attack_count
