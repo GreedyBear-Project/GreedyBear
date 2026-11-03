@@ -1,5 +1,9 @@
+from datetime import datetime
+from unittest.mock import patch
+
 from django.test import override_settings
 
+from api.serializers import StatisticsRequestSerializer
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.models import IOC, Honeypot, IocType, Statistics, ViewType
@@ -32,6 +36,11 @@ class StatisticsViewTestCase(CustomTestCase):
 
     def test_200_feeds_sources(self):
         response = self.client.get("/api/statistics/sources/feeds")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["Sources"], 1)
+
+    def test_200_valid_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=30d")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["Sources"], 1)
 
@@ -172,6 +181,16 @@ class StatisticsViewTestCase(CustomTestCase):
         response = self.client.get("/api/statistics/sources/enrichment?range=invalid")
         self.assertEqual(response.status_code, 400)
 
+    def test_400_unknown_param_countries(self):
+        response = self.client.get("/api/statistics/countries?limit=10")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"limit": ["Unknown query parameter."]})
+
+    def test_400_unknown_param_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?time_range=30d")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"time_range": ["Unknown query parameter."]})
+
 
 @override_settings(CACHES=TEST_CACHES)
 class StatisticsIocCacheTestCase(CustomTestCase):
@@ -257,3 +276,27 @@ class StatisticsIocCacheTestCase(CustomTestCase):
         fresh = self.client.get(url)
         self.assertEqual(fresh.status_code, 200)
         self.assertEqual(fresh.json()[0]["counts"]["Tanner"], 1)
+
+
+class StatisticsRequestSerializerTestCase(CustomTestCase):
+    def test_range_defaults_to_seven_days(self):
+        serializer = StatisticsRequestSerializer(data={})
+        with patch("certego_saas.ext.helpers.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["range"], (datetime(2026, 3, 13, 10, 30, 0), "day"))
+
+    def test_range_is_parsed_into_start_and_basis(self):
+        serializer = StatisticsRequestSerializer(data={"range": "24h"})
+        with patch("certego_saas.ext.helpers.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["range"], (datetime(2026, 3, 19, 10, 30, 0), "hour"))
+
+    def test_range_rejects_invalid_format(self):
+        serializer = StatisticsRequestSerializer(data={"range": "invalid"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("range", serializer.errors)
+
+    def test_range_rejects_overflowing_value(self):
+        serializer = StatisticsRequestSerializer(data={"range": "99999999999Y"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("range", serializer.errors)
