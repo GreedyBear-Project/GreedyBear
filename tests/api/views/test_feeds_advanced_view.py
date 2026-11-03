@@ -451,6 +451,18 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
 
+    def test_end_date_max(self):
+        """end_date=9999-12-31 has no next day, so it must not be used to compute one."""
+        response = self.client.get("/api/feeds/advanced/?end_date=9999-12-31")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
+    def test_400_max_age_too_large(self):
+        """A max_age reaching back before year 1 is rejected instead of overflowing."""
+        response = self.client.get("/api/feeds/advanced/?max_age=1000000")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("max_age", response.json()["errors"])
+
     def test_filter_by_country_code(self):
         """Filter by country_code returns only matching IOCs."""
         self.ioc.attacker_country_code = "IT"
@@ -535,6 +547,17 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         response = self.client.post("/api/feeds/share?asn=11111&page=2")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
+
+    def test_share_max_age_too_large_is_rejected(self):
+        response = self.client.post("/api/feeds/share?max_age=1000000")
+        self.assertEqual(response.status_code, 400)
+
+    def test_consume_shared_feed_with_end_date_max(self):
+        share_response = self.client.post("/api/feeds/share?end_date=9999-12-31")
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        response = self.client.get(f"/api/feeds/consume/{token}")
+        self.assertEqual(response.status_code, 200)
 
     def test_shareable_feed_expired_token(self):
         """Consuming a tampered/expired token returns 400."""

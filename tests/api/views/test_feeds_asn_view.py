@@ -227,6 +227,14 @@ class FeedsASNViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"], {"feed_size": ["Unknown query parameter."]})
 
+    def test_asn_feed_end_date_max(self):
+        response = self.client.get(self.url + "?end_date=9999-12-31")
+        self.assertEqual(response.status_code, 200)
+
+    def test_400_asn_feed_max_age_too_large(self):
+        response = self.client.get(self.url + "?max_age=1000000")
+        self.assertEqual(response.status_code, 400)
+
     def test_asn_feed_includes_as_name(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
