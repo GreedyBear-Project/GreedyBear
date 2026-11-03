@@ -2,7 +2,6 @@
 # See the file 'LICENSE' for copying permission.
 import logging
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django.conf import settings
 from django.http import Http404, HttpResponseBadRequest
 from rest_framework import status
@@ -14,6 +13,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.views.utils import UnableToExtractSourceIPError, get_request_source_ip
 from greedybear.consts import GET
 from greedybear.models import IOC, CommandSequence, CowrieSession, Statistics, ViewType
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 @api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
+@authentication_classes([CSRFProtectedCookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def command_sequence_view(request):
     """

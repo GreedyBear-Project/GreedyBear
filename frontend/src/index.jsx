@@ -6,6 +6,11 @@ import axios from "axios";
 import App from "./App";
 import useAuthStore from "./stores/useAuthStore";
 
+// Echo Django's CSRF cookie back as a header on unsafe requests.
+// Axios does this automatically for same-origin requests once these are set.
+axios.defaults.xsrfCookieName = "csrftoken";
+axios.defaults.xsrfHeaderName = "X-CSRFToken";
+
 // axios interceptor to handle session expiration (401) or role sync (403)
 axios.interceptors.response.use(
   (response) => response,
