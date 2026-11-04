@@ -8,7 +8,7 @@ from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
 from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_valid_feed_types
-from greedybear.consts import SHARE_TOKEN_MAX_AGE, SHARE_TOKEN_SALT
+from greedybear.consts import SHARE_TOKEN_MAX_AGE
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
 from greedybear.models import ShareToken
@@ -305,7 +305,11 @@ class TokenRequestSerializer(serializers.Serializer):
         except ShareToken.DoesNotExist as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
         try:
-            attrs["feed_params"] = signing.loads(token, salt=SHARE_TOKEN_SALT, max_age=SHARE_TOKEN_MAX_AGE)
+            attrs["feed_params"] = signing.loads(
+                token,
+                salt=attrs["share_token"].signing_salt,
+                max_age=SHARE_TOKEN_MAX_AGE,
+            )
         except signing.BadSignature as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
         return attrs
