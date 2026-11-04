@@ -614,3 +614,89 @@ class TestEventSanitizationKeepsBatch(BaseEventTestCase):
         self._assert_batch_saved(res, 3)
         stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], command="whoami[NUL]")
         self.assertEqual(stored.command, "whoami[NUL]")
+
+
+class TestEventOverLongFieldsKeepBatch(BaseEventTestCase):
+    """An attacker picks the username, password and download URL a honeypot records.
+
+    None of those values may discard the other events in the batch, so each one
+    is clamped or dropped instead of failing validation.
+    """
+
+    def _post_mixed(self, dirty_event, extra_clean=2):
+        events = [valid_event(self.sensor.id) for _ in range(extra_clean)]
+        events.append(dirty_event)
+        return self.client.post(EVENTS_URL, {"events": events}, format="json")
+
+    def _assert_batch_saved(self, res, expected_count):
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        task_id = res.data["task_id"]
+        self.assertEqual(RawEvent.objects.filter(batch__task_id=task_id).count(), expected_count)
+        batch = EventStatus.objects.get(task_id=task_id)
+        self.assertNotEqual(batch.status, EventStatusType.FAILED)
+
+    @patch("api.views.event.async_task", return_value="task-long-username")
+    def test_over_long_username_is_clamped_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, username="a" * 300)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], username__startswith="a")
+        self.assertEqual(stored.username, "a" * 255)
+
+    @patch("api.views.event.async_task", return_value="task-long-password")
+    def test_over_long_password_is_clamped_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, password="b" * 300)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], password__startswith="b")
+        self.assertEqual(stored.password, "b" * 255)
+
+    @patch("api.views.event.async_task", return_value="task-long-session-id")
+    def test_over_long_session_id_is_clamped_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, session_id="s" * 150)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], session_id__startswith="s")
+        self.assertEqual(stored.session_id, "s" * 100)
+
+    @patch("api.views.event.async_task", return_value="task-long-protocol")
+    def test_over_long_protocol_is_clamped_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, protocol="p" * 80)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], protocol__startswith="p")
+        self.assertEqual(stored.protocol, "p" * 50)
+
+    @patch("api.views.event.async_task", return_value="task-malformed-url")
+    def test_malformed_related_url_is_dropped_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, related_url="http://evil/`id`|cat /etc/passwd", src_port=4242)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], src_port=4242)
+        self.assertEqual(stored.related_url, "")
+
+    @patch("api.views.event.async_task", return_value="task-long-url")
+    def test_over_long_related_url_is_dropped_not_400(self, mock_task):
+        dirty = valid_event(self.sensor.id, related_url="http://evil.test/" + "a" * 900, src_port=4242)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], src_port=4242)
+        self.assertEqual(stored.related_url, "")
+
+    @patch("api.views.event.async_task", return_value="task-good-url")
+    def test_valid_related_url_is_still_stored(self, mock_task):
+        url = "http://evil.test/payload.sh"
+        dirty = valid_event(self.sensor.id, related_url=url, src_port=4242)
+        res = self._post_mixed(dirty)
+        self._assert_batch_saved(res, 3)
+        stored = RawEvent.objects.get(batch__task_id=res.data["task_id"], src_port=4242)
+        self.assertEqual(stored.related_url, url)
+
+    @patch("api.views.event.async_task", return_value="task-long-no-lock")
+    def test_over_long_value_does_not_count_as_an_invalid_batch(self, mock_task):
+        before = self.api_source.invalid_event_count
+        dirty = valid_event(self.sensor.id, username="a" * 300)
+        self._post_mixed(dirty)
+        self.api_source.refresh_from_db()
+        self.assertEqual(self.api_source.invalid_event_count, before)
+        self.assertTrue(self.api_source.is_active)

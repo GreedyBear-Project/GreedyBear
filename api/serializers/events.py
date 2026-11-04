@@ -1,11 +1,13 @@
 import logging
 import re
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from django.utils import timezone
 from rest_framework import serializers
 
-from greedybear.models import EventStatus, Sensor
-from greedybear.utils import is_ip_address, normalize_ip
+from greedybear.models import EventStatus, RawEvent, Sensor
+from greedybear.utils import fits_field, is_ip_address, normalize_ip
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,8 @@ def sanitize_text(value: str, max_length: int | None = None) -> str:
     Unpaired surrogates (U+D800-U+DFFF) become ``[SUR]``.
 
     Clean strings return immediately, including ones already over
-    ``max_length``, so a normal too-long credential still fails validation.
+    ``max_length``; cutting those is left to the caller, so this function
+    only ever touches characters Postgres cannot store.
     ``encode("utf-8")`` fails on unpaired surrogates, and the membership
     check catches NULs, so the per-character walk only runs when a
     replacement is actually required.
@@ -125,10 +128,15 @@ def sanitize_json(value):
 
 
 class SanitizingCharField(serializers.CharField):
-    """CharField that sanitises jsonb-illegal characters before DRF validators run.
+    """CharField that sanitises and clamps a value before DRF validators run.
 
     ``ProhibitNullCharactersValidator`` runs before ``validate_*`` hooks, so
     cleaning has to happen in ``to_internal_value``.
+
+    The fields this is used on hold strings the attacker chose: a login name,
+    a password, a protocol banner. One over long value must not fail the whole
+    batch, so the value is cut to the width of its column instead, the same way
+    ``normalize_credential_field`` does it for the T-Pot path.
     """
 
     def to_internal_value(self, data):
@@ -136,7 +144,37 @@ class SanitizingCharField(serializers.CharField):
             # max_length is None on command (TextField). username and password
             # are 255, and [NUL]/[SUR] would otherwise push a legal value over it.
             data = sanitize_text(data, max_length=self.max_length)
+            if self.max_length is not None:
+                # sanitize_text returns a clean value whole, so an over long one
+                # still has to be cut here. to_internal_value runs before
+                # run_validators, so MaxLengthValidator then sees the cut value.
+                data = data[: self.max_length]
         return super().to_internal_value(data)
+
+
+class LenientURLField(serializers.CharField):
+    """URL field that drops an unusable value instead of failing the batch.
+
+    The honeypot records whichever URL the attacker asked it to fetch, so the
+    value is attacker-controlled and may be malformed or wider than the column.
+    ``_process_related_urls`` already drops an over long URL rather than storing
+    it, and ``_normalize_raw_event_to_hit`` re-checks ``is_valid_url`` before the
+    value is used, so dropping it here loses nothing that would have been kept.
+
+    ``serializers.URLField`` cannot be subclassed for this: its ``URLValidator``
+    lives in ``self.validators`` and runs after ``to_internal_value``, so a
+    dropped value would then fail validation as an empty string.
+    """
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if not value or not fits_field(RawEvent, "related_url", value):
+            return ""
+        try:
+            URLValidator()(value)
+        except DjangoValidationError:
+            return ""
+        return value
 
 
 class SanitizingJSONField(serializers.JSONField):
@@ -228,9 +266,11 @@ class EventSerializer(serializers.Serializer):
     sensor_id = serializers.IntegerField(required=True, min_value=0)
 
     # optional string fields
-    session_id = serializers.CharField(default="", max_length=100, allow_blank=True)
+    # the attacker-influenced ones are clamped rather than rejected, so a single
+    # over long value cannot discard the rest of the batch
+    session_id = SanitizingCharField(default="", max_length=100, allow_blank=True)
     token_id = serializers.CharField(default="", max_length=100, allow_blank=True)
-    protocol = serializers.CharField(default="", max_length=50, allow_blank=True)
+    protocol = SanitizingCharField(default="", max_length=50, allow_blank=True)
     service_name = serializers.CharField(default="", max_length=100, allow_blank=True)
     username = SanitizingCharField(default="", max_length=255, allow_blank=True)
     password = SanitizingCharField(default="", max_length=255, allow_blank=True)
@@ -238,7 +278,7 @@ class EventSerializer(serializers.Serializer):
     command = SanitizingCharField(default="", allow_blank=True)
     src_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
     dest_port = serializers.IntegerField(default=None, min_value=1, max_value=65535, allow_null=True)
-    related_url = serializers.URLField(default="", max_length=900, allow_blank=True)
+    related_url = LenientURLField(default="", max_length=900, allow_blank=True)
     payload_hash = serializers.CharField(default="", max_length=64, allow_blank=True)
     data = SanitizingJSONField(default=dict)
 
