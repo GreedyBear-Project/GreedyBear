@@ -56,7 +56,7 @@ class TestFireHolRepository(CustomTestCase):
         self.repo.get_or_create("1.2.3.4", "greensnow")
         self.repo.get_or_create("10.0.0.0/8", "dshield")
 
-        entries = self.repo.get_entries_by_ip()
+        entries = self.repo.get_entries_by_ip(["greensnow", "dshield"])
 
         self.assertEqual(entries["1.2.3.4"], ["greensnow"])
         self.assertNotIn("10.0.0.0", entries)
@@ -66,11 +66,34 @@ class TestFireHolRepository(CustomTestCase):
         ioc = IOC.objects.create(name="10.0.0.5", type=IocType.IP)
         self.repo.get_or_create("10.0.0.5", "greensnow")
 
-        self.assertNotIn(ioc.id, dict(self.repo.get_cidr_matches()))
+        self.assertNotIn(ioc.id, dict(self.repo.get_cidr_matches(["greensnow", "dshield"])))
 
         self.repo.get_or_create("10.0.0.0/8", "dshield")
 
-        self.assertEqual(dict(self.repo.get_cidr_matches())[ioc.id], ["dshield"])
+        self.assertEqual(dict(self.repo.get_cidr_matches(["greensnow", "dshield"]))[ioc.id], ["dshield"])
+
+    def test_get_entries_by_ip_only_reads_given_sources(self):
+        """Rows of other sources in the same table are left out."""
+        self.repo.get_or_create("1.2.3.4", "greensnow")
+        self.repo.get_or_create("1.2.3.4", "spamhaus_drop")
+
+        self.assertEqual(self.repo.get_entries_by_ip("spamhaus_drop"), {"1.2.3.4": ["spamhaus_drop"]})
+        self.assertEqual(self.repo.get_entries_by_ip(["greensnow"]), {"1.2.3.4": ["greensnow"]})
+
+    def test_get_cidr_matches_only_reads_given_sources(self):
+        """Ranges of other sources in the same table are left out."""
+        ioc = IOC.objects.create(name="10.0.0.5", type=IocType.IP)
+        self.repo.get_or_create("10.0.0.0/8", "spamhaus_drop")
+
+        self.assertNotIn(ioc.id, dict(self.repo.get_cidr_matches(["dshield"])))
+        self.assertEqual(dict(self.repo.get_cidr_matches("spamhaus_drop"))[ioc.id], ["spamhaus_drop"])
+
+    def test_has_entries_only_checks_given_sources(self):
+        """Rows of another source do not count as entries."""
+        self.repo.get_or_create("1.2.3.4", "spamhaus_drop")
+
+        self.assertTrue(self.repo.has_entries("spamhaus_drop"))
+        self.assertFalse(self.repo.has_entries(["greensnow", "dshield"]))
 
     def test_entry_still_listed_survives_cleanup(self):
         """An old entry seen again is not deleted, because added was refreshed."""
