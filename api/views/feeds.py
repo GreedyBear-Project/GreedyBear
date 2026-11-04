@@ -43,7 +43,6 @@ from api.serializers import (
     TrendingFeedRequestSerializer,
     TrendingFeedResponseSerializer,
 )
-from api.share_tokens import share_token_salt_for_user
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
     aggregate_iocs_by_asn,
@@ -528,7 +527,7 @@ class ShareTokenViewSet(RequestLoggingMixin, QueryParamValidationMixin, ViewSet)
         data.pop("reason", None)
         # IsAuthenticated guarantees request.user is a persisted user.
         user_id = cast("int", request.user.pk)
-        token = signing.dumps(data, salt=share_token_salt_for_user(user_id))
+        token = signing.dumps(data, salt=ShareToken.salt_for_user(user_id))
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         ShareToken.objects.get_or_create(
             token_hash=token_hash,

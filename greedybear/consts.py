@@ -94,7 +94,6 @@ START_TIME = time.time()
 SHARE_TOKEN_SALT = "greedybear-feeds"
 SHARE_TOKEN_MAX_AGE = 86400 * 30  # 30 days
 
-
 # Event injection API
 APISOURCE_LOCKED_THRESHOLD = 10
 

@@ -8,7 +8,6 @@ from django.core import signing
 from django.core.cache import cache
 from rest_framework.test import APIClient
 
-from api.share_tokens import share_token_salt_for_user
 from api.throttles import SharedFeedRateThrottle
 from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken, Tag
 from tests import CustomTestCase
@@ -581,7 +580,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "start_date": None,
             "end_date": None,
         }
-        token = signing.dumps(data, salt=share_token_salt_for_user(self.superuser.pk))
+        token = signing.dumps(data, salt=ShareToken.salt_for_user(self.superuser.pk))
         tampered = token + "TAMPERED"
         ShareToken.objects.create(
             user=self.superuser,
@@ -613,7 +612,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "start_date": None,
             "end_date": None,
         }
-        token = signing.dumps(data, salt=share_token_salt_for_user(self.superuser.pk))
+        token = signing.dumps(data, salt=ShareToken.salt_for_user(self.superuser.pk))
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
         self.assertFalse(ShareToken.objects.filter(token_hash=token_hash).exists())

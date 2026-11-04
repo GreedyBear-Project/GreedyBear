@@ -1,7 +1,6 @@
 import hashlib
 import logging
 from collections.abc import Mapping
-from typing import cast
 
 from django.conf import settings
 from django.core import signing
@@ -9,7 +8,6 @@ from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
 from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_valid_feed_types
-from api.share_tokens import share_token_salt_for_user
 from greedybear.consts import SHARE_TOKEN_MAX_AGE
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
@@ -306,13 +304,10 @@ class TokenRequestSerializer(serializers.Serializer):
             attrs["share_token"] = ShareToken.objects.get(token_hash=token_hash)
         except ShareToken.DoesNotExist as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
-        share_token = attrs["share_token"]
-        # Use the FK attname to avoid fetching the related user.
-        owner_id = cast("int", share_token.user_id)  # ty: ignore[unresolved-attribute]  # Django generates this FK attribute
         try:
             attrs["feed_params"] = signing.loads(
                 token,
-                salt=share_token_salt_for_user(owner_id),
+                salt=attrs["share_token"].signing_salt,
                 max_age=SHARE_TOKEN_MAX_AGE,
             )
         except signing.BadSignature as exc:
