@@ -25,8 +25,8 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
-                ("first_seen", models.DateTimeField(default=datetime.datetime.utcnow)),
-                ("last_seen", models.DateTimeField(default=datetime.datetime.utcnow)),
+                ("first_seen", models.DateTimeField(default=datetime.datetime.now)),
+                ("last_seen", models.DateTimeField(default=datetime.datetime.now)),
                 (
                     "commands",
                     django.contrib.postgres.fields.ArrayField(

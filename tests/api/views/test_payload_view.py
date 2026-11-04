@@ -72,6 +72,30 @@ class TestListPayloads(HoneypotPayloadViewSetTestCase):
         self.assertEqual(item["size"], 0)
         self.assertIn("Dionaea", item["source_honeypots"])
 
+    def test_page_params_are_accepted(self):
+        """page and page_size select a page of the list, which is ordered most recent first."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}?page=2&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["sha256"], SAMPLE_SHA256)
+
+    def test_paginate_false_returns_full_list(self):
+        """paginate is read by the paginator rather than a serializer, but it is a documented param."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}?paginate=false")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsInstance(response.json(), list)
+        self.assertEqual(len(response.json()), 2)
+
+    def test_filtering_by_payload_field_is_rejected(self):
+        """The fields of the response serializer are not filters, so they are unknown query params."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}?mime_type=application/x-elf")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"mime_type": ["Unknown query parameter."]})
+
 
 class TestRetrievePayload(HoneypotPayloadViewSetTestCase):
     def test_retrieve_by_sha256(self):
@@ -110,6 +134,13 @@ class TestRetrievePayload(HoneypotPayloadViewSetTestCase):
         response = self.client.get(f"{PAYLOADS_URL}/{'e' * 64}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sha256"], legacy.sha256)
+
+    def test_page_param_is_rejected(self):
+        """Only the list is paginated, so retrieve takes no query params at all."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256}?page=1")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
 
 
 class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
@@ -165,4 +196,19 @@ class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
         self.client.force_authenticate(user=self.regular_user)
         sha = self.payload_with_file.sha256
         response = self.client.get(f"{PAYLOADS_URL}/{sha.upper()}/download")
+        self.assertEqual(response.status_code, 403)
+
+    def test_page_param_is_rejected(self):
+        """Like retrieve, download takes no query params at all."""
+        self.client.force_authenticate(user=self.superuser)
+        sha = self.payload_with_file.sha256
+        response = self.client.get(f"{PAYLOADS_URL}/{sha}/download?page=1")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
+
+    def test_unknown_param_still_enforces_permissions(self):
+        """The query param check must not replace the RBAC check's 403 with a 400."""
+        self.client.force_authenticate(user=self.regular_user)
+        sha = self.payload_with_file.sha256
+        response = self.client.get(f"{PAYLOADS_URL}/{sha}/download?page=1")
         self.assertEqual(response.status_code, 403)

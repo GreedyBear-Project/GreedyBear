@@ -3,16 +3,39 @@ import React from "react";
 import classnames from "classnames";
 import { Table } from "reactstrap";
 import {
-  useReactTable,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
+  columnFilteringFeature,
+  columnVisibilityFeature,
+  createFilteredRowModel,
+  createPaginatedRowModel,
+  createSortedRowModel,
+  rowExpandingFeature,
+  rowPaginationFeature,
+  rowSelectionFeature,
+  rowSortingFeature,
+  tableFeatures,
+  useTable,
 } from "@tanstack/react-table";
+
 import { FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
 
 import { makeTableArgs, defaultConfig, defaultInitialState } from "./utils";
 import Paginator from "./Paginator";
+
+// TanStack Table v9 requires features (and their row models) to be declared
+// explicitly instead of being bundled into the hook as in v8. Declared once at
+// module scope because the set is static -- rebuilding it per render would
+// defeat the memoization the library does internally.
+const dataTableFeatures = tableFeatures({
+  columnFilteringFeature,
+  columnVisibilityFeature,
+  rowExpandingFeature,
+  rowPaginationFeature,
+  rowSelectionFeature,
+  rowSortingFeature,
+  filteredRowModel: createFilteredRowModel(),
+  paginatedRowModel: createPaginatedRowModel(),
+  sortedRowModel: createSortedRowModel(),
+});
 
 function getColumnId(column) {
   return column.id || column.accessor;
@@ -176,18 +199,19 @@ function DataTable({
     [updateState],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data,
     columns: tanstackColumns,
+    // v9: rows without subRows are not expandable by default; opt in so
+    // expandable tables (e.g. alerts with a SubComponent) behave like v8.
+    enableExpanding: config?.enableExpanded,
+    getRowCanExpand: () => true,
     state: tableState,
     pageCount,
     manualPagination,
     manualFiltering: manualFilters,
     manualSorting: manualSortBy,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     enableRowSelection: (row) =>
       isRowSelectable({
         id: row.id,
@@ -304,9 +328,11 @@ function DataTable({
     [pageRows, toLegacyRow],
   );
 
+  const rowSelection = table.state.rowSelection;
   const selectedFlatRows = React.useMemo(
     () => table.getSelectedRowModel().flatRows.map((row) => toLegacyRow(row)),
-    [table, toLegacyRow],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rowSelection, data, toLegacyRow],
   );
 
   React.useEffect(() => {
@@ -419,9 +445,10 @@ function DataTable({
     [hookRegistry],
   );
 
+  const totalPages = table.getPageCount();
   const pageOptions = React.useMemo(
-    () => Array.from({ length: table.getPageCount() }, (_, index) => index),
-    [table],
+    () => Array.from({ length: totalPages }, (_, index) => index),
+    [totalPages],
   );
 
   const tableBody = TableBodyComponent ? (
@@ -557,7 +584,7 @@ function DataTable({
       </Table>
       {pageOptions.length > 1 && (
         <Paginator
-          pageIndex={table.getState().pagination.pageIndex}
+          pageIndex={table.state.pagination.pageIndex}
           pageOptions={pageOptions}
           onPaginate={(nextPage) => table.setPageIndex(nextPage)}
           className="table-paginator"

@@ -1,5 +1,9 @@
+from datetime import datetime
+from unittest.mock import patch
+
 from django.test import override_settings
 
+from api.serializers import StatisticsRequestSerializer
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.models import IOC, Honeypot, IocType, Statistics, ViewType
@@ -35,6 +39,11 @@ class StatisticsViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["Sources"], 1)
 
+    def test_200_valid_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=30d")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["Sources"], 1)
+
     def test_200_feeds_downloads(self):
         response = self.client.get("/api/statistics/downloads/feeds")
         self.assertEqual(response.status_code, 200)
@@ -60,11 +69,29 @@ class StatisticsViewTestCase(CustomTestCase):
         response = self.client.get("/api/statistics/feeds_types")
         self.assertEqual(response.status_code, 200)
         # Expecting 3 because setupTestData creates 3 IOCs (ioc, ioc_2, ioc_domain) associated with Heralding
-        self.assertEqual(response.json()[0]["Heralding"], 3)
-        self.assertEqual(response.json()[0]["Ciscoasa"], 2)
-        self.assertEqual(response.json()[0]["Log4pot"], 3)
-        self.assertEqual(response.json()[0]["Cowrie"], 3)
-        self.assertEqual(response.json()[0]["Tanner"], 0)
+        counts = response.json()[0]["counts"]
+        self.assertEqual(counts["Heralding"], 3)
+        self.assertEqual(counts["Ciscoasa"], 2)
+        self.assertEqual(counts["Log4pot"], 3)
+        self.assertEqual(counts["Cowrie"], 3)
+        self.assertEqual(counts["Tanner"], 0)
+
+    def test_feed_types_support_date_and_model_field_honeypot_names(self):
+        date_honeypot = Honeypot.objects.create(name="date", active=True)
+        name_honeypot = Honeypot.objects.create(name="name", active=True)
+        ioc = IOC.objects.create(name="198.51.100.252", type=IocType.IP.value)
+        ioc.honeypots.add(date_honeypot, name_honeypot)
+        Cache(API_CACHE_ALIAS).bump_data_version(IOC_DATA_VERSION_KEY)
+
+        response = self.client.get("/api/statistics/feeds_types")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data)
+        row = next(item for item in data if item["counts"]["date"] == 1)
+        self.assertIsInstance(row["date"], str)
+        self.assertEqual(row["counts"]["name"], 1)
+        self.assertEqual(set(row), {"date", "counts"})
 
     def test_200_countries(self):
         response = self.client.get("/api/statistics/countries")
@@ -102,7 +129,7 @@ class StatisticsViewTestCase(CustomTestCase):
 
         response = self.client.get("/api/statistics/feeds_types")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()[0]["MixActiveHp"], 1)
+        self.assertEqual(response.json()[0]["counts"]["MixActiveHp"], 1)
 
     def test_only_inactive_honeypot_is_excluded(self):
         # Locks the intended exclusion: an IOC seen exclusively through
@@ -118,9 +145,51 @@ class StatisticsViewTestCase(CustomTestCase):
 
         response = self.client.get("/api/statistics/feeds_types")
         self.assertEqual(response.status_code, 200)
-        data = response.json()[0]
-        self.assertEqual(data["MixControlHp"], 1)
-        self.assertNotIn("MixInactiveHp", data)
+        counts = response.json()[0]["counts"]
+        self.assertEqual(counts["MixControlHp"], 1)
+        self.assertNotIn("MixInactiveHp", counts)
+
+    def test_400_overflow_range_countries(self):
+        response = self.client.get("/api/statistics/countries?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_feeds_types(self):
+        response = self.client.get("/api/statistics/feeds_types?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_overflow_range_enrichment_sources(self):
+        response = self.client.get("/api/statistics/sources/enrichment?range=99999999999Y")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_countries(self):
+        response = self.client.get("/api/statistics/countries?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_feeds_types(self):
+        response = self.client.get("/api/statistics/feeds_types?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_invalid_range_enrichment_sources(self):
+        response = self.client.get("/api/statistics/sources/enrichment?range=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_unknown_param_countries(self):
+        response = self.client.get("/api/statistics/countries?limit=10")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"limit": ["Unknown query parameter."]})
+
+    def test_400_unknown_param_feeds_sources(self):
+        response = self.client.get("/api/statistics/sources/feeds?time_range=30d")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"time_range": ["Unknown query parameter."]})
 
 
 @override_settings(CACHES=TEST_CACHES)
@@ -201,9 +270,33 @@ class StatisticsIocCacheTestCase(CustomTestCase):
         cached = self.client.get(url)
         self.assertEqual(cached.status_code, 200)
         self.assertEqual(cached.json()[0], baseline)
-        self.assertNotIn("Tanner", cached.json()[0])
+        self.assertNotIn("Tanner", cached.json()[0]["counts"])
 
         Cache(API_CACHE_ALIAS).bump_data_version(IOC_DATA_VERSION_KEY)
         fresh = self.client.get(url)
         self.assertEqual(fresh.status_code, 200)
-        self.assertEqual(fresh.json()[0]["Tanner"], 1)
+        self.assertEqual(fresh.json()[0]["counts"]["Tanner"], 1)
+
+
+class StatisticsRequestSerializerTestCase(CustomTestCase):
+    def test_range_defaults_to_seven_days(self):
+        serializer = StatisticsRequestSerializer(data={})
+        with patch("certego_saas.ext.helpers.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["range"], (datetime(2026, 3, 13, 10, 30, 0), "day"))
+
+    def test_range_is_parsed_into_start_and_basis(self):
+        serializer = StatisticsRequestSerializer(data={"range": "24h"})
+        with patch("certego_saas.ext.helpers.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["range"], (datetime(2026, 3, 19, 10, 30, 0), "hour"))
+
+    def test_range_rejects_invalid_format(self):
+        serializer = StatisticsRequestSerializer(data={"range": "invalid"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("range", serializer.errors)
+
+    def test_range_rejects_overflowing_value(self):
+        serializer = StatisticsRequestSerializer(data={"range": "99999999999Y"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("range", serializer.errors)

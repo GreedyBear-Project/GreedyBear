@@ -1,11 +1,13 @@
 import logging
 import re
+from datetime import datetime
 
+from certego_saas.ext.helpers import parse_humanized_range
 from rest_framework import serializers
 
 from api.serializers.utils import PresenceFlagField
-from greedybear.consts import REGEX_DOMAIN
 from greedybear.models import IOC, Sensor, Tag
+from greedybear.regex import REGEX_DOMAIN
 from greedybear.utils import is_ip_address
 
 logger = logging.getLogger(__name__)
@@ -33,9 +35,10 @@ class SensorSerializer(serializers.ModelSerializer):
 
 
 class IOCSerializer(serializers.ModelSerializer):
-    general_honeypot = HoneypotRelatedField(many=True, read_only=True, source="honeypots")
+    honeypots = HoneypotRelatedField(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     sensors = SensorSerializer(many=True, read_only=True)
+    payload_hashes = serializers.SerializerMethodField(help_text="Lowercase SHA256 hashes of the payloads observed from this IOC.")
 
     class Meta:
         model = IOC
@@ -43,23 +46,27 @@ class IOCSerializer(serializers.ModelSerializer):
             "related_urls",
         ]
 
+    def get_payload_hashes(self, obj) -> list[str]:
+        # iterate over .all() so a prefetched `payloads` relation is reused
+        return sorted(payload.sha256.lower() for payload in obj.payloads.all())
+
 
 class EnrichmentRequestSerializer(serializers.Serializer):
     query = serializers.CharField(max_length=250, help_text="The IP address or domain to lookup.")
 
-    def validate(self, data):
+    def validate(self, attrs):
         """
         Validate that the query is a valid IP address (IPv4/IPv6) or domain.
         """
-        observable = data["query"].strip()
-        data["query"] = observable
+        observable = attrs["query"].strip()
+        attrs["query"] = observable
 
         # A valid domain must match the domain regex AND contain at least one alphabetic character
         is_domain = bool(re.match(REGEX_DOMAIN, observable)) and any(c.isalpha() for c in observable)
 
         if not is_ip_address(observable) and not is_domain:
             raise serializers.ValidationError("Observable is not a valid IP address or domain")
-        return data
+        return attrs
 
 
 class EnrichmentSerializer(serializers.Serializer):
@@ -69,18 +76,20 @@ class EnrichmentSerializer(serializers.Serializer):
 
 
 class HoneypotRequestSerializer(serializers.Serializer):
-    """Query params for the honeypot list endpoint.
-    ``onlyActive`` is the legacy camelCase spelling kept for backwards compatibility.
-    Either spelling enables the filter.
-    """
+    """Query params for the honeypot list endpoint."""
 
     only_active = PresenceFlagField(default=False, help_text="Include only active honeypots.")
-    onlyActive = PresenceFlagField(  # noqa: N815
-        default=False,
-        help_text="Deprecated alias for only_active.",
-    )
 
-    def validate(self, data):
-        legacy_flag = data.pop("onlyActive")
-        data["only_active"] = data["only_active"] or legacy_flag
-        return data
+
+class StatisticsRequestSerializer(serializers.Serializer):
+    """Query params for the statistics endpoints."""
+
+    range = serializers.CharField(default="7d", help_text="Time range to aggregate over, e.g. `7d`, `24h` or `30d`.")
+
+    def validate_range(self, value: str) -> tuple[datetime, str]:
+        """Parse the range into the start of the time window and the basis to truncate dates to."""
+        try:
+            return parse_humanized_range(value)
+        except (OverflowError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            logger.info(f"Invalid range parameter '{value}': {exc}")
+            raise serializers.ValidationError(f"Invalid 'range' parameter: '{value}'. Expected format like '7d', '24h', or '30d'.") from exc

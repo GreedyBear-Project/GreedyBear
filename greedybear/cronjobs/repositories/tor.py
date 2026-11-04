@@ -16,7 +16,7 @@ class TorRepository:
 
         Args:
             ip_address: IP address of the Tor exit node.
-            reason: Reason/description (default: "tor exit node").
+            reason: Reason/description (default: "tor exit").
 
         Returns:
             Tuple of (TorExitNode object, created_flag) where created_flag is True if new.

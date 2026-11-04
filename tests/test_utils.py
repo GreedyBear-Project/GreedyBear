@@ -2,18 +2,26 @@
 # See the file 'LICENSE' for copying permission.
 
 from datetime import datetime
+from hashlib import sha256
 from ipaddress import ip_address
+from typing import cast
 
+from django.core.exceptions import FieldDoesNotExist
 from django.test import SimpleTestCase
 
-from greedybear.consts import DOMAIN, IP
+from greedybear.consts import DOMAIN, IP, MAX_HOSTNAME_LENGTH
+from greedybear.models import IOC, CommandSequence, Credential
 from greedybear.utils import (
     PAYLOAD_REQUEST,
     SCANNER,
+    clamp_to_field,
+    field_max_length,
+    fits_field,
     get_attack_type,
     get_ioc_type,
     get_nested_value,
     get_time_window,
+    hash_command_sequence,
     is_ip_address,
     is_non_global_ip,
     is_sha256hash,
@@ -21,6 +29,7 @@ from greedybear.utils import (
     is_valid_domain,
     is_valid_ipv4,
     is_valid_url,
+    parse_url_hostname,
 )
 
 from . import CustomTestCase
@@ -144,6 +153,28 @@ class TestIsValidCIDR(CustomTestCase):
             is_valid, cidr = is_valid_cidr(value)
             self.assertFalse(is_valid)
             self.assertIsNone(cidr)
+
+    def test_invalid_cidr_mask_after_slash(self):
+        """Python accepts a mask after the slash, Postgres cidr does not."""
+        invalid = [
+            "192.168.1.0/255.255.255.0",
+            "192.168.1.0/0.0.0.255",
+        ]
+
+        for value in invalid:
+            is_valid, cidr = is_valid_cidr(value)
+            self.assertFalse(is_valid)
+            self.assertIsNone(cidr)
+
+    def test_invalid_cidr_host_bits_set(self):
+        """A network with host bits set cannot be stored in the cidr column."""
+        is_valid, cidr = is_valid_cidr("192.168.1.5/24")
+        self.assertFalse(is_valid)
+        self.assertIsNone(cidr)
+
+        is_valid, cidr = is_valid_cidr("10.0.0.1/8")
+        self.assertFalse(is_valid)
+        self.assertIsNone(cidr)
 
 
 class TestIsValidIpv4(CustomTestCase):
@@ -283,6 +314,14 @@ class TestGetIocType(CustomTestCase):
         self.assertEqual(get_ioc_type("255.255.255.255"), IP)
         self.assertEqual(get_ioc_type("192.168.1.1"), IP)
 
+    def test_ipv6_returns_ip(self):
+        self.assertEqual(get_ioc_type("2001:db8::1"), IP)
+        self.assertEqual(get_ioc_type("::1"), IP)
+        self.assertEqual(get_ioc_type("fe80::1ff:fe23:4567:890a"), IP)
+
+    def test_padded_ipv4_still_returns_ip(self):
+        self.assertEqual(get_ioc_type("  1.2.3.4  "), IP)
+
     def test_domain_returns_domain(self):
         self.assertEqual(get_ioc_type("example.com"), DOMAIN)
 
@@ -381,6 +420,52 @@ class UtilsTestCase(SimpleTestCase):
         self.assertEqual(get_attack_type([]), SCANNER)
 
 
+class TestParseUrlHostname(SimpleTestCase):
+    def test_valid_http(self):
+        """Test URL parsing with valid HTTP URL."""
+        self.assertEqual(parse_url_hostname("http://example.com/path"), "example.com")
+
+    def test_valid_https(self):
+        """Test URL parsing with valid HTTPS URL."""
+        self.assertEqual(parse_url_hostname("https://malware.site/payload.exe"), "malware.site")
+
+    def test_with_port(self):
+        """Test URL parsing with port number."""
+        self.assertEqual(parse_url_hostname("http://evil.com:8080/download"), "evil.com")
+
+    def test_ipv6(self):
+        """Test URL parsing with IPv6 address."""
+        self.assertEqual(parse_url_hostname("http://[2001:db8::1]/foo"), "2001:db8::1")
+
+    def test_invalid_url(self):
+        """Test URL parsing with invalid URL."""
+        self.assertIsNone(parse_url_hostname("not_a_url"))
+
+    def test_empty_string(self):
+        """Test URL parsing with empty string."""
+        self.assertIsNone(parse_url_hostname(""))
+
+    def test_hostname_at_dns_limit_is_accepted(self):
+        hostname = f"{'a' * (MAX_HOSTNAME_LENGTH - 4)}.com"
+        self.assertEqual(len(hostname), MAX_HOSTNAME_LENGTH)
+        self.assertEqual(parse_url_hostname(f"http://{hostname}/payload"), hostname)
+
+    def test_hostname_over_dns_limit_is_rejected(self):
+        hostname = f"{'a' * (MAX_HOSTNAME_LENGTH - 3)}.com"
+        self.assertEqual(len(hostname), MAX_HOSTNAME_LENGTH + 1)
+        self.assertIsNone(parse_url_hostname(f"http://{hostname}/payload"))
+
+    def test_hostname_over_ioc_name_width_is_rejected(self):
+        """A hostname wider than the IOC.name column never reaches it."""
+        hostname = f"{'a' * 300}.com"
+        self.assertIsNone(parse_url_hostname(f"http://{hostname}/payload"))
+
+    def test_dns_limit_fits_the_ioc_name_column(self):
+        """If IOC.name ever shrinks below the DNS limit, this guard stops protecting it."""
+        name_width = cast("int", IOC._meta.get_field("name").max_length)
+        self.assertLessEqual(MAX_HOSTNAME_LENGTH, name_width)
+
+
 class TestGetNestedValue(SimpleTestCase):
     def test_single_key_returns_value(self):
         result = get_nested_value({"protocol": "ssh"}, "protocol")
@@ -445,6 +530,89 @@ class TestGetNestedValue(SimpleTestCase):
         get_nested_value(hit, "connection", "protocol")
         get_nested_value(hit, "connection", "missing")
         self.assertEqual(hit, {"connection": {"protocol": "smbd"}})
+
+
+class TestClampToField(SimpleTestCase):
+    def test_clamps_to_char_field_width(self):
+        result = clamp_to_field(Credential, "username", "x" * 300)
+        self.assertEqual(len(result), 256)
+
+    def test_clamps_to_array_inner_field_width(self):
+        """An ArrayField stores each element in its inner field, so that is the limit."""
+        result = clamp_to_field(CommandSequence, "commands", "x" * 2000)
+        self.assertEqual(len(result), 1024)
+
+    def test_short_value_is_untouched(self):
+        self.assertEqual(clamp_to_field(Credential, "username", "admin"), "admin")
+
+    def test_empty_value_is_untouched(self):
+        self.assertEqual(clamp_to_field(Credential, "username", ""), "")
+
+    def test_field_without_max_length_is_untouched(self):
+        value = "x" * 5000
+        self.assertEqual(clamp_to_field(CommandSequence, "commands_hash", value[:64]), value[:64])
+        self.assertEqual(clamp_to_field(CommandSequence, "first_seen", value), value)
+
+    def test_limit_follows_the_schema(self):
+        """The point of the helper: widen the column and the clamp widens with it."""
+        oversized = "x" * 5000
+        for model, field_name in ((Credential, "username"), (Credential, "password")):
+            with self.subTest(field=field_name):
+                declared = model._meta.get_field(field_name).max_length
+                self.assertEqual(len(clamp_to_field(model, field_name, oversized)), declared)
+
+    def test_unknown_field_raises(self):
+        with self.assertRaises(FieldDoesNotExist):
+            clamp_to_field(Credential, "not_a_field", "value")
+
+
+class TestFitsField(SimpleTestCase):
+    def test_value_at_the_width_fits(self):
+        self.assertTrue(fits_field(Credential, "username", "x" * 256))
+
+    def test_value_over_the_width_does_not_fit(self):
+        self.assertFalse(fits_field(Credential, "username", "x" * 257))
+
+    def test_array_field_measures_the_inner_field(self):
+        """An ArrayField stores each element in its inner field, so that is the limit."""
+        self.assertTrue(fits_field(IOC, "related_urls", "x" * 900))
+        self.assertFalse(fits_field(IOC, "related_urls", "x" * 901))
+
+    def test_empty_value_fits(self):
+        self.assertTrue(fits_field(IOC, "related_urls", ""))
+
+    def test_field_without_max_length_always_fits(self):
+        self.assertTrue(fits_field(CommandSequence, "first_seen", "x" * 5000))
+
+
+class TestFieldMaxLength(SimpleTestCase):
+    def test_reads_char_field_width(self):
+        self.assertEqual(field_max_length(Credential, "username"), 256)
+
+    def test_reads_array_inner_field_width(self):
+        self.assertEqual(field_max_length(IOC, "related_urls"), 900)
+
+    def test_field_without_max_length_returns_none(self):
+        self.assertIsNone(field_max_length(CommandSequence, "first_seen"))
+
+    def test_reads_hash_field_width(self):
+        self.assertEqual(field_max_length(CommandSequence, "commands_hash"), 64)
+
+    def test_unknown_field_raises(self):
+        with self.assertRaises(FieldDoesNotExist):
+            field_max_length(IOC, "not_a_field")
+
+
+class TestHashCommandSequence(SimpleTestCase):
+    def test_hash_is_sha256_of_newline_joined_commands(self):
+        cmds = ["uname -a", "cat /proc/cpuinfo | grep name | wc -l", "free -m"]
+        self.assertEqual(hash_command_sequence(cmds), sha256("\n".join(cmds).encode()).hexdigest())
+
+    def test_order_matters(self):
+        self.assertNotEqual(hash_command_sequence(["ls", "id"]), hash_command_sequence(["id", "ls"]))
+
+    def test_single_command(self):
+        self.assertEqual(hash_command_sequence(["uname -a"]), sha256(b"uname -a").hexdigest())
 
 
 class TestTimeWindowCalculation(SimpleTestCase):

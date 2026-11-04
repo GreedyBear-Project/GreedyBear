@@ -1,6 +1,5 @@
 import logging
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django_q.tasks import async_task
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
@@ -9,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.mixins import RequestLoggingMixin
 from api.serializers import BatchStatusRequestSerializer, BatchStatusSerializer, InjectionResponseSerializer, InjectionSerializer
 from api.views.utils import create_batch_and_events, increment_and_evaluate_lock, resolve_active_api_source
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class EventsCreateView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -41,7 +41,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
     )
     def post(self, request: Request, *args, **kwargs):
         api_source, error_response = resolve_active_api_source(request)
-        if error_response:
+        if api_source is None:
             return error_response
 
         serializer = InjectionSerializer(data=request.data)
@@ -70,7 +70,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
             # enqueue background task
             async_task(
                 "greedybear.process_event.process_incoming_event",
-                api_source.id,
+                api_source.pk,
                 batch.task_id,
             )
         except Exception as e:
@@ -100,7 +100,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
 
 
 class BatchStatusView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -131,7 +131,7 @@ class BatchStatusView(RequestLoggingMixin, APIView):
     )
     def get(self, request: Request, task_id: str, *args, **kwargs):
         api_source, error_response = resolve_active_api_source(request)
-        if error_response:
+        if api_source is None:
             return error_response
 
         # task_id arrives as a path segment, so it is wrapped into a mapping to be validated.

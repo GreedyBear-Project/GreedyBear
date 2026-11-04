@@ -9,7 +9,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from api.throttles import SharedFeedRateThrottle
-from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken
+from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken, Tag
 from tests import CustomTestCase
 
 
@@ -45,10 +45,22 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         iocs = [json.loads(line) for line in lines]
         target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
         self.assertIn("days_seen", target_ioc)
-        self.assertIn("firehol_categories", target_ioc)
+
+    def test_firehol_tags_in_feed(self):
+        """FireHol blocklist membership reaches consumers through tags."""
+        Tag.objects.create(ioc=self.ioc, key="blocklist", value="greensnow", source="firehol")
+
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        lines = [line for line in body.split("\n") if line.strip()]
+        iocs = [json.loads(line) for line in lines]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+
+        firehol_values = [t["value"] for t in target_ioc["tags"] if t["source"] == "firehol"]
+        self.assertEqual(firehol_values, ["greensnow"])
 
     def test_delimeter(self):
-        response = self.client.get("/api/feeds/advanced/?format=ndjson&include_mass_scanners")
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
         body = b"".join(response.streaming_content).decode("utf-8")
         lines = [line for line in body.split("\n") if line.strip()]
         value = 1
@@ -79,6 +91,18 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/advanced/?attack_type=test")
         self.assertEqual(response.status_code, 400)
 
+    def test_400_feeds_unknown_param(self):
+        # include_mass_scanners belongs to the public feeds; the advanced feed filters with include_reputation/exclude_reputation
+        response = self.client.get("/api/feeds/advanced/?include_mass_scanners")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"include_mass_scanners": ["Unknown query parameter."]})
+
+    def test_400_feeds_legacy_format_name(self):
+        # format_ was the old name of format and is no longer accepted
+        response = self.client.get("/api/feeds/advanced/?format_=txt")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"format_": ["Unknown query parameter."]})
+
     def test_200_feeds_pagination(self):
         response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1")
         self.assertEqual(response.status_code, 200)
@@ -98,7 +122,7 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertEqual(response.json()["total_pages"], 1)
 
     def test_200_feeds_pagination_exclude_tor(self):
-        response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1&exclude_reputation=tor%20exit%20node")
+        response = self.client.get("/api/feeds/advanced/?paginate=true&page_size=10&page=1&exclude_reputation=tor%20exit")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)
         self.assertEqual(response.json()["total_pages"], 1)
@@ -139,6 +163,11 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/advanced/?min_credential_count=10&max_credential_count=5")
         self.assertEqual(response.status_code, 400)
 
+    def test_start_date_after_end_date_raises_validation_error(self):
+        """Should return 400 Bad Request when start_date is later than end_date."""
+        response = self.client.get("/api/feeds/advanced/?start_date=2026-01-20&end_date=2026-01-10")
+        self.assertEqual(response.status_code, 400)
+
     def test_feeds_advanced_includes_sensors(self):
         """Sensors field appears in feeds_advanced response for authenticated users."""
         sensor = Sensor.objects.create(address="10.0.0.1", label="test-sensor")
@@ -163,6 +192,40 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         iocs = response.json()["iocs"]
         for ioc in iocs:
             self.assertNotIn("sensors", ioc)
+
+    def test_feeds_advanced_includes_http_attack_types(self):
+        """http_attack_types appears in the feeds_advanced response."""
+        self.ioc.http_attack_types = ["lfi", "sqli"]
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertEqual(target_ioc["http_attack_types"], ["lfi", "sqli"])
+
+    def test_public_feeds_includes_http_attack_types(self):
+        """http_attack_types is a base field, so it must appear in the public feed too."""
+        self.ioc.http_attack_types = ["lfi", "sqli"]
+        self.ioc.save()
+        self.client.logout()
+
+        response = self.client.get("/api/feeds/cowrie/all/recent.json")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertEqual(target_ioc["http_attack_types"], ["lfi", "sqli"])
+
+    def test_feeds_ioc_without_http_attack_types(self):
+        """An IOC with no attack types is returned with an empty list, not a missing key."""
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc_domain.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertEqual(target_ioc["http_attack_types"], [])
 
     def test_min_credential_count_filter(self):
         """IOCs with fewer credentials than min_credential_count are excluded."""
@@ -201,6 +264,40 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertIsNotNone(target_ioc)
         self.assertIn("credential_count", target_ioc)
         self.assertEqual(target_ioc["credential_count"], 1)
+
+    def test_feeds_advanced_includes_high_credential_reuse(self):
+        """high_credential_reuse appears in the feeds_advanced response."""
+        self.ioc.high_credential_reuse = True
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertIs(target_ioc["high_credential_reuse"], True)
+
+    def test_public_feeds_includes_high_credential_reuse(self):
+        """high_credential_reuse is a base field, so it must appear in the public feed too."""
+        self.ioc.high_credential_reuse = True
+        self.ioc.save()
+        self.client.logout()
+
+        response = self.client.get("/api/feeds/cowrie/all/recent.json")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertIs(target_ioc["high_credential_reuse"], True)
+
+    def test_feeds_ioc_without_high_credential_reuse(self):
+        """An unflagged IOC is returned with False, not a missing key."""
+        response = self.client.get("/api/feeds/advanced/")
+        self.assertEqual(response.status_code, 200)
+        iocs = response.json()["iocs"]
+        target_ioc = next((i for i in iocs if i["value"] == self.ioc_2.name), None)
+        self.assertIsNotNone(target_ioc)
+        self.assertIs(target_ioc["high_credential_reuse"], False)
 
 
 class FeedsEnhancementsTestCase(CustomTestCase):
@@ -354,6 +451,18 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
 
+    def test_end_date_max(self):
+        """end_date=9999-12-31 has no next day, so it must not be used to compute one."""
+        response = self.client.get("/api/feeds/advanced/?end_date=9999-12-31")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.ioc.name, {ioc["value"] for ioc in response.json()["iocs"]})
+
+    def test_400_max_age_too_large(self):
+        """A max_age reaching back before year 1 is rejected instead of overflowing."""
+        response = self.client.get("/api/feeds/advanced/?max_age=1000000")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("max_age", response.json()["errors"])
+
     def test_filter_by_country_code(self):
         """Filter by country_code returns only matching IOCs."""
         self.ioc.attacker_country_code = "IT"
@@ -371,7 +480,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_stix_21_export_ip(self):
         """STIX export for IP-type IOC produces a valid bundle with ipv4-addr indicator."""
-        response = self.client.get("/api/feeds/advanced/?format_=stix21")
+        response = self.client.get("/api/feeds/advanced/?format=stix21")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["type"], "bundle")
@@ -381,7 +490,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
     def test_stix_21_export_domain(self):
         """STIX export for domain-type IOC produces a domain-name indicator."""
         # ioc_domain is built by CustomTestCase.setUpTestData
-        response = self.client.get("/api/feeds/advanced/?format_=stix21")
+        response = self.client.get("/api/feeds/advanced/?format=stix21")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         patterns = [obj["pattern"] for obj in data["objects"]]
@@ -391,7 +500,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_shareable_feeds_flow(self):
         """Full flow: share → consume unauthenticated returns correct IOCs."""
-        share_response = self.client.get("/api/feeds/share?asn=11111&port=9001")
+        share_response = self.client.post("/api/feeds/share?asn=11111&port=9001")
         self.assertEqual(share_response.status_code, 200)
         share_data = share_response.json()
         share_url = share_data["url"]
@@ -415,8 +524,43 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"]["non_field_errors"][0], "Invalid or expired token")
 
-    def test_shareable_feed_expired_token(self):
-        """Consuming a tampered/expired token returns 400."""
+    def test_consume_feed_params_in_query_are_rejected(self):
+        """A consumed feed takes its params from the token, so feed params in the query string are rejected."""
+        share_response = self.client.post("/api/feeds/share?asn=11111")
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        response = self.client.get(f"/api/feeds/consume/{token}?min_score=0.5")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"min_score": ["Unknown query parameter."]})
+
+    def test_consume_page_params_are_accepted(self):
+        """Page params still work on a consumed paginated feed."""
+        share_response = self.client.post("/api/feeds/share?paginate=true")
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        response = self.client.get(f"/api/feeds/consume/{token}?page=1&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]["iocs"]), 1)
+
+    def test_share_unknown_param_is_rejected(self):
+        """Params the advanced feed does not know are rejected instead of being stored in the token."""
+        response = self.client.post("/api/feeds/share?asn=11111&page=2")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
+
+    def test_share_max_age_too_large_is_rejected(self):
+        response = self.client.post("/api/feeds/share?max_age=1000000")
+        self.assertEqual(response.status_code, 400)
+
+    def test_consume_shared_feed_with_end_date_max(self):
+        share_response = self.client.post("/api/feeds/share?end_date=9999-12-31")
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        response = self.client.get(f"/api/feeds/consume/{token}")
+        self.assertEqual(response.status_code, 200)
+
+    def test_shareable_feed_tampered_token(self):
+        """Consuming a tampered token with a matching DB record returns 400."""
         data = {
             "feed_type": "all",
             "attack_type": "all",
@@ -436,8 +580,12 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "start_date": None,
             "end_date": None,
         }
-        token = signing.dumps(data, salt="greedybear-feeds")
+        token = signing.dumps(data, salt=ShareToken.salt_for_user(self.superuser.pk))
         tampered = token + "TAMPERED"
+        ShareToken.objects.create(
+            user=self.superuser,
+            token_hash=hashlib.sha256(tampered.encode()).hexdigest(),
+        )
         self.client.logout()
         response = self.client.get(f"/api/feeds/consume/{tampered}")
         self.assertEqual(response.status_code, 400)
@@ -464,7 +612,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "start_date": None,
             "end_date": None,
         }
-        token = signing.dumps(data, salt="greedybear-feeds")
+        token = signing.dumps(data, salt=ShareToken.salt_for_user(self.superuser.pk))
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
         self.assertFalse(ShareToken.objects.filter(token_hash=token_hash).exists())
@@ -476,7 +624,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_consume_token_deleted_from_db_is_rejected(self):
         """A token whose DB record has been deleted is rejected even though the signature is valid."""
-        share_response = self.client.get("/api/feeds/share?asn=11111")
+        share_response = self.client.post("/api/feeds/share?asn=11111")
         self.assertEqual(share_response.status_code, 200)
         token = share_response.json()["url"].split("/")[-1]
 
@@ -498,7 +646,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         then verifies the second request within the window returns 429.
         cache.clear() is scoped to this test to avoid leaking throttle state.
         """
-        share_response = self.client.get("/api/feeds/share")
+        share_response = self.client.post("/api/feeds/share")
         token = share_response.json()["url"].split("/")[-1]
         anon = APIClient()
 
@@ -513,11 +661,11 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_token_revocation(self):
         """Revoking a token makes subsequent consume calls return 400."""
-        share_response = self.client.get("/api/feeds/share?asn=11111")
+        share_response = self.client.post("/api/feeds/share?asn=11111")
         self.assertEqual(share_response.status_code, 200)
         token = share_response.json()["url"].split("/")[-1]
 
-        revoke_response = self.client.get(f"/api/feeds/revoke/{token}")
+        revoke_response = self.client.post(f"/api/feeds/revoke/{token}")
         self.assertEqual(revoke_response.status_code, 200)
 
         self.client.logout()
@@ -527,17 +675,17 @@ class FeedsEnhancementsTestCase(CustomTestCase):
 
     def test_token_revoke_already_revoked(self):
         """Revoking an already-revoked token returns 200 (idempotent)."""
-        share_response = self.client.get("/api/feeds/share?asn=11111")
+        share_response = self.client.post("/api/feeds/share?asn=11111")
         token = share_response.json()["url"].split("/")[-1]
 
-        self.client.get(f"/api/feeds/revoke/{token}")
-        second = self.client.get(f"/api/feeds/revoke/{token}")
+        self.client.post(f"/api/feeds/revoke/{token}")
+        second = self.client.post(f"/api/feeds/revoke/{token}")
         self.assertEqual(second.status_code, 200)
         self.assertIn("already revoked", second.json()["detail"])
 
     def test_token_revoke_invalid_token(self):
         """Revoking an invalid/expired token returns 400."""
-        revoke_response = self.client.get("/api/feeds/revoke/not-a-valid-token")
+        revoke_response = self.client.post("/api/feeds/revoke/not-a-valid-token")
         self.assertEqual(revoke_response.status_code, 400)
         self.assertIn("errors", revoke_response.json())
 
@@ -627,7 +775,7 @@ class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
 
     def test_payload_hashes_in_consumed_shared_feed(self):
         """A shared token replays the advanced feed, so a verbose share carries the hashes too."""
-        share_response = self.client.get("/api/feeds/share?verbose=true")
+        share_response = self.client.post("/api/feeds/share?verbose=true")
         token = share_response.json()["url"].split("/")[-1]
 
         self.client.logout()

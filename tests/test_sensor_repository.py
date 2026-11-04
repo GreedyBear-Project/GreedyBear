@@ -59,6 +59,13 @@ class TestSensorRepository(CustomTestCase):
             self.assertIsNotNone(result)
             self.assertIsInstance(result, Sensor)
 
+    def test_get_or_create_sensor_accepts_valid_ipv6(self):
+        result = self.repo.get_or_create_sensor("2001:db8::1")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, Sensor)
+        self.assertEqual(result.address, "2001:db8::1")
+        self.assertTrue(Sensor.objects.filter(address="2001:db8::1").exists())
+
     def test_get_or_create_sensor_has_empty_label(self):
         """get_or_create_sensor should create a sensor with an empty label."""
         result = self.repo.get_or_create_sensor("192.168.1.10")

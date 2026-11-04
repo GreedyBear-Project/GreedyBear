@@ -108,6 +108,12 @@ def setup_schedules():
             "func": "greedybear.tasks.enrich_abuseipdb",
             "cron": _external_weekly_cron("enrich_abuseipdb"),
         },
+        # FireHol Blocklist Tagging: Daily at 03:07
+        {
+            "name": "enrich_firehol",
+            "func": "greedybear.tasks.enrich_firehol",
+            "cron": "7 3 * * *",
+        },
         # 13. SpamhausDrop Enrichment: Weekly (Sunday) at deterministic time outside 00:00-02:00
         {
             "name": "extract_spamhaus_drop",
