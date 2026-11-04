@@ -33,7 +33,7 @@ class HoneypotView(RequestLoggingMixin, APIView):
     def get(self, request: Request, *args, **kwargs):
         request_serializer = HoneypotRequestSerializer(data=request.query_params.dict())
         request_serializer.is_valid(raise_exception=True)
-        honeypots = Honeypot.objects.all()
+        honeypots = Honeypot.objects.order_by("name")
         if request_serializer.validated_data["only_active"]:
             honeypots = honeypots.filter(active=True)
         return Response(list(honeypots.values_list("name", flat=True)))

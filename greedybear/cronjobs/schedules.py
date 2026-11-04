@@ -126,6 +126,14 @@ def setup_schedules():
             "func": "greedybear.tasks.submit_payloads_to_mbazaar",
             "cron": "37 * * * *",
         },
+        # 16. ML Model Training & Score Update: Daily at 00:15 (after the first
+        #     extraction run of the day completes). A dedicated schedule avoids
+        #     the brittle time-of-day check that was embedded in extract_all().
+        {
+            "name": "train_and_update",
+            "func": "greedybear.tasks.train_and_update",
+            "cron": "15 0 * * *",
+        },
     ]
 
     # create or update schedules

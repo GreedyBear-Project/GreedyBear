@@ -222,8 +222,12 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 self.session_repo.save_command_sequence(session_record.commands)
                 self.log.info(f"saved new command execute from {ioc.name} with hash {session_record.commands.commands_hash}")
 
-            self.ioc_repo.save(session_record.source)
             self.session_repo.save_session(session_record)
+
+        # Persist the IOC once after all sessions for this source have been processed.
+        # Previously this was called inside the loop, causing redundant saves when
+        # multiple sessions share the same source IP.
+        self.ioc_repo.save(ioc)
 
         self.log.info(f"{len(hits_per_session)} sessions added")
 

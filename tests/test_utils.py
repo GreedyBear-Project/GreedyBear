@@ -293,6 +293,13 @@ class TestGetIocType(CustomTestCase):
         self.assertEqual(get_ioc_type("256.1.1.1"), DOMAIN)
         self.assertEqual(get_ioc_type("1.2.3"), DOMAIN)
 
+    def test_ipv6_returns_ip(self):
+        """IPv6 addresses must be classified as IP, not DOMAIN."""
+        self.assertEqual(get_ioc_type("2001:db8::1"), IP)
+        self.assertEqual(get_ioc_type("::1"), IP)
+        self.assertEqual(get_ioc_type("fe80::1"), IP)
+        self.assertEqual(get_ioc_type("2001:0db8:85a3:0000:0000:8a2e:0370:7334"), IP)
+
 
 class UtilsTestCase(SimpleTestCase):
     def test_is_ip_address(self):

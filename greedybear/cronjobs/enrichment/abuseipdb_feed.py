@@ -2,7 +2,7 @@ from django.conf import settings
 
 from greedybear.cronjobs.enrichment.http_enrichment import HttpEnrichmentJob
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.utils import is_valid_ipv4
+from greedybear.utils import is_ip_address
 
 
 class AbuseIPDBCron(HttpEnrichmentJob):
@@ -54,8 +54,9 @@ class AbuseIPDBCron(HttpEnrichmentJob):
             if not ip_addr:
                 continue
 
-            is_valid, validated_ip = is_valid_ipv4(ip_addr)
-            if not is_valid:
+            # Accept both IPv4 and IPv6 addresses
+            validated_ip = ip_addr.strip()
+            if not is_ip_address(validated_ip):
                 continue
 
             score_by_ip[validated_ip] = entry.get("abuseConfidenceScore")

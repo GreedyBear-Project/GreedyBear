@@ -4,6 +4,7 @@ import ipaddress
 
 from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django.conf import settings
+from django.db.models import Q
 from django.http import Http404
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
@@ -76,10 +77,12 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
         if request_serializer.validated_data["include_similar"]:
             commands = {s.commands for s in sessions if s.commands}
             clusters = {cmd.cluster for cmd in commands if cmd.cluster is not None}
-            related_sessions = CowrieSession.objects.filter(commands__cluster__in=clusters, duration__gt=0).prefetch_related(
-                "source", "commands", "credentials"
-            )
-            sessions = sessions.union(related_sessions)
+            # Use a Q filter instead of .union() so that prefetch_related caches
+            # remain intact and Django does not issue N+1 queries for credentials.
+            sessions = CowrieSession.objects.filter(
+                Q(pk__in=sessions) | Q(commands__cluster__in=clusters),
+                duration__gt=0,
+            ).prefetch_related("source", "commands", "credentials")
 
         data = {"id": session_id} if session_id is not None else {"query": observable}
         if settings.FEEDS_LICENSE:
@@ -87,7 +90,15 @@ class CowrieSessionView(RequestLoggingMixin, APIView):
 
         unique_commands = {s.commands for s in sessions if s.commands}
         data["commands"] = sorted("\n".join(cmd.commands) for cmd in unique_commands)
-        data["sources"] = sorted({s.source.name for s in sessions}, key=lambda ip: ipaddress.ip_address(ip))
+
+        def _sort_key(name: str):
+            """Sort sources: valid IPs first (by address value), then domains lexicographically."""
+            try:
+                return (0, ipaddress.ip_address(name))
+            except ValueError:
+                return (1, name)
+
+        data["sources"] = sorted({s.source.name for s in sessions}, key=_sort_key)
         if request_serializer.validated_data["include_credentials"]:
             data["credentials"] = sorted({str(c) for s in sessions for c in s.credentials.all()})
         if request_serializer.validated_data["include_session_data"]:

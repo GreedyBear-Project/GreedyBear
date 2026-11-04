@@ -1,9 +1,11 @@
 import types
+from unittest.mock import MagicMock
 
 from django.contrib.postgres.expressions import ArraySubquery
 from django.db.models import F, OuterRef
+from django.test import SimpleTestCase
 
-from api.views.utils import build_ioc_json_list, stream_ioc_objects
+from api.views.utils import UnableToExtractSourceIPError, build_ioc_json_list, get_request_source_ip, stream_ioc_objects
 from greedybear.models import IOC, HoneypotPayload
 from tests import CustomTestCase
 
@@ -110,3 +112,66 @@ class StreamIocObjectsTestCase(CustomTestCase):
         self.assertEqual(build_ioc_json_list(qs, verbose=True), rows)
         target_ioc = next(ioc for ioc in rows if ioc["value"] == self.ioc.name)
         self.assertEqual(target_ioc["payload_hashes"], [payload_hash])
+
+
+def _mock_request(forwarded_for="", remote_addr=""):
+    """Build a minimal mock request with the given META values."""
+    request = MagicMock()
+    meta = {}
+    if forwarded_for:
+        meta["HTTP_X_FORWARDED_FOR"] = forwarded_for
+    if remote_addr:
+        meta["REMOTE_ADDR"] = remote_addr
+    request.META = meta
+    return request
+
+
+class GetRequestSourceIPTestCase(SimpleTestCase):
+    """Unit tests for get_request_source_ip()."""
+
+    def test_x_forwarded_for_single_ip(self):
+        """A single valid IP in X-Forwarded-For is returned directly."""
+        request = _mock_request(forwarded_for="1.2.3.4")
+        self.assertEqual(get_request_source_ip(request), "1.2.3.4")
+
+    def test_x_forwarded_for_takes_first_valid(self):
+        """The leftmost valid IP in X-Forwarded-For is returned."""
+        request = _mock_request(forwarded_for="10.0.0.1, 203.0.113.5, 198.51.100.1")
+        self.assertEqual(get_request_source_ip(request), "10.0.0.1")
+
+    def test_x_forwarded_for_skips_invalid_takes_valid(self):
+        """Invalid/garbage entries are skipped; first valid address is returned."""
+        request = _mock_request(forwarded_for="not-an-ip, 198.51.100.7")
+        self.assertEqual(get_request_source_ip(request), "198.51.100.7")
+
+    def test_remote_addr_fallback_no_forwarded_header(self):
+        """When X-Forwarded-For is absent, REMOTE_ADDR is used as fallback."""
+        request = _mock_request(remote_addr="192.0.2.1")
+        self.assertEqual(get_request_source_ip(request), "192.0.2.1")
+
+    def test_remote_addr_fallback_empty_forwarded_header(self):
+        """When X-Forwarded-For is empty, REMOTE_ADDR is used as fallback."""
+        request = _mock_request(forwarded_for="", remote_addr="192.0.2.2")
+        self.assertEqual(get_request_source_ip(request), "192.0.2.2")
+
+    def test_ipv6_in_x_forwarded_for(self):
+        """IPv6 addresses in X-Forwarded-For are accepted."""
+        request = _mock_request(forwarded_for="2001:db8::1")
+        self.assertEqual(get_request_source_ip(request), "2001:db8::1")
+
+    def test_ipv6_in_remote_addr_fallback(self):
+        """IPv6 addresses in REMOTE_ADDR are accepted as fallback."""
+        request = _mock_request(remote_addr="::1")
+        self.assertEqual(get_request_source_ip(request), "::1")
+
+    def test_raises_when_no_valid_ip(self):
+        """UnableToExtractSourceIPError is raised when no valid IP is found anywhere."""
+        request = _mock_request(forwarded_for="bad-value", remote_addr="also-bad")
+        with self.assertRaises(UnableToExtractSourceIPError):
+            get_request_source_ip(request)
+
+    def test_raises_when_completely_missing(self):
+        """UnableToExtractSourceIPError is raised when both headers are absent."""
+        request = _mock_request()
+        with self.assertRaises(UnableToExtractSourceIPError):
+            get_request_source_ip(request)

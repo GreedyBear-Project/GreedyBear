@@ -5,7 +5,7 @@ from django.conf import settings
 
 from greedybear.cronjobs.enrichment.http_enrichment import HttpEnrichmentJob
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.utils import is_valid_ipv4
+from greedybear.utils import is_ip_address
 
 
 class ThreatFoxCron(HttpEnrichmentJob):
@@ -65,16 +65,16 @@ class ThreatFoxCron(HttpEnrichmentJob):
             if not ip_addr:
                 continue
 
-            # Validate the IP
-            is_valid, validated_ip = is_valid_ipv4(ip_addr)
-            if not is_valid:
+            # Validate the IP — accept both IPv4 and IPv6
+            ip_addr_stripped = ip_addr.strip()
+            if not is_ip_address(ip_addr_stripped):
                 continue
 
             # Check if IP is global (not private, loopback, etc.)
             try:
-                parsed_ip = ip_address(validated_ip)
+                parsed_ip = ip_address(ip_addr_stripped)
                 if parsed_ip.is_loopback or parsed_ip.is_private or parsed_ip.is_multicast or parsed_ip.is_link_local or parsed_ip.is_reserved:
-                    self.log.debug(f"Skipping non-global IP: {validated_ip}")
+                    self.log.debug(f"Skipping non-global IP: {ip_addr_stripped}")
                     continue
             except ValueError:
                 continue
@@ -85,9 +85,9 @@ class ThreatFoxCron(HttpEnrichmentJob):
                 "confidence_level": ioc_data.get("confidence_level"),
             }
 
-            if validated_ip not in feed_by_ip:
-                feed_by_ip[validated_ip] = []
-            feed_by_ip[validated_ip].append(enrichment)
+            if ip_addr_stripped not in feed_by_ip:
+                feed_by_ip[ip_addr_stripped] = []
+            feed_by_ip[ip_addr_stripped].append(enrichment)
 
         return feed_by_ip
 

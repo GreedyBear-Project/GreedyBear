@@ -28,10 +28,13 @@ class UnableToExtractSourceIPError(Exception):
 
 
 def get_request_source_ip(request) -> str:
-    """Extract a normalized client IP from request metadata (X-Forwarded-For header)
+    """Extract a normalized client IP from request metadata.
+
+    Checks ``X-Forwarded-For`` first (leftmost valid address), then falls back
+    to ``REMOTE_ADDR`` for direct connections that arrive without a proxy header.
 
     Raises:
-        UnableToExtractSourceIPError: When no valid IP is found
+        UnableToExtractSourceIPError: When no valid IP is found in either header.
     """
 
     forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", ""))
@@ -42,7 +45,16 @@ def get_request_source_ip(request) -> str:
         if is_ip_address(candidate):
             return candidate
 
-    logger.error("Unable to extract valid source IP from request. X-Forwarded-For: %s", forwarded_for)
+    # Fall back to the direct connection address (no proxy / local dev)
+    remote_addr = request.META.get("REMOTE_ADDR", "")
+    if remote_addr and is_ip_address(remote_addr):
+        return remote_addr
+
+    logger.error(
+        "Unable to extract valid source IP from request. X-Forwarded-For: %s, REMOTE_ADDR: %s",
+        forwarded_for,
+        remote_addr,
+    )
     raise UnableToExtractSourceIPError("No valid source IP found in request metadata")
 
 
