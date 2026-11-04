@@ -87,6 +87,7 @@ class TestTasks(CustomTestCase):
             ("enrich_threatfox", "greedybear.cronjobs.enrichment.threatfox_feed.ThreatFoxCron"),
             ("enrich_abuseipdb", "greedybear.cronjobs.enrichment.abuseipdb_feed.AbuseIPDBCron"),
             ("enrich_firehol", "greedybear.cronjobs.enrichment.firehol_blocklist.FireHolBlocklistCron"),
+            ("enrich_spamhaus_drop", "greedybear.cronjobs.enrichment.spamhaus_drop_blocklist.SpamhausDropBlocklistCron"),
             ("extract_honeypot_payloads", "greedybear.cronjobs.payload_extraction.PayloadExtractionJob"),
         ]
 

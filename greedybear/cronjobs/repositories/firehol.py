@@ -1,5 +1,6 @@
 import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 
 from django.contrib.postgres.expressions import ArraySubquery
@@ -20,6 +21,21 @@ class FireHolRepository:
     def __init__(self):
         """Initialize the repository."""
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+    @staticmethod
+    def _normalize_sources(sources: str | Iterable[str]) -> list[str]:
+        """
+        Turn one source name or a list of names into a list.
+
+        Args:
+            sources: A single source name or an iterable of source names.
+
+        Returns:
+            List of source names.
+        """
+        if isinstance(sources, str):
+            return [sources]
+        return list(sources)
 
     def get_or_create(self, ip_address: str, source: str) -> tuple[FireHolList | None, bool]:
         """
@@ -54,25 +70,32 @@ class FireHolRepository:
             return None, False
         return entry, created
 
-    def get_entries_by_ip(self) -> dict[str, list[str]]:
+    def get_entries_by_ip(self, sources: str | Iterable[str]) -> dict[str, list[str]]:
         """
-        Get all stored exact IP entries, grouped by IP.
+        Get the stored exact IP entries of the given sources, grouped by IP.
 
         CIDR entries are left out. They need a membership test, not an
         equality match, so they are handled separately.
+
+        Args:
+            sources: Source name or names to read, e.g. "spamhaus_drop".
 
         Returns:
             Dict mapping IP address to the list of sources it appears in.
         """
         entries_by_ip = defaultdict(list)
-        for network, source in FireHolList.objects.filter(ip_address__prefixlen=32).values_list("ip_address", "source"):
-            if source:
-                entries_by_ip[str(network.network_address)].append(source)
+        queryset = FireHolList.objects.filter(
+            ip_address__prefixlen=32,
+            source__in=self._normalize_sources(sources),
+        )
+
+        for network, source in queryset.values_list("ip_address", "source"):
+            entries_by_ip[str(network.network_address)].append(source)
         return dict(entries_by_ip)
 
-    def get_cidr_matches(self) -> list[tuple[int, list[str]]]:
+    def get_cidr_matches(self, sources: str | Iterable[str]) -> list[tuple[int, list[str]]]:
         """
-        Find IOCs that sit inside a stored CIDR range.
+        Find IOCs that sit inside a stored CIDR range of the given sources.
 
         The containment test runs in the database, against the partial GiST
         index on the blocklist. In Python it means loading every IP-type IOC
@@ -81,13 +104,17 @@ class FireHolRepository:
         `Exists` filters first and stops at the first match, so the list of
         sources is only built for IOCs that actually match.
 
+        Args:
+            sources: Source name or names to read, e.g. "spamhaus_drop".
+
         Returns:
             List of (ioc_id, sources) tuples, one per matching IOC.
         """
         ranges = FireHolList.objects.filter(
             ip_address__prefixlen__lte=31,
             ip_address__net_contains_or_equals=Cast(OuterRef("name"), InetAddressField()),
-        ).exclude(source="")
+            source__in=self._normalize_sources(sources),
+        )
 
         return list(
             IOC.objects.filter(type=IocType.IP)
@@ -96,14 +123,17 @@ class FireHolRepository:
             .values_list("id", "blocklist_sources")
         )
 
-    def has_entries(self) -> bool:
+    def has_entries(self, sources: str | Iterable[str]) -> bool:
         """
-        Whether any blocklist entries are stored.
+        Whether any blocklist entries of the given sources are stored.
+
+        Args:
+            sources: Source name or names to check, e.g. "spamhaus_drop".
 
         Returns:
-            True if the table holds at least one row.
+            True if the table holds at least one row of those sources.
         """
-        return FireHolList.objects.exists()
+        return FireHolList.objects.filter(source__in=self._normalize_sources(sources)).exists()
 
     def save(self, entry: FireHolList) -> FireHolList:
         """
