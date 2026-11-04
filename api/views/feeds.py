@@ -43,6 +43,7 @@ from api.serializers import (
     TrendingFeedRequestSerializer,
     TrendingFeedResponseSerializer,
 )
+from api.share_tokens import share_token_salt_for_user
 from api.throttles import FeedsAdvancedThrottle, FeedsThrottle, SharedFeedRateThrottle
 from api.views.utils import (
     aggregate_iocs_by_asn,
@@ -50,7 +51,7 @@ from api.views.utils import (
     save_request_source,
     stream_ioc_objects,
 )
-from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY, share_token_salt_for_user
+from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import PayloadRepository, TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
 from greedybear.models import IOC, ShareToken, ViewType

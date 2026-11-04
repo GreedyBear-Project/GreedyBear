@@ -8,6 +8,7 @@ from django.core import signing
 from django.core.cache import cache
 from rest_framework.test import APIClient
 
+from api.share_tokens import share_token_salt_for_user
 from api.throttles import SharedFeedRateThrottle
 from greedybear.models import IOC, AutonomousSystem, Credential, HoneypotPayload, IocType, Sensor, ShareToken, Tag
 from tests import CustomTestCase
@@ -536,8 +537,8 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
 
-    def test_shareable_feed_expired_token(self):
-        """Consuming a tampered/expired token returns 400."""
+    def test_shareable_feed_tampered_token(self):
+        """Consuming a tampered token with a matching DB record returns 400."""
         data = {
             "feed_type": "all",
             "attack_type": "all",
@@ -557,8 +558,12 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "start_date": None,
             "end_date": None,
         }
-        token = signing.dumps(data, salt="greedybear-feeds")
+        token = signing.dumps(data, salt=share_token_salt_for_user(self.superuser.pk))
         tampered = token + "TAMPERED"
+        ShareToken.objects.create(
+            user=self.superuser,
+            token_hash=hashlib.sha256(tampered.encode()).hexdigest(),
+        )
         self.client.logout()
         response = self.client.get(f"/api/feeds/consume/{tampered}")
         self.assertEqual(response.status_code, 400)
@@ -585,7 +590,7 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             "start_date": None,
             "end_date": None,
         }
-        token = signing.dumps(data, salt="greedybear-feeds")
+        token = signing.dumps(data, salt=share_token_salt_for_user(self.superuser.pk))
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
         self.assertFalse(ShareToken.objects.filter(token_hash=token_hash).exists())

@@ -9,7 +9,8 @@ from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
 from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_valid_feed_types
-from greedybear.consts import SHARE_TOKEN_MAX_AGE, share_token_salt_for_user
+from api.share_tokens import share_token_salt_for_user
+from greedybear.consts import SHARE_TOKEN_MAX_AGE
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
 from greedybear.models import ShareToken
