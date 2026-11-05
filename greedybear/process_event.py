@@ -142,9 +142,7 @@ def _process_commands(ip_hits: list[Hit]) -> None:
     for hit in ip_hits:
         # Track the latest actual event timestamp.
         timestamp = hit.get_time("@timestamp")
-        if timestamp is not None and (
-            observed_at is None or timestamp > observed_at
-        ):
+        if timestamp is not None and (observed_at is None or timestamp > observed_at):
             observed_at = timestamp
 
         cmd = hit.get("_command")
