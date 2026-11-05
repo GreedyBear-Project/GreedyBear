@@ -128,17 +128,25 @@ def _process_related_urls(saved_ioc: IOC, ip_hits: list[Hit]) -> None:
 
 def _process_commands(ip_hits: list[Hit]) -> None:
     """
-    Deduplicates and registers order-preserving sequences of executed commands from raw hits.
+    Deduplicates and registers order-preserving sequences of executed commands
+    from raw hits.
 
-    Generates a unique SHA-256 hash representing the complete sequence to handle
-    idempotent generation of CommandSequence records.
+    Uses the latest event timestamp as last_seen. If no valid event timestamp
+    is available, falls back to the current time.
     """
-    # commands have semantic meaning in order ("cd /tmp; wget ...").
-    # A set would lose that. We deduplicate repeated identical lines
-    # while keeping the first occurrence in sequence.
+    # Preserve command order while removing duplicate commands.
     seen: set[str] = set()
     unique_commands: list[str] = []
+    observed_at: datetime | None = None
+
     for hit in ip_hits:
+        # Track the latest actual event timestamp.
+        timestamp = hit.get_time("@timestamp")
+        if timestamp is not None and (
+            observed_at is None or timestamp > observed_at
+        ):
+            observed_at = timestamp
+
         cmd = hit.get("_command")
         if cmd and cmd.strip() and cmd not in seen:
             seen.add(cmd)
@@ -147,22 +155,33 @@ def _process_commands(ip_hits: list[Hit]) -> None:
     if not unique_commands:
         return
 
-    # CommandSequence.commands_hash is a unique constraint. The hash
-    # is the deduplication key, same commands = same hash = same row.
+    # Fall back to processing time only when no valid event timestamp exists.
+    if observed_at is None:
+        observed_at = timezone.now()
+
+    # Same ordered command sequence produces the same hash.
     commands_hash = hash_command_sequence(unique_commands)
-    _, created = CommandSequence.objects.get_or_create(
+
+    cmd_seq, created = CommandSequence.objects.get_or_create(
         commands_hash=commands_hash,
         defaults={
             "commands": unique_commands,
-            "first_seen": timezone.now(),
-            "last_seen": timezone.now(),
+            "first_seen": observed_at,
+            "last_seen": observed_at,
         },
     )
-    # the link goes through CowrieSession, which needs a valid hex
+
+    # For an existing sequence, update only last_seen.
+    # Never move it backwards when an older event is processed.
+    if not created and observed_at > cmd_seq.last_seen:
+        cmd_seq.last_seen = observed_at
+        cmd_seq.save(update_fields=["last_seen"])
+
+    # The link goes through CowrieSession, which needs a valid hex
     # session_id. RawEvent.session_id is free text (may be empty or
-    # non-hex). our discussion https://github.com/GreedyBear-Project/GreedyBear/discussions/1348
-    # marked session_id → None for now. The ClusterCommandSequences cronjob picks up all sequences in DB
-    # automatically,  no action needed from us.
+    # non-hex). Our discussion https://github.com/GreedyBear-Project/GreedyBear/discussions/1348
+    # marked session_id → None for now. The ClusterCommandSequences cronjob
+    # picks up all sequences in DB automatically; no action needed from us.
     if created:
         logger.debug(f"created CommandSequence hash={commands_hash[:12]}…")
 
