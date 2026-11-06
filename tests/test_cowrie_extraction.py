@@ -464,7 +464,7 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
         self.strategy._add_fks("1.2.3.4", "evil.com")
 
         scanner_mock.related_ioc.add.assert_called_once_with(hostname_mock)
-        hostname_mock.related_ioc.add.assert_called_once_with(scanner_mock)
+        hostname_mock.related_ioc.add.assert_not_called()
         self.assertEqual(self.mock_ioc_repo.save.call_count, 0)
 
     def test_add_fks_scanner_none(self):
@@ -654,6 +654,22 @@ class TestCowrieExtractionStrategy(ExtractionTestCase):
 
             self.assertEqual(self.mock_session_repo.get_or_create_session.call_count, 2)
             self.assertEqual(mock_process_hit.call_count, 3)
+
+    def test_get_sessions_saves_session_but_not_source_ioc(self):
+        """Session processing never changes the source IOC, so only the session is saved."""
+        ioc = Mock()
+        ioc.name = "1.1.1.1"
+        hits = [Hit({"src_ip": "1.1.1.1", "session": "s1", "eventid": "cowrie.session.connect", "timestamp": "2023-01-01T10:00:00"})]
+
+        session = Mock()
+        session.commands = None
+        session.interaction_count = 0
+        self.mock_session_repo.get_or_create_session.return_value = session
+
+        self.strategy._get_sessions(ioc, hits)
+
+        self.mock_session_repo.save_session.assert_called_once_with(session)
+        self.mock_ioc_repo.save.assert_not_called()
 
 
 class TestCowrieCommandSequenceAcrossRuns(CustomTestCase):
