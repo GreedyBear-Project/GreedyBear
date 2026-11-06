@@ -350,3 +350,23 @@ class FeedsASNViewTestCase(CustomTestCase):
         self.assertEqual(high_item["total_login_attempts"], 5)
         self.assertAlmostEqual(high_item["expected_ioc_count"], 0.8)
         self.assertAlmostEqual(high_item["expected_interactions"], 20.0)
+
+    def test_200_asn_feed_accept_json(self):
+        """Ensure requesting application/json returns HTTP 200 with application/json Content-Type."""
+        for accept in ("application/json", "*/*"):
+            with self.subTest(accept=accept):
+                response = self.client.get(self.url, HTTP_ACCEPT=accept)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], "application/json")
+                results = self._get_results(response)
+                self.assertEqual(len(results), 2)
+
+    def test_406_asn_feed_accept_csv(self):
+        """Ensure requesting text/csv returns HTTP 406 Not Acceptable."""
+        response = self.client.get(self.url, HTTP_ACCEPT="text/csv")
+        self.assertEqual(response.status_code, 406)
+
+    def test_406_asn_feed_accept_plain_text(self):
+        """Ensure requesting text/plain returns HTTP 406 Not Acceptable."""
+        response = self.client.get(self.url, HTTP_ACCEPT="text/plain")
+        self.assertEqual(response.status_code, 406)
