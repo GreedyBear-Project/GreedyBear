@@ -374,6 +374,7 @@ class AsnFeedView(BaseFeedView):
     throttle_classes = [FeedsAdvancedThrottle]
     serializer_class = ASNFeedRequestSerializer
     is_aggregated = True
+    renderer_classes = [FeedJSONRenderer]
 
     def render_response(self, request: Request, iocs_queryset: QuerySet) -> Response:
         rows = aggregate_iocs_by_asn(iocs_queryset, self.request_params["ordering"])
