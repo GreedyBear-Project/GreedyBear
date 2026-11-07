@@ -101,6 +101,7 @@ class IocProcessor:
         existing.destination_ports = sorted(set(existing.destination_ports + new.destination_ports))
         existing.protocols = sorted(set(existing.protocols + new.protocols))
         existing.cves = sorted(set(existing.cves + new.cves))
+        existing.days_seen = sorted(set(existing.days_seen) | set(new.days_seen))
         existing.http_attack_types = sorted(set(existing.http_attack_types + new.http_attack_types))
         existing.high_credential_reuse = existing.high_credential_reuse or new.high_credential_reuse
         existing.ip_reputation = existing.ip_reputation or new.ip_reputation

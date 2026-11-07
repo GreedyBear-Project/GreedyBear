@@ -194,6 +194,8 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
             ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in ip_hits if h.get("ip_rep")), ""), mass_scanner_ips),
             autonomous_system=autonomous_system,
             destination_ports=sorted(dest_ports),
+            # every day with a hit, not just the latest: event batches can span several days
+            days_seen=sorted({timestamp.date() for timestamp in timestamps}),
             login_attempts=login_attempts,
             attacker_country=attacker_country,
             attacker_country_code=attacker_country_code,
