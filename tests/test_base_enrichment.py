@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 from greedybear.cronjobs.enrichment.firehol_blocklist import FireHolBlocklistCron
+from greedybear.cronjobs.repositories import FireHolRepository
 from greedybear.models import IOC
 
 from . import CustomTestCase
@@ -8,27 +9,24 @@ from . import CustomTestCase
 
 class TestMatchIocs(CustomTestCase):
     def setUp(self):
-        self.job = FireHolBlocklistCron(firehol_repo=Mock(), tag_repo=Mock())
+        self.repo = FireHolRepository()
+        self.job = FireHolBlocklistCron(firehol_repo=self.repo, tag_repo=Mock())
 
-    def test_match_iocs_normalizes_uncompressed_ipv6(self):
-        """An uncompressed IPv6 key must still match a compressed IOC.name."""
-        IOC.objects.create(name="2001:db8::1", type="ip")
-        ip_dict = {"2001:DB8:0:0:0:0:0:1": {}}
-
-        result = list(self.job._match_iocs(ip_dict))
-
-        names = [name for _, name in result]
-        self.assertIn("2001:db8::1", names)
+    def _tag_entries(self):
+        entries_by_ip = self.repo.get_entries_by_ip(self.job.BLOCKLIST_SOURCES)
+        matching_iocs = self.job._match_iocs(entries_by_ip)
+        return self.job._build_tag_entries(matching_iocs, entries_by_ip)
 
     def test_build_tag_entries_handles_uncompressed_ipv6_keys(self):
-        """An uncompressed IPv6 key must still produce tags."""
+        """An uncompressed IPv6 blocklist entry must still produce tags."""
         ioc = IOC.objects.create(name="2001:db8::1", type="ip")
-        uncompressed = "2001:DB8:0:0:0:0:0:1"
+        self.repo.get_or_create("2001:DB8:0:0:0:0:0:1", "blocklist_de")
 
-        job = FireHolBlocklistCron(firehol_repo=Mock(), tag_repo=Mock())
-        feed_by_ip = {uncompressed: ["blocklist_de"]}
-        expected_entry = {"ioc_id": ioc.id, "key": "blocklist", "value": "blocklist_de"}
+        self.assertEqual(self._tag_entries(), [{"ioc_id": ioc.id, "key": "blocklist", "value": "blocklist_de"}])
 
-        matching_iocs = job._match_iocs(feed_by_ip)
-        tag_entries = job._build_tag_entries(matching_iocs, feed_by_ip)
-        self.assertEqual(tag_entries, [expected_entry])
+    def test_build_tag_entries_handles_ipv4_mapped_entries(self):
+        """An IPv4-mapped blocklist entry must match the plain IPv4 IOC."""
+        ioc = IOC.objects.create(name="1.2.3.4", type="ip")
+        self.repo.get_or_create("::ffff:1.2.3.4", "blocklist_de")
+
+        self.assertEqual(self._tag_entries(), [{"ioc_id": ioc.id, "key": "blocklist", "value": "blocklist_de"}])
