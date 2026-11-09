@@ -1,8 +1,10 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 
+from certego_saas.apps.auth import views as certego_views
 from django.urls import include, path
 from rest_framework import routers
+from rest_framework.permissions import IsAuthenticated
 
 from .views import (
     APIAccessTokenView,
@@ -48,8 +50,10 @@ urlpatterns = [
     path("change-password", ChangePasswordView.as_view(), name="auth_change-password"),
     path("configuration", check_configuration),
     # auth
+    # Must come before the include below so anonymous logout gets 401 instead of a 500.
+    path("logout", certego_views.LogoutView.as_view(permission_classes=[IsAuthenticated]), name="auth_logout"),
     path("", include("certego_saas.apps.auth.urls")),
-    path("apiaccess", APIAccessTokenView.as_view(), name="auth_apiaccess"),
+    path("apiaccess", APIAccessTokenView.as_view(permission_classes=[IsAuthenticated]), name="auth_apiaccess"),
     path("authentication", check_authentication),
     path("", include(router.urls)),
 ]

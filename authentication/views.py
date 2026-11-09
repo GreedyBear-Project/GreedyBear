@@ -187,6 +187,8 @@ class ChangePasswordView(APIView):
 
 
 class TokenSessionsViewSet(durin_views.TokenSessionsViewSet):
+    permission_classes = [IsAuthenticated]
+
     @action(
         detail=False,
         methods=["delete"],
