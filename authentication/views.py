@@ -151,6 +151,14 @@ class LoginView(certego_views.LoginView):
         return response
 
 
+class LogoutView(certego_views.LogoutView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        # superusers also get a django session at login, drop it too
+        request.session.flush()
+        return response
+
+
 class ChangePasswordView(APIView):
     """
     Handles changing user password.
