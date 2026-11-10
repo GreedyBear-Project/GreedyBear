@@ -112,6 +112,25 @@ class FeedsTrendingViewTestCase(CustomTestCase):
         self.assertEqual(mock_get_counts.call_count, 2)
         self.assertEqual(response_1.json(), response_2.json())
 
+    def test_trending_recomputes_when_completed_hour_changes(self):
+        with patch("api.views.feeds.TrendingBucketRepository.get_counts_in_window") as mock_get_counts:
+            mock_get_counts.side_effect = [
+                {"5.5.5.5": 10},
+                {"5.5.5.5": 6},
+                {"5.5.5.5": 12},
+                {"5.5.5.5": 4},
+            ]
+            with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+                first = self.client.get(f"{self.url}?feed_type=all&window_minutes=60&limit=10")
+            with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 11, 1, 0)):
+                second = self.client.get(f"{self.url}?feed_type=all&window_minutes=60&limit=10")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(mock_get_counts.call_count, 4)
+        self.assertTrue(first.json()["current_window"]["end"].startswith("2026-03-20T10:00:00"))
+        self.assertTrue(second.json()["current_window"]["end"].startswith("2026-03-20T11:00:00"))
+
     def test_trending_cache_version_bump_forces_recompute(self):
         with patch("api.views.feeds.TrendingBucketRepository.get_counts_in_window") as mock_get_counts:
             mock_get_counts.side_effect = [

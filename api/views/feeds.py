@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import timedelta
+from functools import cached_property
 from typing import cast
 
 from certego_saas.ext.pagination import CustomPageNumberPagination
@@ -402,6 +403,14 @@ class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRes
     cache_namespace = "trending_feeds"
     cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
 
+    @cached_property
+    def current_window_end(self):
+        return timezone.now().replace(minute=0, second=0, microsecond=0)
+
+    def get_cache_key_material(self) -> str:
+        """Separate cached trending responses at each completed-hour boundary."""
+        return f"{super().get_cache_key_material()}|{self.current_window_end.isoformat()}"
+
     def get(self, request: Request) -> HttpResponseBase:
         serializer = self.serializer_class(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -410,7 +419,7 @@ class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRes
         if cached_response is not None:
             return cached_response
 
-        current_window_end = timezone.now().replace(minute=0, second=0, microsecond=0)
+        current_window_end = self.current_window_end
         current_window_start = current_window_end - timedelta(minutes=validated["window_minutes"])
         previous_window_end = current_window_start
         previous_window_start = previous_window_end - timedelta(minutes=validated["window_minutes"])
