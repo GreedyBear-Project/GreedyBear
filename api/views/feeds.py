@@ -153,10 +153,11 @@ class BaseFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRespons
                 type_filter |= Q(honeypots__name__iexact=ft)
             iocs = iocs.filter(type_filter)
 
+        iocs = iocs.filter(honeypots__active=True)
+
         if self.is_aggregated:
             return iocs
 
-        iocs = iocs.filter(honeypots__active=True)
         iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
         if self.request_params["format"] in ["json", "ndjson"]:
             iocs = iocs.annotate(
