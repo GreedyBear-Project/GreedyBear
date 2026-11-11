@@ -2,7 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime,timedelta
 from functools import cached_property
 from typing import cast
 
@@ -404,7 +404,7 @@ class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRes
     cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
 
     @cached_property
-    def current_window_end(self):
+    def current_window_end(self) -> datetime:
         """Return the current hour's starting timestamp."""
         return timezone.now().replace(minute=0, second=0, microsecond=0)
 
