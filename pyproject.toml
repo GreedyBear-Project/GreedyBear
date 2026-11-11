@@ -19,7 +19,7 @@ dependencies = [
     "croniter~=6.2",
     "certego-saas==0.7.12",
     # Server Gateway Interface
-    "gunicorn~=26.0",
+    "gunicorn~=27.0",
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
     "elasticsearch==9.5.1",
