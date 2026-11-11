@@ -2,6 +2,7 @@
 # See the file 'LICENSE' for copying permission.
 from rest_framework import serializers
 
+from api.serializers.common import SensorSerializer
 from greedybear.models import HoneypotPayload
 
 
@@ -12,6 +13,7 @@ class HoneypotPayloadSerializer(serializers.ModelSerializer):
         slug_field="name",
         help_text="Names of the honeypots that captured this payload.",
     )
+    sensors = SensorSerializer(many=True, read_only=True, help_text="T-Pot sensors whose payload server reported this payload.")
     iocs = serializers.SlugRelatedField(
         many=True,
         read_only=True,
@@ -30,6 +32,7 @@ class HoneypotPayloadSerializer(serializers.ModelSerializer):
             "mime_type",
             "size",
             "source_honeypots",
+            "sensors",
             "iocs",
             "cowrie_sessions",
         ]

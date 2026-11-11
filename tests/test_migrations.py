@@ -698,3 +698,70 @@ class TestMoveSpamhausDropTags(MigrationTestCase):
             sorted(Tag.objects.values_list("value", "source")),
             [("dshield", "firehol"), ("mirai", "threatfox")],
         )
+
+
+@tag("migration")
+class TestPayloadObservationMigration(MigrationTestCase):
+    """Tests that each payload's locator and mtime move to an observation without a sensor."""
+
+    migrate_from = "0075_move_spamhaus_drop_tags"
+    migrate_to = "0076_payloadobservation"
+
+    def test_locator_becomes_observation_without_sensor(self):
+        HoneypotPayload = self.old_state.apps.get_model(self.app_name, "HoneypotPayload")
+        HoneypotPayload.objects.create(sha256="a" * 64, locator="cowrie/downloads/aaa", mtime=1719000000.0)
+        HoneypotPayload.objects.create(sha256="b" * 64, locator="dionaea/binaries/bbb", mtime=None)
+
+        new_state = self.apply_tested_migration()
+        HoneypotPayload = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+        PayloadObservation = new_state.apps.get_model(self.app_name, "PayloadObservation")
+
+        observation = PayloadObservation.objects.get(payload__sha256="a" * 64)
+        self.assertIsNone(observation.sensor)
+        self.assertEqual(observation.locator, "cowrie/downloads/aaa")
+        self.assertEqual(observation.mtime, 1719000000.0)
+        observation = PayloadObservation.objects.get(payload__sha256="b" * 64)
+        self.assertEqual(observation.locator, "dionaea/binaries/bbb")
+        self.assertIsNone(observation.mtime)
+        self.assertEqual(HoneypotPayload.objects.count(), 2)
+
+    def test_hash_only_stub_gets_no_observation(self):
+        HoneypotPayload = self.old_state.apps.get_model(self.app_name, "HoneypotPayload")
+        HoneypotPayload.objects.create(sha256="c" * 64)
+
+        new_state = self.apply_tested_migration()
+        HoneypotPayload = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+        PayloadObservation = new_state.apps.get_model(self.app_name, "PayloadObservation")
+
+        self.assertTrue(HoneypotPayload.objects.filter(sha256="c" * 64).exists())
+        self.assertFalse(PayloadObservation.objects.exists())
+
+
+@tag("migration")
+class TestPayloadObservationMigrationReverse(MigrationTestCase):
+    """Tests that rolling back puts a locator back on each payload, preferring the one without a sensor."""
+
+    migrate_from = "0076_payloadobservation"
+    migrate_to = "0075_move_spamhaus_drop_tags"
+
+    def test_observations_become_locators(self):
+        HoneypotPayload = self.old_state.apps.get_model(self.app_name, "HoneypotPayload")
+        PayloadObservation = self.old_state.apps.get_model(self.app_name, "PayloadObservation")
+        Sensor = self.old_state.apps.get_model(self.app_name, "Sensor")
+        sensor = Sensor.objects.create(address="198.51.100.10")
+        legacy = HoneypotPayload.objects.create(sha256="a" * 64)
+        PayloadObservation.objects.create(payload=legacy, sensor=sensor, locator="cowrie/downloads/from-sensor", mtime=2.0)
+        PayloadObservation.objects.create(payload=legacy, sensor=None, locator="cowrie/downloads/legacy", mtime=1.0)
+        sensor_only = HoneypotPayload.objects.create(sha256="b" * 64)
+        PayloadObservation.objects.create(payload=sensor_only, sensor=sensor, locator="dionaea/binaries/bbb", mtime=3.0)
+        HoneypotPayload.objects.create(sha256="c" * 64)
+
+        new_state = self.apply_tested_migration()
+        HoneypotPayload = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+
+        legacy = HoneypotPayload.objects.get(sha256="a" * 64)
+        self.assertEqual((legacy.locator, legacy.mtime), ("cowrie/downloads/legacy", 1.0))
+        sensor_only = HoneypotPayload.objects.get(sha256="b" * 64)
+        self.assertEqual((sensor_only.locator, sensor_only.mtime), ("dionaea/binaries/bbb", 3.0))
+        stub = HoneypotPayload.objects.get(sha256="c" * 64)
+        self.assertEqual((stub.locator, stub.mtime), ("", None))

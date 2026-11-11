@@ -1,7 +1,8 @@
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from greedybear.cronjobs.repositories import PayloadRepository
-from greedybear.models import IOC, CowrieFileTransfer, CowrieSession, HoneypotPayload
+from greedybear.models import IOC, CowrieFileTransfer, CowrieSession, HoneypotPayload, PayloadObservation, Sensor
 
 from . import CustomTestCase
 
@@ -107,36 +108,43 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(payload.id, existing.id)
         self.assertEqual(payload.md5, "deadbeef")
 
-    def test_get_downloaded_hashes_excludes_stub_without_file(self):
+    def test_get_downloaded_payloads_excludes_stub_without_file(self):
         HoneypotPayload.objects.create(sha256="1" * 64)
 
-        downloaded = self.repo.get_downloaded_hashes({"1" * 64})
+        downloaded = self.repo.get_downloaded_payloads({"1" * 64})
 
-        self.assertEqual(downloaded, set())
+        self.assertEqual(downloaded, {})
 
-    def test_get_downloaded_hashes_includes_row_with_file(self):
-        HoneypotPayload.objects.create(sha256="2" * 64, payload_file="sample.vir")
+    def test_get_downloaded_payloads_includes_row_with_file(self):
+        payload = HoneypotPayload.objects.create(sha256="2" * 64, payload_file="sample.vir")
 
-        downloaded = self.repo.get_downloaded_hashes({"2" * 64})
+        downloaded = self.repo.get_downloaded_payloads({"2" * 64})
 
-        self.assertEqual(downloaded, {"2" * 64})
+        self.assertEqual(downloaded, {"2" * 64: payload})
 
-    def test_get_downloaded_hashes_excludes_real_null_payload_file(self):
+    def test_get_downloaded_payloads_excludes_real_null_payload_file(self):
         payload = HoneypotPayload.objects.create(sha256="3" * 64)
         # .update() bypasses FileField's own save-time coercion of None to "",
         # this is the one way to get a real NULL into the column via the ORM.
         HoneypotPayload.objects.filter(id=payload.id).update(payload_file=None)
 
-        downloaded = self.repo.get_downloaded_hashes({"3" * 64})
+        downloaded = self.repo.get_downloaded_payloads({"3" * 64})
 
-        self.assertEqual(downloaded, set())
+        self.assertEqual(downloaded, {})
 
-    def test_get_downloaded_hashes_normalizes_mixed_case_input(self):
+    def test_get_downloaded_payloads_normalizes_mixed_case_input(self):
         HoneypotPayload.objects.create(sha256=("ab" * 32).lower(), payload_file="sample.vir")
 
-        downloaded = self.repo.get_downloaded_hashes({("ab" * 32).upper()})
+        downloaded = self.repo.get_downloaded_payloads({("ab" * 32).upper()})
 
-        self.assertEqual(downloaded, {("ab" * 32).lower()})
+        self.assertEqual(set(downloaded), {("ab" * 32).lower()})
+
+    def test_get_downloaded_payloads_keys_uppercase_row_by_lower_cased_hash(self):
+        payload = HoneypotPayload.objects.create(sha256=("cd" * 32).upper(), payload_file="sample.vir")
+
+        downloaded = self.repo.get_downloaded_payloads({("cd" * 32).lower()})
+
+        self.assertEqual(downloaded, {("cd" * 32).lower(): payload})
 
     def test_upsert_downloaded_payload_creates_new_row(self):
         incoming = HoneypotPayload(
@@ -145,8 +153,6 @@ class TestPayloadRepository(CustomTestCase):
             sha1="s1",
             mime_type="application/octet-stream",
             size=100,
-            locator="cowrie/aaa",
-            mtime=123.0,
         )
         payload, created = self.repo.upsert_downloaded_payload(incoming)
 
@@ -156,8 +162,6 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(payload.sha1, "s1")
         self.assertEqual(payload.mime_type, "application/octet-stream")
         self.assertEqual(payload.size, 100)
-        self.assertEqual(payload.locator, "cowrie/aaa")
-        self.assertEqual(payload.mtime, 123.0)
 
     def test_upsert_downloaded_payload_upgrades_existing_stub_with_truthy_fields(self):
         stub = HoneypotPayload.objects.create(sha256="7" * 64, md5="", sha1="")
@@ -168,8 +172,6 @@ class TestPayloadRepository(CustomTestCase):
             sha1="s2",
             mime_type="application/x-elf",
             size=200,
-            locator="cowrie/bbb",
-            mtime=456.0,
         )
         payload, created = self.repo.upsert_downloaded_payload(incoming)
 
@@ -179,31 +181,29 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(payload.md5, "m2")
         self.assertEqual(payload.sha1, "s2")
         self.assertEqual(payload.mime_type, "application/x-elf")
-        self.assertEqual(payload.mtime, 456.0)
 
     def test_upsert_downloaded_payload_keeps_existing_value_when_incoming_is_falsy(self):
         HoneypotPayload.objects.create(sha256="8" * 64, md5="keepme")
 
-        incoming = HoneypotPayload(sha256="8" * 64, md5="", sha1="", mime_type="", size=50, locator="cowrie/ccc", mtime=None)
+        incoming = HoneypotPayload(sha256="8" * 64, md5="", sha1="", mime_type="", size=50)
         payload, created = self.repo.upsert_downloaded_payload(incoming)
 
         self.assertFalse(created)
         payload.refresh_from_db()
         self.assertEqual(payload.md5, "keepme")
 
-    def test_upsert_downloaded_payload_always_overwrites_size_and_locator(self):
-        HoneypotPayload.objects.create(sha256="9" * 64, size=1, locator="old/locator")
+    def test_upsert_downloaded_payload_always_overwrites_size(self):
+        HoneypotPayload.objects.create(sha256="9" * 64, size=1)
 
-        incoming = HoneypotPayload(sha256="9" * 64, md5="", sha1="", mime_type="", size=0, locator="new/locator", mtime=None)
+        incoming = HoneypotPayload(sha256="9" * 64, md5="", sha1="", mime_type="", size=0)
         payload, created = self.repo.upsert_downloaded_payload(incoming)
 
         self.assertFalse(created)
         payload.refresh_from_db()
         self.assertEqual(payload.size, 0)
-        self.assertEqual(payload.locator, "new/locator")
 
     def test_upsert_metadata_only_payload_creates_new_row(self):
-        incoming = HoneypotPayload(sha256="0" * 64, md5="m1", sha1="s1", mime_type="text/plain", size=42, locator="cowrie/ddd", mtime=789.0)
+        incoming = HoneypotPayload(sha256="0" * 64, md5="m1", sha1="s1", mime_type="text/plain", size=42)
         payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertTrue(created)
@@ -213,32 +213,17 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(payload.sha1, "s1")
         self.assertEqual(payload.mime_type, "text/plain")
         self.assertEqual(payload.size, 42)
-        self.assertEqual(payload.locator, "cowrie/ddd")
-        self.assertEqual(payload.mtime, 789.0)
 
-    def test_upsert_metadata_only_payload_backfills_missing_locator_on_stub(self):
+    def test_upsert_metadata_only_payload_returns_existing_stub(self):
         stub = HoneypotPayload.objects.create(sha256=("cd" * 32).lower())
-        self.assertEqual(stub.locator, "")
 
-        incoming = HoneypotPayload(sha256=("cd" * 32).lower(), md5="", sha1="", mime_type="", size=None, locator="cowrie/eee", mtime=None)
+        incoming = HoneypotPayload(sha256=("cd" * 32).lower(), md5="", sha1="", mime_type="", size=None)
         payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertFalse(created)
         self.assertEqual(payload.id, stub.id)
-        payload.refresh_from_db()
-        self.assertEqual(payload.locator, "cowrie/eee")
 
-    def test_upsert_metadata_only_payload_does_not_overwrite_existing_locator(self):
-        HoneypotPayload.objects.create(sha256=("ef" * 32).lower(), locator="already/set")
-
-        incoming = HoneypotPayload(sha256=("ef" * 32).lower(), md5="", sha1="", mime_type="", size=None, locator="cowrie/fff", mtime=None)
-        payload, created = self.repo.upsert_metadata_only_payload(incoming)
-
-        self.assertFalse(created)
-        payload.refresh_from_db()
-        self.assertEqual(payload.locator, "already/set")
-
-    def test_upsert_metadata_only_payload_backfill_does_not_update_other_fields(self):
+    def test_upsert_metadata_only_payload_does_not_update_existing_row(self):
         HoneypotPayload.objects.create(sha256=("01" * 32).lower(), md5="keepme", mime_type="keepme_mime")
 
         incoming = HoneypotPayload(
@@ -247,18 +232,87 @@ class TestPayloadRepository(CustomTestCase):
             sha1="different",
             mime_type="different",
             size=5,
-            locator="cowrie/ggg",
-            mtime=1.0,
         )
         payload, created = self.repo.upsert_metadata_only_payload(incoming)
 
         self.assertFalse(created)
         payload.refresh_from_db()
-        # The backfill did fire (locator was empty)...
-        self.assertEqual(payload.locator, "cowrie/ggg")
-        # ...but nothing else was updated, despite the incoming payload carrying different values for them.
+        # Nothing was updated, despite the incoming payload carrying different values.
         self.assertEqual(payload.md5, "keepme")
         self.assertEqual(payload.mime_type, "keepme_mime")
+
+    def test_record_observations_creates_observation(self):
+        sensor = Sensor.objects.create(address="198.51.100.1")
+        payload = HoneypotPayload.objects.create(sha256="a7" * 32)
+
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=sensor, locator="cowrie/downloads/aaa", mtime=123.0)])
+
+        observation = PayloadObservation.objects.get(payload=payload)
+        self.assertEqual(observation.sensor, sensor)
+        self.assertEqual(observation.locator, "cowrie/downloads/aaa")
+        self.assertEqual(observation.mtime, 123.0)
+        self.assertEqual(list(payload.sensors.all()), [sensor])
+
+    def test_record_observations_keeps_each_sensors_locator(self):
+        sensor_a = Sensor.objects.create(address="198.51.100.1")
+        sensor_b = Sensor.objects.create(address="198.51.100.2")
+        payload = HoneypotPayload.objects.create(sha256="a8" * 32)
+
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=sensor_a, locator="cowrie/downloads/aaa", mtime=1.0)])
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=sensor_b, locator="dionaea/binaries/bbb", mtime=2.0)])
+
+        self.assertEqual(PayloadObservation.objects.get(payload=payload, sensor=sensor_a).locator, "cowrie/downloads/aaa")
+        self.assertEqual(PayloadObservation.objects.get(payload=payload, sensor=sensor_b).locator, "dionaea/binaries/bbb")
+        self.assertCountEqual(payload.sensors.all(), [sensor_a, sensor_b])
+
+    def test_record_observations_refreshes_same_sensor(self):
+        sensor = Sensor.objects.create(address="198.51.100.1")
+        payload = HoneypotPayload.objects.create(sha256="a9" * 32)
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=sensor, locator="cowrie/downloads/old", mtime=1.0)])
+
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=sensor, locator="dionaea/binaries/new", mtime=2.0)])
+
+        observation = PayloadObservation.objects.get(payload=payload)
+        self.assertEqual(observation.locator, "dionaea/binaries/new")
+        self.assertEqual(observation.mtime, 2.0)
+
+    def test_record_observations_without_sensor_is_unique_per_payload(self):
+        payload = HoneypotPayload.objects.create(sha256="aa" * 32)
+
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=None, locator="cowrie/downloads/old")])
+        self.repo.record_observations([PayloadObservation(payload=payload, sensor=None, locator="cowrie/downloads/new")])
+
+        observation = PayloadObservation.objects.get(payload=payload)
+        self.assertIsNone(observation.sensor)
+        self.assertEqual(observation.locator, "cowrie/downloads/new")
+        self.assertEqual(payload.sensors.count(), 0)
+
+    def test_record_observations_uses_one_query_for_a_batch(self):
+        sensor = Sensor.objects.create(address="198.51.100.1")
+        payloads = [HoneypotPayload.objects.create(sha256=f"c{i}" * 32) for i in range(5)]
+        observations = [PayloadObservation(payload=payload, sensor=sensor, locator=f"cowrie/downloads/c{i}") for i, payload in enumerate(payloads)]
+
+        with self.assertNumQueries(1):
+            self.repo.record_observations(observations)
+        with self.assertNumQueries(0):
+            self.repo.record_observations([])
+
+        self.assertEqual(PayloadObservation.objects.filter(sensor=sensor).count(), 5)
+
+    def test_payload_observation_is_unique_per_sensor(self):
+        sensor = Sensor.objects.create(address="198.51.100.1")
+        payload = HoneypotPayload.objects.create(sha256="ab" * 32)
+        PayloadObservation.objects.create(payload=payload, sensor=sensor, locator="cowrie/downloads/aaa")
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            PayloadObservation.objects.create(payload=payload, sensor=sensor, locator="cowrie/downloads/bbb")
+
+    def test_payload_observation_without_sensor_is_unique_per_payload(self):
+        payload = HoneypotPayload.objects.create(sha256="ac" * 32)
+        PayloadObservation.objects.create(payload=payload, sensor=None, locator="cowrie/downloads/aaa")
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            PayloadObservation.objects.create(payload=payload, sensor=None, locator="cowrie/downloads/bbb")
 
     def test_get_pending_malwarebazaar_submissions_includes_eligible_payload(self):
         HoneypotPayload.objects.create(sha256="2" * 64, payload_file="p.vir", size=100)
@@ -300,6 +354,17 @@ class TestPayloadRepository(CustomTestCase):
         payloads = list(self.repo.list_payloads())
 
         self.assertEqual([p.id for p in payloads], [second.id, first.id])
+
+    def test_list_payloads_prefetches_sensors(self):
+        sensor = Sensor.objects.create(address="198.51.100.1")
+        for i in range(3):
+            payload = HoneypotPayload.objects.create(sha256=f"b{i}" * 32)
+            PayloadObservation.objects.create(payload=payload, sensor=sensor, locator=f"cowrie/downloads/b{i}")
+
+        payloads = list(self.repo.list_payloads())
+
+        with self.assertNumQueries(0):
+            self.assertEqual([[s.address for s in p.sensors.all()] for p in payloads], [["198.51.100.1"]] * 3)
 
     def test_list_payloads_returns_unevaluated_queryset(self):
         HoneypotPayload.objects.create(sha256="a3" * 32, is_uploaded_mb=True)
