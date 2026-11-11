@@ -405,6 +405,7 @@ class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRes
 
     @cached_property
     def current_window_end(self):
+        """Return the current hour's starting timestamp."""
         return timezone.now().replace(minute=0, second=0, microsecond=0)
 
     def get_cache_key_material(self) -> str:
