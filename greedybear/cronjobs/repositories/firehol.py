@@ -6,11 +6,12 @@ from datetime import datetime, timedelta
 from django.contrib.postgres.expressions import ArraySubquery
 from django.core.exceptions import ValidationError
 from django.db import DataError, transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.db.models.functions import Cast, Now
 from netfields import InetAddressField
 
 from greedybear.models import IOC, FireHolList, IocType
+from greedybear.utils import normalize_ip
 
 
 class FireHolRepository:
@@ -72,7 +73,7 @@ class FireHolRepository:
 
     def get_entries_by_ip(self, sources: str | Iterable[str]) -> dict[str, list[str]]:
         """
-        Get the stored exact IP entries of the given sources, grouped by IP.
+        Get the stored exact IP entries of the given sources, grouped by normalized IP.
 
         CIDR entries are left out. They need a membership test, not an
         equality match, so they are handled separately.
@@ -83,14 +84,15 @@ class FireHolRepository:
         Returns:
             Dict mapping IP address to the list of sources it appears in.
         """
+        single_hosts = Q(ip_address__family=4, ip_address__prefixlen=32) | Q(ip_address__family=6, ip_address__prefixlen=128)
         entries_by_ip = defaultdict(list)
         queryset = FireHolList.objects.filter(
-            ip_address__prefixlen=32,
+            single_hosts,
             source__in=self._normalize_sources(sources),
         )
 
         for network, source in queryset.values_list("ip_address", "source"):
-            entries_by_ip[str(network.network_address)].append(source)
+            entries_by_ip[normalize_ip(str(network.network_address))].append(source)
         return dict(entries_by_ip)
 
     def get_cidr_matches(self, sources: str | Iterable[str]) -> list[tuple[int, list[str]]]:
