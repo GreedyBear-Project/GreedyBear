@@ -132,7 +132,9 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
 
     def _add_fks(self, scanner_ip: str, hostname: str) -> None:
         """
-        Link related IOCs bidirectionally (scanner IP <-> hostname).
+        Link related IOCs (scanner IP <-> hostname).
+
+        `IOC.related_ioc` is symmetrical, so a single add() also creates the reverse link.
 
         Args:
             scanner_ip: Scanner IP address.
@@ -148,4 +150,3 @@ class BaseExtractionStrategy(metaclass=ABCMeta):
             return
 
         scanner_ip_instance.related_ioc.add(hostname_instance)
-        hostname_instance.related_ioc.add(scanner_ip_instance)
