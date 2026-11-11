@@ -129,6 +129,7 @@ TPOT_PAYLOAD_SERVER_API_KEY=
 # that reported them, and a payload reported by several sensors is stored once.
 # A server that is unreachable or rejects the key is skipped without affecting
 # the others; what it listed in that extraction interval is not fetched later.
+# The extraction only fails when every server failed.
 # Do not put credentials into the URLs, use "api_key" instead.
 # When set, TPOT_PAYLOAD_SERVER_URL and TPOT_PAYLOAD_SERVER_API_KEY are ignored.
 # Example: [{"url": "https://tpot-a.example.com:64445", "api_key": "<key A>", "sensor": "203.0.113.10"}, {"url": "https://tpot-b.example.com:64445", "api_key": "<key B>", "sensor": "203.0.113.20"}]

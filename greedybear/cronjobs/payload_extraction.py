@@ -55,7 +55,8 @@ class PayloadExtractionJob(Cronjob):
        and attacker IOCs that already transferred a file with the same SHA256.
 
     Payload servers are processed independently: one that is unreachable or
-    fails is logged and skipped, without affecting the others.
+    fails is logged and skipped, without affecting the others. The run only
+    fails when every server failed.
     """
 
     # Timeout for the metadata listing request (seconds).
@@ -221,26 +222,22 @@ class PayloadExtractionJob(Cronjob):
             window: Start and end of the extraction window.
 
         Returns:
-            list[dict]: List of payload metadata dicts, or empty list on error.
+            list[dict]: List of payload metadata dicts, empty if the server has no new payloads.
+
+        Raises:
+            requests.RequestException: If the server cannot be reached or rejects the request.
+            ValueError: If the response is not JSON.
+            TypeError: If the response is not a JSON list.
         """
         window_start, window_end = window
         url = f"{source.url.rstrip('/')}/api/v1/payloads/recent"
         params = {"start_ts": window_start.timestamp(), "end_ts": window_end.timestamp()}
         headers = self._build_auth_headers(source)
 
-        try:
-            response = client.get(url, params=params, headers=headers, verify=False)
-            data = response.json()
-        except requests.RequestException:
-            self.log.exception(f"Failed to fetch payload metadata from {source}.")
-            return []
-        except (ValueError, KeyError):
-            self.log.exception(f"Failed to parse payload metadata response from {source}.")
-            return []
-
+        response = client.get(url, params=params, headers=headers, verify=False)
+        data = response.json()
         if not isinstance(data, list):
-            self.log.error(f"Payload metadata response from {source} is not a list, skipping.")
-            return []
+            raise TypeError(f"Payload metadata response from {source} is not a list.")
         return data
 
     def _deduplicate(self, payloads: list[dict]) -> list[dict]:

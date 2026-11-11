@@ -488,17 +488,17 @@ class TestPayloadExtractionJob(CustomTestCase):
         TPOT_PAYLOAD_SERVER_API_KEY="",
     )
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_handles_network_error_on_metadata_fetch(self, mock_http_class):
-        """Job should handle network errors when fetching metadata gracefully."""
+    def test_network_error_on_metadata_fetch_fails_the_run(self, mock_http_class):
+        """An unreachable server is a failure, not an empty listing, so the run fails."""
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
         mock_http_class.return_value.__exit__ = Mock(return_value=False)
 
         mock_client.get.side_effect = requests.ConnectionError("connection refused")
 
-        self.job.run()
+        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 1 payload server(s)."):
+            self.job.run()
 
-        # No crash, no payloads created.
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
     @override_settings(
@@ -506,8 +506,8 @@ class TestPayloadExtractionJob(CustomTestCase):
         TPOT_PAYLOAD_SERVER_API_KEY="",
     )
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_handles_invalid_json_response(self, mock_http_class):
-        """Job should handle malformed JSON from the server gracefully."""
+    def test_invalid_json_response_fails_the_run(self, mock_http_class):
+        """Malformed JSON from the only server fails the run."""
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
         mock_http_class.return_value.__exit__ = Mock(return_value=False)
@@ -516,7 +516,8 @@ class TestPayloadExtractionJob(CustomTestCase):
         mock_response.json.side_effect = ValueError("No JSON object could be decoded")
         mock_client.get.return_value = mock_response
 
-        self.job.run()
+        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 1 payload server(s)."):
+            self.job.run()
 
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
@@ -1086,10 +1087,34 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         ):
             PayloadExtractionJob().run()
 
-    def test_unreachable_sources_do_not_fail_the_run(self):
-        # Network errors are expected and handled per server, as for the single server before.
+    def test_run_fails_when_every_source_is_unreachable(self):
         self.server_a.recent_error = requests.ConnectionError("connection refused")
         self.server_b.recent_error = requests.Timeout("read timed out")
+
+        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 2 payload server(s)."):
+            self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    def test_run_fails_when_every_source_rejects_the_api_key(self):
+        self.server_a.api_key = "rotated-key-a"
+        self.server_b.api_key = "rotated-key-b"
+
+        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 2 payload server(s)."):
+            self._run()
+
+    def test_sources_without_new_payloads_do_not_fail_the_run(self):
+        # An empty listing means nothing new was captured, which is not a failure.
+        self.server_a.files = {}
+        self.server_b.files = {}
+
+        self._run()
+
+        self.assertEqual(HoneypotPayload.objects.count(), 0)
+
+    def test_one_unreachable_source_and_one_without_new_payloads_do_not_fail_the_run(self):
+        self.server_a.recent_error = requests.ConnectionError("connection refused")
+        self.server_b.files = {}
 
         self._run()
 
@@ -1216,7 +1241,7 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.server_a.recent_error = requests.ConnectionError("connection refused")
         self.server_b.api_key = "rotated-key"
 
-        with self.assertLogs(level="DEBUG") as logs:
+        with self.assertLogs(level="DEBUG") as logs, self.assertRaises(RuntimeError):
             self._run()
 
         output = "\n".join(logs.output)
