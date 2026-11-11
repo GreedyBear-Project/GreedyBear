@@ -442,6 +442,9 @@ class PayloadObservationInline(admin.TabularInline):
     def has_add_permission(self, request, obj=None) -> bool:
         return False
 
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
 
 @admin.register(HoneypotPayload)
 class HoneypotPayloadAdmin(GreedyBearModelAdmin):
