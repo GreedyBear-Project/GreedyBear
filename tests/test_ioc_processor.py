@@ -187,6 +187,46 @@ class TestAddIoc(ExtractionTestCase):
         self.assertEqual(len(result.days_seen), 2)
         self.assertTrue(result.payload_request)
 
+    def test_merge_adds_all_days_of_the_new_ioc(self):
+        self.mock_sensor_repo.cache = {}
+        existing = self._create_mock_ioc(days_seen=[date(2025, 1, 1)], last_seen=datetime(2025, 1, 1, 12, 0, 0))
+        self.mock_ioc_repo.get_ioc_by_name.return_value = existing
+        new = self._create_mock_ioc(
+            days_seen=[date(2025, 1, 3), date(2025, 1, 4), date(2025, 1, 6)],
+            last_seen=datetime(2025, 1, 6, 12, 0, 0),
+        )
+        self.mock_ioc_repo.save.return_value = existing
+
+        result = self.processor.add_ioc(new, attack_type=SCANNER)
+
+        self.assertEqual(result.days_seen, [date(2025, 1, 1), date(2025, 1, 3), date(2025, 1, 4), date(2025, 1, 6)])
+        self.assertEqual(result.number_of_days_seen, 4)
+
+    def test_merge_records_days_older_than_last_seen(self):
+        # a sensor uploads yesterday's events after today's
+        self.mock_sensor_repo.cache = {}
+        existing = self._create_mock_ioc(days_seen=[date(2025, 1, 2)], last_seen=datetime(2025, 1, 2, 12, 0, 0))
+        self.mock_ioc_repo.get_ioc_by_name.return_value = existing
+        new = self._create_mock_ioc(days_seen=[date(2025, 1, 1)], last_seen=datetime(2025, 1, 1, 12, 0, 0))
+        self.mock_ioc_repo.save.return_value = existing
+
+        result = self.processor.add_ioc(new, attack_type=SCANNER)
+
+        self.assertEqual(result.days_seen, [date(2025, 1, 1), date(2025, 1, 2)])
+        self.assertEqual(result.number_of_days_seen, 2)
+
+    def test_merge_does_not_duplicate_known_days(self):
+        self.mock_sensor_repo.cache = {}
+        existing = self._create_mock_ioc(days_seen=[date(2025, 1, 1), date(2025, 1, 2)], last_seen=datetime(2025, 1, 2, 12, 0, 0))
+        self.mock_ioc_repo.get_ioc_by_name.return_value = existing
+        new = self._create_mock_ioc(days_seen=[date(2025, 1, 2)], last_seen=datetime(2025, 1, 2, 13, 0, 0))
+        self.mock_ioc_repo.save.return_value = existing
+
+        result = self.processor.add_ioc(new, attack_type=SCANNER)
+
+        self.assertEqual(result.days_seen, [date(2025, 1, 1), date(2025, 1, 2)])
+        self.assertEqual(result.number_of_days_seen, 2)
+
     def test_only_checks_whatsmyip_for_domains(self):
         self.processor._whatsmyip_domains = {"1.2.3.4"}
         self.mock_sensor_repo.cache = {}
