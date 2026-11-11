@@ -3,7 +3,7 @@ from unittest.mock import patch
 from greedybear.cronjobs.repositories import SensorRepository
 from greedybear.models import Sensor
 
-from . import CustomTestCase, make_api_source, make_sensor
+from . import CustomTestCase, make_api_source, make_sensor, make_user
 
 
 class TestSensorRepository(CustomTestCase):
@@ -31,27 +31,6 @@ class TestSensorRepository(CustomTestCase):
     def test_get_or_create_sensor_rejects_domain(self):
         result = self.repo.get_or_create_sensor("example.com")
         self.assertIsNone(result)
-
-    def test_get_or_create_internal_sensor_ignores_event_collector_sensor(self):
-        user_sensor = make_sensor(make_api_source(self.regular_user), address="203.0.113.10")
-        repo = SensorRepository()
-
-        result = repo.get_or_create_internal_sensor("203.0.113.10")
-
-        self.assertNotEqual(result.pk, user_sensor.pk)
-        self.assertIsNone(result.api_source)
-        self.assertEqual(Sensor.objects.filter(address="203.0.113.10").count(), 2)
-
-    def test_get_or_create_internal_sensor_returns_existing_internal_sensor(self):
-        make_sensor(make_api_source(self.regular_user), address="203.0.113.11")
-        internal = Sensor.objects.create(address="203.0.113.11")
-
-        result = SensorRepository().get_or_create_internal_sensor("203.0.113.11")
-
-        self.assertEqual(result.pk, internal.pk)
-
-    def test_get_or_create_internal_sensor_rejects_non_ip(self):
-        self.assertIsNone(self.repo.get_or_create_internal_sensor("not-an-ip"))
 
     def test_cache_populated_on_init(self):
         Sensor.objects.create(address="192.168.1.1")
@@ -87,10 +66,43 @@ class TestSensorRepository(CustomTestCase):
         self.assertEqual(result.address, "2001:db8::1")
         self.assertTrue(Sensor.objects.filter(address="2001:db8::1").exists())
 
+    def test_get_or_create_sensor_normalizes_ip(self):
+        """IPv4-mapped IPv6 and plain IPv4 resolve to the same sensor."""
+        mapped = self.repo.get_or_create_sensor("::ffff:8.8.8.8")
+        plain = self.repo.get_or_create_sensor("8.8.8.8")
+        self.assertEqual(mapped.address, "8.8.8.8")
+        self.assertEqual(mapped.pk, plain.pk)
+
+    def test_get_or_create_sensor_normalizes_ipv6(self):
+        """Uppercase and lowercase IPv6 spellings resolve to the same sensor."""
+        upper = self.repo.get_or_create_sensor("2001:DB8::1")
+        lower = self.repo.get_or_create_sensor("2001:db8::1")
+        self.assertEqual(upper.address, "2001:db8::1")
+        self.assertEqual(upper.pk, lower.pk)
+
     def test_get_or_create_sensor_has_empty_label(self):
         """get_or_create_sensor should create a sensor with an empty label."""
         result = self.repo.get_or_create_sensor("192.168.1.10")
         self.assertEqual(result.label, "")
+
+    def test_cache_ignores_external_sensors(self):
+        internal = Sensor.objects.create(address="1.2.3.4")
+        make_sensor(make_api_source(make_user()), address="1.2.3.4")
+        repo = SensorRepository()
+        self.assertEqual(repo.cache["1.2.3.4"].pk, internal.pk)
+
+    def test_get_or_create_sensor_does_not_return_external_sensor(self):
+        external = make_sensor(make_api_source(make_user()), address="1.2.3.4")
+        result = self.repo.get_or_create_sensor("1.2.3.4")
+        self.assertNotEqual(result.pk, external.pk)
+        self.assertIsNone(result.api_source)
+
+    def test_get_or_create_sensor_not_cached_with_internal_and_external_sensor(self):
+        # both sensors are created after the cache was filled
+        internal = Sensor.objects.create(address="1.2.3.4")
+        make_sensor(make_api_source(make_user()), address="1.2.3.4")
+        result = self.repo.get_or_create_sensor("1.2.3.4")
+        self.assertEqual(result.pk, internal.pk)
 
     def test_update_country_sets_country(self):
         """update_country sets the Sensor's country if different."""

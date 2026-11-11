@@ -92,6 +92,11 @@ class FeedsTrendingViewTestCase(CustomTestCase):
         errors = response.json().get("errors", response.json())
         self.assertIn("window_minutes", errors)
 
+    def test_400_trending_rejects_unknown_param(self):
+        response = self.client.get(f"{self.url}?window=60")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"window": ["Unknown query parameter."]})
+
     def test_trending_uses_cache_for_same_query_and_window(self):
         with patch("api.views.feeds.TrendingBucketRepository.get_counts_in_window") as mock_get_counts:
             mock_get_counts.side_effect = [

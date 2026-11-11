@@ -30,39 +30,16 @@ class SensorRepository:
         Returns:
             Sensor object if valid, None if invalid IP format.
         """
-        from greedybear.utils import get_ioc_type
+        from greedybear.utils import get_ioc_type, normalize_ip
 
+        ip = normalize_ip(ip)
         if ip in self.cache:
             return self.cache[ip]
         if get_ioc_type(ip) != IP:
             self.log.debug(f"{ip} is not an IP address - won't add as a sensor")
             return None
-        sensor, created = Sensor.objects.get_or_create(address=ip)
-        self.cache[ip] = sensor
-        if created:
-            self.log.info(f"added sensor {ip} to the database")
-        return sensor
-
-    def get_or_create_internal_sensor(self, ip: str) -> Sensor | None:
-        """
-        Get or create the internal T-Pot sensor with this address, never one
-        registered by an Event Collector user under the same address.
-
-        Unlike get_or_create_sensor, this bypasses the cache, which is keyed by
-        address only and holds both kinds of sensors.
-
-        Args:
-            ip: IP address string.
-
-        Returns:
-            Sensor object if valid, None if invalid IP format.
-        """
-        from greedybear.utils import get_ioc_type
-
-        if get_ioc_type(ip) != IP:
-            self.log.debug(f"{ip} is not an IP address - won't add as a sensor")
-            return None
         sensor, created = Sensor.objects.get_or_create(address=ip, api_source=None)
+        self.cache[ip] = sensor
         if created:
             self.log.info(f"added sensor {ip} to the database")
         return sensor
@@ -70,7 +47,8 @@ class SensorRepository:
     def _fill_cache(self) -> None:
         """Load sensor objects from the database into the cache."""
         self.log.debug("populating sensor cache")
-        self.cache = {s.address: s for s in Sensor.objects.all()}
+        # sensors registered through the Event Collector API can share an address with a T-Pot sensor
+        self.cache = {s.address: s for s in Sensor.objects.filter(api_source__isnull=True)}
 
     def update_country(self, sensor: Sensor | None, country: str) -> None:
         """

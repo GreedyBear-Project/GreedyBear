@@ -1,6 +1,7 @@
 """One malformed record must cost that record, not the rest of the chunk."""
 
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.strategies.generic import GenericExtractionStrategy
@@ -135,6 +136,58 @@ class RealMalformedRecordTestCase(CustomTestCase):
         strategy = self._tanner()
         strategy.extract_from_hits([self._tanner_hit("193.32.162.99", self.LONG_HOST)])
         self.assertEqual(strategy.skipped, 1)
+
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
+    def test_overlong_rfi_url_costs_the_url_not_the_ioc(self, _tf):
+        """The hostname is short and valid, so only the URL is too long for its column."""
+        strategy = self._tanner()
+        hit = Hit(
+            {
+                "src_ip": "193.32.162.99",
+                "type": "tanner",
+                "@timestamp": TS,
+                "url": f"/index.php?page=http://evil.example.com/{'a' * 950}",
+                "geoip": {},
+            }
+        )
+
+        strategy.extract_from_hits([hit])
+
+        ioc = IOC.objects.get(name="evil.example.com")
+        self.assertEqual(ioc.related_urls or [], [])
+        self.assertEqual(strategy.skipped, 0)
+
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
+    def test_real_database_error_still_costs_one_record_only(self, _tf):
+        """
+        The guard in base.py has to survive a real database error, not just a
+        raised exception. Postgres aborts the transaction on a failed statement,
+        so only a real DataError proves the savepoint rollback keeps the
+        connection usable for the rest of the chunk.
+
+        parse_url_hostname now rejects the over long host before the insert, so
+        the test puts the old unchecked version back to reach Postgres with it.
+        """
+        strategy = self._tanner()
+        chunk = [self._tanner_hit(f"45.83.64.{i}", f"good{i}.example.com") for i in range(1, 6)]
+        chunk.insert(0, self._tanner_hit("193.32.162.99", self.LONG_HOST))
+
+        def unchecked(url):
+            return urlparse(url).hostname
+
+        with (
+            patch("greedybear.cronjobs.extraction.strategies.tanner.parse_url_hostname", side_effect=unchecked),
+            self.assertLogs(level="ERROR") as logs,
+        ):
+            strategy.extract_from_hits(chunk)
+
+        # the database raised for real, not a stand in exception
+        self.assertTrue(any("DataError" in line or "value too long" in line for line in logs.output))
+        # and the five well formed hostnames behind it still went through
+        saved = IOC.objects.filter(type="domain", name__startswith="good").count()
+        self.assertEqual(saved, 5)
+        self.assertEqual(strategy.skipped, 1)
+        self.assertFalse(IOC.objects.filter(name=self.LONG_HOST).exists())
 
 
 class MissingFieldTestCase(CustomTestCase):

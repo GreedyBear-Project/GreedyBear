@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils.html import format_html
 from django.utils.translation import ngettext
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.models import (
     IOC,
     APISource,
@@ -36,9 +37,26 @@ TITLE_MAX_CHARS = 2000
 
 
 class GreedyBearModelAdmin(admin.ModelAdmin):
-    """Base admin class for all GreedyBear models."""
+    """Base admin class for all GreedyBear models.
+
+    Every admin write invalidates the IOC cache, so feeds and statistics
+    reflect the change on the next request.
+    """
 
     show_facets = admin.ShowFacets.NEVER  # disable facet counts ("Show counts" button)
+
+    def save_related(self, request, form, formsets, change):
+        # runs after save_model, once M2M fields and inlines are saved too
+        super().save_related(request, form, formsets, change)
+        invalidate_ioc_cache()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        invalidate_ioc_cache()
+
+    def delete_queryset(self, request, queryset):
+        super().delete_queryset(request, queryset)
+        invalidate_ioc_cache()
 
 
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
@@ -205,7 +223,6 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
-        "firehol_categories_display",
         "autonomous_system_display",
         "destination_ports_display",
         "protocols_display",
@@ -233,7 +250,6 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     honeypots_display = collapsed_list_display("honeypots")
     sensors_display = collapsed_list_display("sensors")
     related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
-    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
     destination_ports_display = collapsed_list_display("destination_ports")
     protocols_display = collapsed_list_display("protocols")
     cves_display = collapsed_list_display("cves", description="CVEs")
@@ -256,7 +272,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
 
 
 @admin.register(AttackerActivityBucket)
-class AttackerActivityBucketAdmin(admin.ModelAdmin):
+class AttackerActivityBucketAdmin(GreedyBearModelAdmin):
     list_display = ["attacker_ip", "feed_type", "bucket_start", "interaction_count"]
     list_filter = ["feed_type"]
     search_fields = ["attacker_ip"]
@@ -278,6 +294,9 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         disableable = Q(active=True)
         honeypots = queryset.filter(disableable).all()
         number_updated = honeypots.update(active=False)
+        # update() bypasses save_related, so invalidate explicitly
+        if number_updated:
+            invalidate_ioc_cache()
         self.message_user(
             request,
             ngettext(
@@ -294,6 +313,8 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         enableable = Q(active=False)
         honeypots = queryset.filter(enableable).all()
         number_updated = honeypots.update(active=True)
+        if number_updated:
+            invalidate_ioc_cache()
         self.message_user(
             request,
             ngettext(

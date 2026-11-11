@@ -4,7 +4,7 @@ from rest_framework.test import APIClient
 
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
-from greedybear.models import IOC, AutonomousSystem, Credential, Honeypot
+from greedybear.models import IOC, AutonomousSystem, Credential, Honeypot, Tag
 from tests import CustomTestCase
 
 
@@ -221,11 +221,19 @@ class FeedsASNViewTestCase(CustomTestCase):
         error_msg = error_list[0].lower()
         self.assertIn("blank", error_msg)
 
-    def test_asn_feed_ignores_feed_size(self):
+    def test_400_asn_feed_rejects_feed_size(self):
+        # feed_size has no effect on the aggregation, so the ASN serializer drops the field
         response = self.client.get(self.url + "?feed_size=1")
-        results = response.json()
-        # aggregation should return all ASNs regardless of feed_size
-        self.assertEqual(len(results), 2)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"feed_size": ["Unknown query parameter."]})
+
+    def test_asn_feed_end_date_max(self):
+        response = self.client.get(self.url + "?end_date=9999-12-31")
+        self.assertEqual(response.status_code, 200)
+
+    def test_400_asn_feed_max_age_too_large(self):
+        response = self.client.get(self.url + "?max_age=1000000")
+        self.assertEqual(response.status_code, 400)
 
     def test_asn_feed_includes_as_name(self):
         response = self.client.get(self.url)
@@ -301,3 +309,62 @@ class FeedsASNViewTestCase(CustomTestCase):
         # Cleanup DB
         self.ioc_high1.attack_count = original_attack_count
         self.ioc_high1.save(update_fields=["attack_count"])
+
+    def test_asn_feed_multiple_honeypots_do_not_duplicate_metrics(self):
+        response = self.client.get(self.url + "?feed_type=testpot1,testpot2")
+
+        self.assertEqual(response.status_code, 200)
+        results = self._get_results(response)
+        high_item = next(item for item in results if str(item["asn"]) == self.high_asn)
+
+        self.assertEqual(high_item["ioc_count"], 2)
+        self.assertEqual(high_item["total_attack_count"], 20)
+        self.assertEqual(high_item["total_interaction_count"], 40)
+        self.assertEqual(high_item["total_login_attempts"], 7)
+        self.assertAlmostEqual(high_item["expected_ioc_count"], 1.1)
+        self.assertAlmostEqual(high_item["expected_interactions"], 28.0)
+
+    def test_asn_feed_multiple_matching_tags_do_not_duplicate_metrics(self):
+        Tag.objects.create(
+            ioc=self.ioc_high1,
+            key="test_family",
+            value="test-malware-one",
+            source="test",
+        )
+        Tag.objects.create(
+            ioc=self.ioc_high1,
+            key="test_family",
+            value="test-malware-two",
+            source="test",
+        )
+
+        response = self.client.get(self.url + "?feed_type=all&tag_key=test_family&tag_value=test-malware")
+        self.assertEqual(response.status_code, 200)
+
+        results = self._get_results(response)
+        high_item = next(item for item in results if str(item["asn"]) == self.high_asn)
+
+        self.assertEqual(high_item["ioc_count"], 1)
+        self.assertEqual(high_item["total_attack_count"], 15)
+        self.assertEqual(high_item["total_interaction_count"], 30)
+        self.assertEqual(high_item["total_login_attempts"], 5)
+        self.assertAlmostEqual(high_item["expected_ioc_count"], 0.8)
+        self.assertAlmostEqual(high_item["expected_interactions"], 20.0)
+
+    def test_asn_feed_excludes_iocs_from_inactive_honeypots(self):
+        inactive_only = IOC.objects.create(name="inactive.example.com", type="ip", autonomous_system=self.as_high, attack_count=100)
+        inactive_only.honeypots.add(self.ddospot)
+        mixed = IOC.objects.create(name="mixed.example.com", type="ip", autonomous_system=self.as_low, attack_count=3)
+        mixed.honeypots.add(self.testpot1, self.ddospot)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        results = {str(item["asn"]): item for item in self._get_results(response)}
+
+        # the IOC seen only by an inactive honeypot is left out
+        self.assertEqual(results[self.high_asn]["ioc_count"], 2)
+        self.assertEqual(results[self.high_asn]["total_attack_count"], 20)
+        # an IOC also seen by an active honeypot still counts, but the inactive one is not listed
+        self.assertEqual(results[self.low_asn]["ioc_count"], 2)
+        self.assertEqual(results[self.low_asn]["total_attack_count"], 5)
+        self.assertEqual(results[self.low_asn]["honeypots"], ["testpot1", "testpot2"])

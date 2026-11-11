@@ -128,14 +128,11 @@ class FeedsTagsTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/advanced/")
         self.assertEqual(response.status_code, 401)
 
-    def test_200_public_feeds_ignores_tag_filter(self):
-        """Tag filtering should be ignored on the public feeds endpoint."""
-        # Public endpoint should return all IOCs regardless of tag_key param
+    def test_400_public_feeds_rejects_tag_filter(self):
+        """Tag filtering is only available on the advanced feed, so the public feed rejects it."""
         response = self.client.get("/api/feeds/?tag_key=nonexistent&page_size=10&page=1")
-        self.assertEqual(response.status_code, 200)
-        iocs = response.json()["results"]["iocs"]
-        # Should still return IOCs (filter not applied)
-        self.assertGreater(len(iocs), 0)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"tag_key": ["Unknown query parameter."]})
 
     def test_200_public_feeds_includes_tags(self):
         """Public feeds endpoint should also include tags in JSON response."""

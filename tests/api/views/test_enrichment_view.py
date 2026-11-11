@@ -1,6 +1,6 @@
 from rest_framework.test import APIClient
 
-from greedybear.models import HoneypotPayload, Sensor, Statistics, ViewType
+from greedybear.models import IOC, HoneypotPayload, IocType, Sensor, Statistics, ViewType
 from tests import CustomTestCase
 
 
@@ -71,6 +71,12 @@ class EnrichmentViewTestCase(CustomTestCase):
         response = self.client.get("/api/enrichment?query=256.1.1.1")
         self.assertEqual(response.status_code, 400)
 
+    def test_unknown_param_is_rejected(self):
+        """Query params other than query are rejected instead of silently ignored"""
+        response = self.client.get("/api/enrichment?query=1.2.3.4&verbose=true")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"verbose": ["Unknown query parameter."]})
+
     def test_valid_ipv6_address(self):
         """Valid IPv6 addresses should be accepted"""
         response = self.client.get("/api/enrichment?query=2001:db8::1")
@@ -87,6 +93,20 @@ class EnrichmentViewTestCase(CustomTestCase):
         response = self.client.get("/api/enrichment?query=example.com")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["found"], False)
+
+    def test_enrichment_normalizes_ipv6_query(self):
+        """Equivalent IPv6 spellings find the IOC stored in normalized form."""
+        IOC.objects.create(
+            name="2001:db8::1",
+            type=IocType.IP.value,
+            first_seen=self.current_time,
+            last_seen=self.current_time,
+        )
+        for query in ["2001:DB8::1", "2001:0db8:0:0:0:0:0:0001"]:
+            with self.subTest(query=query):
+                response = self.client.get(f"/api/enrichment?query={query}")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["found"], True)
 
     def test_enrichment_includes_sensors(self):
         """Sensors field appears in enrichment response for authenticated users."""

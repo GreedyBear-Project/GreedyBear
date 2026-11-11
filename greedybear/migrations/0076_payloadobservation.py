@@ -42,7 +42,7 @@ def copy_observations_to_locators(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('greedybear', '0070_alter_credential_password_alter_credential_username'),
+        ('greedybear', '0075_move_spamhaus_drop_tags'),
     ]
 
     operations = [

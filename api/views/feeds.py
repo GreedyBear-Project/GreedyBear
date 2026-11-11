@@ -3,8 +3,8 @@
 import hashlib
 import json
 from datetime import timedelta
+from typing import cast
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
@@ -23,8 +23,9 @@ from rest_framework.serializers import Serializer
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.filters import FeedsFilterSet
-from api.mixins import CachedResponseMixin, RequestLoggingMixin
+from api.mixins import CachedResponseMixin, QueryParamValidationMixin, RequestLoggingMixin
 from api.renderers import FeedCSVRenderer, FeedJSONRenderer, FeedNDJSONRenderer, FeedTextRenderer, Stix21Renderer
 from api.serializers import (
     AdvancedFeedEnvelopeSerializer,
@@ -49,7 +50,7 @@ from api.views.utils import (
     save_request_source,
     stream_ioc_objects,
 )
-from greedybear.consts import SHARE_TOKEN_SALT, TRENDING_FEEDS_DATA_VERSION_KEY
+from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import PayloadRepository, TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
 from greedybear.models import IOC, ShareToken, ViewType
@@ -63,7 +64,7 @@ RENDERERS_BY_FORMAT = {
 }
 
 RESPONSES = {
-    400: OpenApiResponse(description="Invalid feed parameters."),
+    400: OpenApiResponse(description="Invalid or unknown feed parameters."),
     401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
     429: OpenApiResponse(description="Rate limit exceeded."),
 }
@@ -76,7 +77,7 @@ PAGE_PARAMETER = OpenApiParameter(
 )
 
 
-class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
+class BaseFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedResponseMixin, APIView):
     """Shared GET flow:
     validate request params, build the IOC queryset and render (paginating when asked).
 
@@ -89,7 +90,7 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
     """
 
     # ACCESS CONTROL
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [AllowAny]
     throttle_classes = [FeedsThrottle]
     renderer_classes = [FeedJSONRenderer, FeedTextRenderer, FeedCSVRenderer, Stix21Renderer, FeedNDJSONRenderer]
@@ -152,10 +153,11 @@ class BaseFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
                 type_filter |= Q(honeypots__name__iexact=ft)
             iocs = iocs.filter(type_filter)
 
+        iocs = iocs.filter(honeypots__active=True)
+
         if self.is_aggregated:
             return iocs
 
-        iocs = iocs.filter(honeypots__active=True)
         iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
         if self.request_params["format"] in ["json", "ndjson"]:
             iocs = iocs.annotate(
@@ -251,6 +253,10 @@ class SimpleFeedView(BaseFeedView):
             "format": kwargs["format_"],
         }
 
+    def get_allowed_query_params(self) -> set[str]:
+        """The URL path sets feed_type, attack_type, prioritize and format, so the query string may not."""
+        return super().get_allowed_query_params() - {"feed_type", "attack_type", "prioritize", "format"}
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -259,7 +265,12 @@ class SimpleFeedView(BaseFeedView):
         description="Public query-parameter feed, always paginated and always JSON.",
         # Public endpoint: suppress the optional token scheme so it renders without a lock.
         auth=[],
-        parameters=[SimpleFeedRequestSerializer, PAGE_PARAMETER],
+        parameters=[
+            SimpleFeedRequestSerializer,
+            PAGE_PARAMETER,
+            # always JSON, so drop the format param the serializer would otherwise generate
+            OpenApiParameter("format", exclude=True),
+        ],
         responses={
             200: PaginatedSimpleFeedSerializer,
             400: RESPONSES[400],
@@ -280,6 +291,10 @@ class PaginatedFeedView(BaseFeedView):
     def get_request_data(self, request: Request, **kwargs) -> dict:
         """Pagination requires JSON response"""
         return request.query_params.dict() | {"format": "json"}
+
+    def get_allowed_query_params(self) -> set[str]:
+        """The format is always JSON, so the query string may not set it."""
+        return super().get_allowed_query_params() - {"format"}
 
 
 @extend_schema_view(
@@ -380,15 +395,16 @@ class AsnFeedView(BaseFeedView):
         },
     )
 )
-class TrendingFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
+class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedResponseMixin, APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [FeedsThrottle]
+    serializer_class = TrendingFeedRequestSerializer
     cache_namespace = "trending_feeds"
     cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
 
     def get(self, request: Request) -> HttpResponseBase:
-        serializer = TrendingFeedRequestSerializer(data=request.query_params)
+        serializer = self.serializer_class(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
         cached_response = self.get_cached_response()
@@ -432,7 +448,12 @@ class TrendingFeedView(RequestLoggingMixin, CachedResponseMixin, APIView):
         ),
         responses={
             200: AdvancedFeedEnvelopeSerializer,
-            400: OpenApiResponse(description="Token is missing/revoked/badly signed, or its decoded feed parameters are invalid."),
+            400: OpenApiResponse(
+                description=(
+                    "Token is missing/revoked/badly signed, its decoded feed parameters are invalid, "
+                    "or the query string has a parameter other than `page`/`page_size`."
+                )
+            ),
             429: RESPONSES[429],
         },
     )
@@ -455,9 +476,13 @@ class ConsumeFeedView(AdvancedFeedView):
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data["feed_params"]
 
+    def get_allowed_query_params(self) -> set[str]:
+        """The feed params come from the token, so the query string only carries the page params."""
+        return self.get_page_query_params()
+
 
 @extend_schema(tags=["Feed Sharing"])
-class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
+class ShareTokenViewSet(RequestLoggingMixin, QueryParamValidationMixin, ViewSet):
     """Create, list and revoke shareable feed tokens.
 
     Share and revoke are both POST, consistent with the other mutating feed
@@ -470,6 +495,12 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
 
     permission_classes = [IsAuthenticated]
     throttle_classes = [FeedsAdvancedThrottle]
+
+    def get_allowed_query_params(self) -> set[str]:
+        """Only the share action reads query params: the fields of ShareFeedRequestSerializer."""
+        if getattr(self, "action", None) == "share":
+            return set(ShareFeedRequestSerializer().fields.keys())
+        return set()
 
     @extend_schema(
         summary="Create a shareable feed link",
@@ -495,7 +526,9 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
         # so the token format and consume-time replay stay unchanged.
         data = request.query_params.dict()
         data.pop("reason", None)
-        token = signing.dumps(data, salt=SHARE_TOKEN_SALT)
+        # IsAuthenticated guarantees request.user is a persisted user.
+        user_id = cast("int", request.user.pk)
+        token = signing.dumps(data, salt=ShareToken.salt_for_user(user_id))
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         ShareToken.objects.get_or_create(
             token_hash=token_hash,
@@ -516,7 +549,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
         request=None,
         responses={
             200: OpenApiResponse(description="Confirmation that the token was revoked."),
-            400: OpenApiResponse(description="Token is missing or has an invalid signature."),
+            400: OpenApiResponse(description="Token is missing or has an invalid signature, or an unknown query parameter was given."),
             401: RESPONSES[401],
             403: OpenApiResponse(description="The caller is not the token's creator."),
             429: RESPONSES[429],
@@ -543,6 +576,7 @@ class ShareTokenViewSet(RequestLoggingMixin, ViewSet):
         description="Return the share tokens created by the authenticated user, most recent first.",
         responses={
             200: ShareTokenListItemSerializer(many=True),
+            400: OpenApiResponse(description="An unknown query parameter was given; this endpoint takes none."),
             401: RESPONSES[401],
             429: RESPONSES[429],
         },

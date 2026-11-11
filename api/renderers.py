@@ -7,6 +7,19 @@ from rest_framework.renderers import BaseRenderer, JSONRenderer
 
 from api.views.utils import build_feed_dict, build_stix_bundle
 
+# Spreadsheet apps treat cells starting with these as formulas (CSV injection).
+_CSV_FORMULA_PREFIXES = frozenset("=+-@\t\r")
+
+
+def neutralize_csv_formula(value: str) -> str:
+    """Prefix a leading formula character so Excel/LibreOffice treat the cell as text.
+
+    The stored IOC is unchanged; this is export-only (issue #1738).
+    """
+    if value and value[0] in _CSV_FORMULA_PREFIXES:
+        return f"'{value}"
+    return value
+
 
 class FeedJSONRenderer(JSONRenderer):
     """JSON feed renderer.
@@ -74,7 +87,7 @@ class FeedCSVRenderer(FeedRendererMixin):
         if settings.FEEDS_LICENSE:
             buffer.write("# ")
             writer.writerow([settings.FEEDS_LICENSE])
-        writer.writerows([list(row) for row in data.values_list("name")])
+        writer.writerows([[neutralize_csv_formula(name)] for (name,) in data.values_list("name")])
         return buffer.getvalue().encode("utf-8")
 
 

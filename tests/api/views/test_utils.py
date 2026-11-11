@@ -64,7 +64,6 @@ class StreamIocObjectsTestCase(CustomTestCase):
         self.assertEqual(stream_result, list_result)
         for ioc in stream_result:
             self.assertIn("days_seen", ioc)
-            self.assertIn("firehol_categories", ioc)
 
     def test_include_sensors_parity(self):
         qs = self.get_test_queryset()
