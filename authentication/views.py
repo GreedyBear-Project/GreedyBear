@@ -4,7 +4,8 @@ import rest_email_auth.views
 from certego_saas.apps.auth import views as certego_views
 from certego_saas.ext.throttling import POSTUserRateThrottle
 from django.conf import settings
-from django.contrib.auth import login
+from django.contrib.auth import SESSION_KEY, login
+from django.contrib.sessions.models import Session
 from django.middleware.csrf import get_token
 from durin import views as durin_views
 from durin.models import AuthToken
@@ -38,12 +39,17 @@ logger = logging.getLogger(__name__)
 """ Auth API endpoints """
 
 
-def revoke_other_tokens(user, current_token=None):
+def revoke_other_tokens(user, current_token=None, current_session_key=None):
     # Keep only the provided token for this user; revoke all when current_token is null.
     if current_token:
         AuthToken.objects.filter(user=user).exclude(pk=current_token.pk).delete()
     else:
         AuthToken.objects.filter(user=user).delete()
+
+    # admin sessions from login only store the user id inside the encoded data
+    for session in Session.objects.exclude(session_key=current_session_key):
+        if session.get_decoded().get(SESSION_KEY) == str(user.pk):
+            session.delete()
 
 
 class PasswordResetRequestView(rest_email_auth.views.PasswordResetRequestView):
@@ -203,7 +209,7 @@ class TokenSessionsViewSet(durin_views.TokenSessionsViewSet):
         permission_classes=[IsAuthenticated],
     )
     def revoke_others(self, request: Request) -> Response:
-        revoke_other_tokens(user=request.user, current_token=request.auth)
+        revoke_other_tokens(user=request.user, current_token=request.auth, current_session_key=request.session.session_key)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
