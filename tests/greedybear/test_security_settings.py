@@ -151,3 +151,21 @@ class PayloadServersSettingsTests(SimpleTestCase):
                 self._reload_with(value)
             self.assertIn("TPOT_PAYLOAD_SERVERS", str(raised.exception))
             self.assertNotIn("secret-key", str(raised.exception))
+
+    def test_sensor_must_be_an_ip_address(self):
+        for sensor in ["tpot-1", "", "198.51.100.300"]:
+            with self.subTest(sensor), self.assertRaises(ValueError) as raised:
+                self._reload_with(f'[{{"url": "https://a.example", "api_key": "secret-key", "sensor": "{sensor}"}}]')
+            self.assertIn('"sensor" must be the IP address of the T-Pot', str(raised.exception))
+            self.assertNotIn("secret-key", str(raised.exception))
+
+    def test_api_key_is_kept_only_in_the_setting(self):
+        module = self._reload_with('[{"url": "https://a.example", "api_key": "secret-key", "sensor": "198.51.100.10"}]')
+
+        leaked = [name for name, value in vars(module).items() if name != "TPOT_PAYLOAD_SERVERS" and "secret-key" in repr(value)]
+        self.assertEqual(leaked, [])
+
+    def test_ipv6_sensor_is_accepted(self):
+        servers = self._reload_with('[{"url": "https://a.example", "sensor": "2001:db8::10"}]').TPOT_PAYLOAD_SERVERS
+
+        self.assertEqual(servers[0]["sensor"], "2001:db8::10")

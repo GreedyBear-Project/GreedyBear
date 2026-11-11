@@ -6,6 +6,7 @@ import os
 import sys
 import tomllib
 from datetime import timedelta
+from ipaddress import ip_address
 from pathlib import Path
 
 from django.core.management.utils import get_random_secret_key
@@ -35,6 +36,13 @@ if not isinstance(TPOT_PAYLOAD_SERVERS, list) or not all(
     for server in TPOT_PAYLOAD_SERVERS
 ):
     raise ValueError('TPOT_PAYLOAD_SERVERS must be a JSON list of objects with a "url", a "sensor" and an optional string "api_key"')
+# Only the addresses are looped over, so no module-level name is left holding an API key.
+for sensor_address in [server["sensor"] for server in TPOT_PAYLOAD_SERVERS]:
+    # Checked here, so a label like "tpot-1" is not mistaken for the sensor's address.
+    try:
+        ip_address(sensor_address)
+    except ValueError:
+        raise ValueError(f'TPOT_PAYLOAD_SERVERS: "sensor" must be the IP address of the T-Pot, not {sensor_address!r}') from None
 MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
 ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
 ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"

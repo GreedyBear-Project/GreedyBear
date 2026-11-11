@@ -115,10 +115,8 @@ class PayloadExtractionJob(Cronjob):
         sensor_repo = SensorRepository()
         sources = []
         for server in settings.TPOT_PAYLOAD_SERVERS:
+            # The address is checked to be an IP address at startup, so a sensor is always found.
             sensor = sensor_repo.get_or_create_sensor(server["sensor"])
-            if sensor is None:
-                self.log.error(f"Skipping payload server {server['url']}: {server['sensor']} is not a valid sensor IP address.")
-                continue
             sources.append(PayloadSource(url=server["url"], api_key=server.get("api_key", ""), sensor=sensor))
         return sources
 

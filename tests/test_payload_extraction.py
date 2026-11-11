@@ -1201,16 +1201,6 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.assertNotEqual(observation.sensor.pk, user_sensor.pk)
         self.assertFalse(user_sensor.payload_observations.exists())
 
-    def test_source_with_invalid_sensor_address_is_skipped(self):
-        config = [{"url": SERVER_A, "api_key": "key-a", "sensor": "not-an-ip"}, *self._config(SERVER_B)]
-
-        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
-            self._run(config)
-
-        self.assertEqual(len(logs.output), 1)
-        self.assertEqual(self.server_a.recent_params, [])
-        self.assertEqual(self._sensors(ONLY_B), [SENSOR_B])
-
     def test_api_key_is_optional(self):
         self.server_a.api_key = ""
 
