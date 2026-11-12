@@ -70,7 +70,7 @@ class ClusterCommandSequences(Cronjob):
             if not payload_urls:
                 continue
 
-            for session in scanner.cowriesession_set.all():
+            for session in scanner.cowriesession_set.all():  # ty: ignore[unresolved-attribute]
                 if session.commands_id is not None:
                     payload_urls_by_sequence_id[session.commands_id].update(payload_urls)
 
@@ -80,12 +80,12 @@ class ClusterCommandSequences(Cronjob):
         """
         Prepare tokenized inputs for clustering by combining commands with payload observables.
         """
-        payload_urls_by_sequence_id = self._build_payload_urls_by_sequence_id([seq.id for seq in sequences if seq.id is not None])
+        payload_urls_by_sequence_id = self._build_payload_urls_by_sequence_id([seq.pk for seq in sequences if seq.pk is not None])
 
         tokenized_sequences = []
         for seq in sequences:
             commands_for_clustering = list(seq.commands)
-            sorted_payload_urls = sorted(payload_urls_by_sequence_id.get(seq.id, set()))
+            sorted_payload_urls = sorted(payload_urls_by_sequence_id.get(seq.pk, set()))
             commands_for_clustering.extend(f"PAYLOAD_REQUEST:{payload_url}" for payload_url in sorted_payload_urls)
             tokenized_sequences.append(tokenize(commands_for_clustering))
 

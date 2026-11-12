@@ -1,7 +1,10 @@
+from datetime import datetime
+from hashlib import sha256
+
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from greedybear.models import CowrieSession
+from greedybear.models import IOC, CommandSequence, CowrieSession, Credential, IocType
 from tests import CustomTestCase
 
 
@@ -34,6 +37,14 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertNotIn("credentials", response.data)
         self.assertNotIn("sessions", response.data)
         self.assertEqual(len(response.data["sources"]), 2)
+
+    def test_ipv6_query_is_normalized(self):
+        """Test that equivalent IPv6 spellings find the session stored in normalized form."""
+        ioc = IOC.objects.create(name="2001:db8::1", type=IocType.IP.value)
+        CowrieSession.objects.create(session_id=0xABC123, source=ioc, duration=10, start_time=self.current_time)
+        response = self.client.get("/api/cowrie_session?query=2001:DB8:0:0:0:0:0:1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sources"], ["2001:db8::1"])
 
     def test_include_similar_excludes_non_positive_duration_sessions(self):
         """Test that include_similar only returns sessions with duration > 0."""
@@ -117,6 +128,24 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertIn("sessions", response.data)
         self.assertEqual(len(response.data["sources"]), 2)
 
+    def test_sources_with_mixed_ip_versions(self):
+        """Test that sources mixing IPv4 and IPv6 addresses are sorted without error."""
+        ioc_v6 = IOC.objects.create(name="2001:db8::1", type=IocType.IP.value)
+        CowrieSession.objects.create(
+            session_id=int("cccccccccccc", 16),
+            start_time=self.current_time,
+            duration=3.0,
+            login_attempt=True,
+            command_execution=True,
+            interaction_count=1,
+            source=ioc_v6,
+            commands=self.command_sequence,
+        )
+
+        response = self.client.get(f"/api/cowrie_session?query={self.hash}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sources"], ["140.246.171.141", "2001:db8::1"])
+
     # # # # # IP Address Validation Tests # # # # #
     def test_nonexistent_ip_address(self):
         """Test that view returns 404 for IP with no sequences."""
@@ -139,10 +168,12 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 404)
 
     # # # # # Parameter Validation Tests # # # # #
-    def test_missing_query_parameter(self):
-        """Test that view returns BadRequest when query parameter is missing."""
-        response = self.client.get("/api/cowrie_session")
+
+    def test_unknown_param_is_rejected(self):
+        """Test that view returns BadRequest for an unknown query parameter."""
+        response = self.client.get("/api/cowrie_session?query=140.246.171.141&include_commands=true")
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"include_commands": ["Unknown query parameter."]})
 
     def test_invalid_query_parameter(self):
         """Test that non-IP, non-hash queries are treated as password lookups."""
@@ -232,16 +263,15 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("not both", str(response.data))
 
-    def test_missing_query_and_id_message(self):
-        """With neither parameter the error should not mention "not both"."""
-        response = self.client.get("/api/cowrie_session")
-        self.assertEqual(response.status_code, 400)
-        self.assertNotIn("not both", str(response.data))
-
     # # # # # Hash Validation Tests # # # # #
     def test_nonexistent_hash(self):
         """Test that view returns 404 for nonexistent hash."""
         response = self.client.get(f"/api/cowrie_session?query={'f' * 64}")
+        self.assertEqual(response.status_code, 404)
+
+    def test_nonexistent_session_when_hash_exists(self):
+        """ "Test that view returns 404 when hash exists but not used in any session."""
+        response = self.client.get(f"/api/cowrie_session?query={self.command_sequence_not_used.commands_hash}")
         self.assertEqual(response.status_code, 404)
 
     def test_hash_wrong_length(self):
@@ -357,7 +387,210 @@ class CowrieSessionViewTestCase(CustomTestCase):
         self.assertEqual(response.data["sessions"][0]["source"], "140.246.171.141")
         self.assertEqual(response.data["sessions"][0]["credentials"][0], "root | root")
 
+    def test_password_query_dedupes_sessions_sharing_password(self):
+        """One session reusing a password across credentials must appear once.
+
+        No include_similar here: union() absorbs the dup when clusters
+        overlap, so only the plain password query reproduces it.
+        """
+        session = CowrieSession.objects.create(
+            session_id=999001,
+            start_time=self.current_time,
+            duration=5.0,
+            login_attempt=True,
+            interaction_count=2,
+            source=self.ioc,
+        )
+        first, _ = Credential.objects.get_or_create(username="root", password="samepw_1762")
+        second, _ = Credential.objects.get_or_create(username="admin", password="samepw_1762")
+        session.credentials.add(first, second)
+
+        response = self.client.get("/api/cowrie_session?query=samepw_1762&include_session_data=true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertCountEqual(
+            response.data["sessions"][0]["credentials"],
+            ["root | samepw_1762", "admin | samepw_1762"],
+        )
+
     def test_password_too_long(self):
         """Test that passwords exceeding max length return 400."""
         response = self.client.get(f"/api/cowrie_session?query={'a' * 257}")
         self.assertEqual(response.status_code, 400)
+
+    # # # # # Date Filter Tests # # # # #
+    def test_filter_by_start_date_only(self):
+        """Should return only sessions occurring on or after start_date."""
+        start_date = "2026-01-20"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date={start_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertGreaterEqual(session_date, start_date)
+
+    def test_filter_by_end_date_only(self):
+        """Should return only sessions occurring on or before end_date."""
+        end_date = "2026-01-20"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&end_date={end_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertLessEqual(session_date, end_date)
+
+    def test_filter_by_exact_date_range(self):
+        """Should return only sessions within the start_date and end_date window."""
+        start_date = "2026-01-15"
+        end_date = "2026-01-25"
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date={start_date}&end_date={end_date}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+
+        for session in response.data["sessions"]:
+            session_date = session["time"][:10]
+            self.assertTrue(start_date <= session_date <= end_date, f"Session date {session_date} is outside range [{start_date}, {end_date}]")
+
+    def test_start_date_after_end_date_raises_validation_error(self):
+        """Should return 400 Bad Request when start_date is later than end_date."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&start_date=2026-01-20&end_date=2026-01-10")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_with_date_filter_missing_ip_returns_200_empty(self):
+        """Should return 200 OK with empty payloads when date filter is applied even if no sessions match."""
+        response = self.client.get(f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&start_date=2026-02-01&end_date=2026-02-10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["commands"], [])
+        self.assertEqual(response.data["sources"], [])
+
+    # # # # # No Query Tests # # # # #
+    def test_no_query_and_no_id_returns_all_sessions(self):
+        """Without query, id or dates, every session should be returned."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 5)
+        self.assertNotIn("query", response.data)
+        self.assertNotIn("id", response.data)
+
+    def test_no_query_with_date_range(self):
+        """Dates alone should return all sessions in the window."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2026-01-15&end_date=2026-01-25")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 1)
+        self.assertEqual(response.data["sources"], [self.ioc_3.name])
+
+    def test_no_query_with_start_date_only(self):
+        """Only start_date should return all sessions on or after that day."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2026-01-20")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 4)
+
+    def test_no_query_with_end_date_only(self):
+        """Only end_date should return all sessions on or before that day."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&end_date=2026-01-20")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sessions"]), 2)
+
+    def test_no_query_with_empty_window_returns_200_empty(self):
+        """A window with no sessions should return empty lists, not a 404."""
+        response = self.client.get("/api/cowrie_session?include_session_data=true&start_date=2099-01-01")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["sources"], [])
+
+    def test_no_query_start_date_after_end_date_is_rejected(self):
+        """The date order check should still work without a query."""
+        response = self.client.get("/api/cowrie_session?start_date=2026-01-20&end_date=2026-01-10")
+        self.assertEqual(response.status_code, 400)
+
+    # # # # # include_similar Rules # # # # #
+    def test_include_similar_without_query_or_id_is_rejected(self):
+        """include_similar needs a query or id to find related sessions."""
+        response = self.client.get("/api/cowrie_session?include_similar=true")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("include_similar", str(response.data))
+
+    def test_include_similar_with_only_dates_is_rejected(self):
+        """Dates alone are not enough for include_similar."""
+        response = self.client.get("/api/cowrie_session?include_similar=true&start_date=2026-01-15&end_date=2026-01-25")
+        self.assertEqual(response.status_code, 400)
+
+    def test_include_similar_with_id_is_allowed(self):
+        """include_similar still works together with id."""
+        response = self.client.get("/api/cowrie_session?id=ffffffffffff&include_similar=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["sources"]), 2)
+
+    def test_include_similar_is_not_bounded_by_the_date_window(self):
+        """Sessions added by include_similar are not bounded by the date window.
+
+        The expansion is seeded from the sessions inside the window, then adds
+        every session in their cluster(s), whenever it was seen. This is the
+        behaviour chosen in #1515, so it is pinned here on purpose.
+        """
+        response = self.client.get(
+            f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&include_similar=true&start_date=2026-01-15&end_date=2026-01-25"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted(session["time"][:10] for session in response.data["sessions"]),
+            ["2026-01-10", "2026-01-20", "2026-01-30"],
+        )
+
+    def test_include_similar_adds_nothing_when_the_window_is_empty(self):
+        """A window that matches nothing stays empty.
+
+        The expansion needs an in-window session to take its cluster(s) from,
+        so an empty window cannot pull in the rest of a cluster.
+        """
+        response = self.client.get(
+            f"/api/cowrie_session?query={self.ioc_3.name}&include_session_data=true&include_similar=true&start_date=2026-03-01&end_date=2026-03-05"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sessions"], [])
+        self.assertEqual(response.data["commands"], [])
+        self.assertEqual(response.data["sources"], [])
+
+    def test_include_similar_adds_out_of_window_data_to_the_aggregated_fields(self):
+        """commands, sources and credentials are aggregated after the expansion.
+
+        They are built from the expanded set, so they carry data from outside
+        the window too, even without include_session_data.
+        """
+        out_of_window_commands = CommandSequence.objects.create(
+            first_seen=self.current_time,
+            last_seen=self.current_time,
+            commands=["uname -a"],
+            commands_hash=sha256(b"uname -a").hexdigest(),
+            cluster=self.command_sequence_3.cluster,
+        )
+        out_of_window_session = CowrieSession.objects.create(
+            session_id=int("cccccccccccc", 16),
+            source=self.ioc_2,
+            start_time=datetime(2026, 3, 15, 12, 0, 0),
+            duration=30.0,
+            login_attempt=True,
+            commands=out_of_window_commands,
+        )
+        credential, _ = Credential.objects.get_or_create(username="admin", password="admin1729", protocol="")
+        out_of_window_session.credentials.add(credential)
+
+        response = self.client.get(
+            f"/api/cowrie_session?query={self.ioc_3.name}&include_credentials=true&include_similar=true&start_date=2026-01-15&end_date=2026-01-25"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("uname -a", response.data["commands"])
+        self.assertIn(self.ioc_2.name, response.data["sources"])
+        self.assertIn("admin | admin1729", response.data["credentials"])

@@ -4,6 +4,8 @@ from typing import Any
 from django.core.cache import caches
 from django.core.cache.backends.base import BaseCache
 
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+
 
 def build_versioned_key(namespace: str, version: int, material: str) -> str:
     """Build a collision-resistant cache key from
@@ -46,3 +48,14 @@ class Cache:
         that old cached responses are still keyed on.
         """
         self.set(version_key, self.get_data_version(version_key) + 1)
+
+
+def invalidate_ioc_cache() -> None:
+    """
+    Invalidate all IOC-derived cached responses.
+
+    Feeds and statistics endpoints share the IOC data version key, so a
+    single bump orphans both namespaces. Call this after any job that
+    creates, updates, or deletes IOCs, tags, or reputations.
+    """
+    Cache(API_CACHE_ALIAS).bump_data_version(IOC_DATA_VERSION_KEY)

@@ -2,14 +2,13 @@
 # See the file 'LICENSE' for copying permission.
 import logging
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import serializers, status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.permissions import IsSuperuserOrReadOnly
 from greedybear.models import DashboardConfig
 
@@ -79,7 +78,7 @@ class DashboardLayoutSerializer(serializers.Serializer):
     ),
 )
 class DashboardConfigView(APIView):
-    authentication_classes = [CookieTokenAuthentication, SessionAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsSuperuserOrReadOnly]
 
     def get(self, request: Request) -> Response:

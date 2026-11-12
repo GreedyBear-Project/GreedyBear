@@ -17,7 +17,7 @@ from rest_framework import serializers as rfs
 from rest_framework.authtoken.serializers import AuthTokenSerializer
 from slack_sdk.errors import SlackApiError
 
-from greedybear.consts import REGEX_PASSWORD
+from greedybear.regex import REGEX_PASSWORD
 
 from .models import UserProfile
 
@@ -106,9 +106,9 @@ class EmailVerificationSerializer(rest_email_auth.serializers.EmailVerificationS
             # custom error messages
             err_str = str(exc.detail)
             if "invalid" in err_str:
-                exc.detail = "The provided verification key is invalid or your email address is already verified."
+                exc.detail = "The provided verification key is invalid or your email address is already verified."  # ty: ignore[invalid-assignment]
             if "expired" in err_str:
-                exc.detail = "The provided verification key has expired or your email address is already verified."
+                exc.detail = "The provided verification key has expired or your email address is already verified."  # ty: ignore[invalid-assignment]
             raise
 
     def save(self):
@@ -116,7 +116,7 @@ class EmailVerificationSerializer(rest_email_auth.serializers.EmailVerificationS
         Confirm the email address matching the confirmation key.
         Then mark user as active.
         """
-        user = self._confirmation.email.user
+        user = self._confirmation.email.user  # ty: ignore[unresolved-attribute]  # set by validate_key()
         with transaction.atomic():
             super().save()
 
@@ -139,7 +139,7 @@ class EmailVerificationSerializer(rest_email_auth.serializers.EmailVerificationS
                     channel=certego_apps_settings.DEFAULT_SLACK_CHANNEL,
                 )
             except SlackApiError:
-                slack.log.exception(f"Slack message failed for user(#{user.pk})")
+                logger.exception(f"Slack message failed for user(#{user.pk})")
 
 
 class GreedyBearPasswordResetSerializer(rest_email_auth.serializers.PasswordResetSerializer):
@@ -179,11 +179,11 @@ class LoginSerializer(AuthTokenSerializer):
                 # custom error messages
                 if not user.is_active:
                     if user.is_email_verified is False:
-                        exc.detail = "Your account is pending email verification."
+                        exc.detail = "Your account is pending email verification."  # ty: ignore[invalid-assignment]
                     elif user.approved is None:
-                        exc.detail = "Your account is pending activation by our team."
+                        exc.detail = "Your account is pending activation by our team."  # ty: ignore[invalid-assignment]
                     elif user.approved is False:
-                        exc.detail = "Your account was declined."
+                        exc.detail = "Your account was declined."  # ty: ignore[invalid-assignment]
                     logger.info(f"User {user} is not active. Error message: {exc.detail}")
             raise exc from None
 

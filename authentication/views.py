@@ -2,10 +2,10 @@ import logging
 
 import rest_email_auth.views
 from certego_saas.apps.auth import views as certego_views
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from certego_saas.ext.throttling import POSTUserRateThrottle
 from django.conf import settings
-from django.contrib.auth import get_user_model, login
+from django.contrib.auth import login
+from django.middleware.csrf import get_token
 from durin import views as durin_views
 from durin.models import AuthToken
 from rest_framework import status
@@ -20,9 +20,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from greedybear.consts import GET
 from greedybear.enums import FrontendPage
-from greedybear.settings import AUTH_USER_MODEL
 
 from .serializers import (
     ChangePasswordSerializer,
@@ -36,8 +36,6 @@ from .throttles import LoginIdentifierThrottle, LoginIPThrottle
 logger = logging.getLogger(__name__)
 
 """ Auth API endpoints """
-
-User: AUTH_USER_MODEL = get_user_model()
 
 
 def revoke_other_tokens(user, current_token=None):
@@ -82,7 +80,7 @@ class ResendVerificationView(rest_email_auth.views.ResendVerificationView):
 
 
 @api_view([GET])
-@authentication_classes([CookieTokenAuthentication])
+@authentication_classes([CSRFProtectedCookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def check_authentication(request):
     logger.info(f"User: {request.user}, Administrator: {request.user.is_superuser}")
@@ -146,6 +144,10 @@ class LoginView(certego_views.LoginView):
                 logger.info(f"administrator:'{uname}' was logged in.")
             except Exception:
                 logger.exception(f"administrator:'{uname}' login failed.")
+        # Every user, not just superusers, needs a csrftoken cookie after login.
+        # Covers clients that don't load the HTML through Django (e.g. Vite dev
+        # server only proxies /api, so ensure_csrf_cookie on render_reactapp never runs).
+        get_token(request._request)
         return response
 
 
@@ -189,7 +191,7 @@ class TokenSessionsViewSet(durin_views.TokenSessionsViewSet):
         detail=False,
         methods=["delete"],
         url_path="others",
-        authentication_classes=[CookieTokenAuthentication],
+        authentication_classes=[CSRFProtectedCookieTokenAuthentication],
         permission_classes=[IsAuthenticated],
     )
     def revoke_others(self, request: Request) -> Response:

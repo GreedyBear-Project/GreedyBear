@@ -31,11 +31,10 @@ jobs:
       use_prettier: true
       use_stylelint: false
 
-      run_codeql: true
-
       use_react: true
       check_packages_licenses: false
       use_vitest: true
+      use_build: true
 
       use_coverage: true
       upload_coverage: true
@@ -61,6 +60,7 @@ jobs:
       use_autoflake: false
       use_ruff_formatter: true
       use_ruff_linter: true
+      use_ty: true
 
       packages_path: packages.txt
       django_settings_module: greedybear.settings

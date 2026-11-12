@@ -1,6 +1,6 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import axios from "axios";
 import AttackOriginMap from "../../../src/components/dashboard/AttackOriginMap";
 import { IOC_ATTACKER_COUNTRIES_URI } from "../../../src/constants/api";
@@ -147,5 +147,70 @@ describe("AttackOriginMap", () => {
 
     const usaEl = screen.getByTestId("geography-geo-usa");
     expect(usaEl.dataset.fill).not.toBe("#2a2a3a");
+  });
+
+  describe("tooltip", () => {
+    const TOOLTIP_SIZE = { width: 100, height: 40 };
+    let rectSpy;
+
+    const hoverChina = async (clientX, clientY) => {
+      axios.get.mockResolvedValue({ data: COUNTRIES_DATA });
+      const view = render(<AttackOriginMap />);
+      await waitFor(() =>
+        expect(screen.getByTestId("geography-geo-cn")).toBeInTheDocument(),
+      );
+      fireEvent.mouseEnter(screen.getByTestId("geography-geo-cn"), {
+        clientX,
+        clientY,
+      });
+      return view;
+    };
+
+    beforeEach(() => {
+      // jsdom does no layout, so give the tooltip a size to flip against
+      rectSpy = vi
+        .spyOn(Element.prototype, "getBoundingClientRect")
+        .mockReturnValue(TOOLTIP_SIZE);
+    });
+
+    afterEach(() => {
+      rectSpy.mockRestore();
+    });
+
+    test("is rendered in document.body, outside the widget", async () => {
+      const { container } = await hoverChina(100, 100);
+      const tooltip = screen.getByTestId("map-tooltip");
+      expect(tooltip).toHaveTextContent("China");
+      expect(tooltip).toHaveTextContent("120 IOCs");
+      expect(tooltip.parentElement).toBe(document.body);
+      expect(container).not.toContainElement(tooltip);
+    });
+
+    test("sits below and to the right of the cursor when there is room", async () => {
+      await hoverChina(100, 100);
+      const tooltip = screen.getByTestId("map-tooltip");
+      expect(tooltip.style.left).toBe("114px");
+      expect(tooltip.style.top).toBe("114px");
+    });
+
+    test("flips above and to the left near the bottom-right viewport edge", async () => {
+      await hoverChina(window.innerWidth - 10, window.innerHeight - 10);
+      const tooltip = screen.getByTestId("map-tooltip");
+      expect(tooltip.style.left).toBe(`${window.innerWidth - 10 - 14 - 100}px`);
+      expect(tooltip.style.top).toBe(`${window.innerHeight - 10 - 14 - 40}px`);
+    });
+
+    test("follows the cursor and hides on mouse leave", async () => {
+      await hoverChina(100, 100);
+      fireEvent.mouseMove(screen.getByTestId("composable-map"), {
+        clientX: 200,
+        clientY: 150,
+      });
+      const tooltip = screen.getByTestId("map-tooltip");
+      expect(tooltip.style.left).toBe("214px");
+      expect(tooltip.style.top).toBe("164px");
+      fireEvent.mouseLeave(screen.getByTestId("geography-geo-cn"));
+      expect(screen.queryByTestId("map-tooltip")).not.toBeInTheDocument();
+    });
   });
 });
