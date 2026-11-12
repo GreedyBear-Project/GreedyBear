@@ -375,6 +375,7 @@ class FeedsASNViewTestCase(CustomTestCase):
         """Ensure requesting application/x-ndjson returns HTTP 406 Not Acceptable."""
         response = self.client.get(self.url, HTTP_ACCEPT="application/x-ndjson")
         self.assertEqual(response.status_code, 406)
+
     def test_asn_feed_excludes_iocs_from_inactive_honeypots(self):
         inactive_only = IOC.objects.create(name="inactive.example.com", type="ip", autonomous_system=self.as_high, attack_count=100)
         inactive_only.honeypots.add(self.ddospot)
