@@ -127,6 +127,19 @@ def sanitize_json(value):
     return value
 
 
+def has_unstorable_chars(value: str) -> bool:
+    """True if value holds a NUL or an unpaired surrogate, which Postgres cannot store.
+
+    URLValidator accepts both, so related_url has to screen for them itself before
+    they reach the model validators and fail the whole batch.
+    """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return "\x00" in value
+
+
 class SanitizingCharField(serializers.CharField):
     """CharField that sanitises and clamps a value before DRF validators run.
 
@@ -156,10 +169,12 @@ class LenientURLField(serializers.CharField):
     """URL field that drops an unusable value instead of failing the batch.
 
     The honeypot records whichever URL the attacker asked it to fetch, so the
-    value is attacker-controlled and may be malformed or wider than the column.
-    ``_process_related_urls`` already drops an over long URL rather than storing
-    it, and ``_normalize_raw_event_to_hit`` re-checks ``is_valid_url`` before the
-    value is used, so dropping it here loses nothing that would have been kept.
+    value is attacker-controlled and may be malformed, wider than the column, or
+    hold characters Postgres cannot store (a NUL or a lone surrogate) - all of
+    which are dropped to an empty string. ``_process_related_urls`` already drops
+    an over long URL rather than storing it, and ``_normalize_raw_event_to_hit``
+    re-checks ``is_valid_url`` before the value is used, so dropping it here loses
+    nothing that would have been kept.
 
     ``serializers.URLField`` cannot be subclassed for this: its ``URLValidator``
     lives in ``self.validators`` and runs after ``to_internal_value``, so a
@@ -168,7 +183,10 @@ class LenientURLField(serializers.CharField):
 
     def to_internal_value(self, data):
         value = super().to_internal_value(data)
-        if not value or not fits_field(RawEvent, "related_url", value):
+        # URLValidator accepts a NUL or lone surrogate, but Postgres can't store it
+        # and the model validators would reject the batch, so drop it like any other
+        # unusable value rather than let one event discard the rest.
+        if not value or has_unstorable_chars(value) or not fits_field(RawEvent, "related_url", value):
             return ""
         try:
             URLValidator()(value)
