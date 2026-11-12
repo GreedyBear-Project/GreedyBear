@@ -351,6 +351,31 @@ class FeedsASNViewTestCase(CustomTestCase):
         self.assertAlmostEqual(high_item["expected_ioc_count"], 0.8)
         self.assertAlmostEqual(high_item["expected_interactions"], 20.0)
 
+    def test_200_asn_feed_accept_json(self):
+        """Ensure requesting application/json returns HTTP 200 with application/json Content-Type."""
+        for accept in ("application/json", "*/*"):
+            with self.subTest(accept=accept):
+                response = self.client.get(self.url, HTTP_ACCEPT=accept)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], "application/json")
+                results = self._get_results(response)
+                self.assertEqual(len(results), 2)
+
+    def test_406_asn_feed_accept_csv(self):
+        """Ensure requesting text/csv returns HTTP 406 Not Acceptable."""
+        response = self.client.get(self.url, HTTP_ACCEPT="text/csv")
+        self.assertEqual(response.status_code, 406)
+
+    def test_406_asn_feed_accept_plain_text(self):
+        """Ensure requesting text/plain returns HTTP 406 Not Acceptable."""
+        response = self.client.get(self.url, HTTP_ACCEPT="text/plain")
+        self.assertEqual(response.status_code, 406)
+
+    def test_406_asn_feed_accept_ndjson(self):
+        """Ensure requesting application/x-ndjson returns HTTP 406 Not Acceptable."""
+        response = self.client.get(self.url, HTTP_ACCEPT="application/x-ndjson")
+        self.assertEqual(response.status_code, 406)
+
     def test_asn_feed_excludes_iocs_from_inactive_honeypots(self):
         inactive_only = IOC.objects.create(name="inactive.example.com", type="ip", autonomous_system=self.as_high, attack_count=100)
         inactive_only.honeypots.add(self.ddospot)
