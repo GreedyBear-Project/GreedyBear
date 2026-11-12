@@ -12,7 +12,7 @@ RUN echo "VITE_GREEDYBEAR_VERSION=\"$(uv version --short)\"" > .env.local
 
 ## ------------------------------- Frontend Build Stage ------------------------------ ## 
 
-FROM node:24-alpine3.23 AS frontend-build
+FROM node:26-alpine3.23 AS frontend-build
 
 WORKDIR /app
 
