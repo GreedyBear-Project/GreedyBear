@@ -33,11 +33,14 @@ class CachedResponseMixin(APIView):
         if self.cache_namespace is None or not self._cache_enabled():
             return None
         version = self.cache.get_data_version(self.cache_version_key)
+        return build_versioned_key(self.cache_namespace, version, self.get_cache_key_material())
+
+    def get_cache_key_material(self) -> str:
+        """Return the request-specific portion of the cache key."""
         sorted_params = sorted(self.request.query_params.lists())
         params_string = urllib.parse.urlencode(sorted_params, doseq=True)
         media_type = getattr(self.request, "accepted_media_type", None) or ""
-        key_material = f"{self.__class__.__name__}|{self.request.path}|{params_string}|{media_type}"
-        return build_versioned_key(self.cache_namespace, version, key_material)
+        return f"{self.__class__.__name__}|{self.request.path}|{params_string}|{media_type}"
 
     def get_cached_response(self) -> HttpResponse | None:
         """Return a hit, or None when caching is disabled or on a miss."""
