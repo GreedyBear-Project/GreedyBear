@@ -568,3 +568,48 @@ class RevokeOtherSessionsTestCase(CustomOAuthTestCase):
         response = self.client.delete(revoke_other_sessions_uri)
 
         self.assertIn(response.status_code, [401, 403])
+
+
+@tag("api", "user")
+class AdminSessionTestCase(CustomOAuthTestCase):
+    admin_uri = "/admin/greedybear/ioc/"
+
+    def tearDown(self):
+        cache.clear()
+        AuthToken.objects.all().delete()
+        Client.objects.all().delete()
+
+    def _login(self, creds):
+        client = APIClient()
+        response = client.post(login_uri, creds)
+        self.assertEqual(response.status_code, 200, msg=response.content)
+        return client
+
+    def test_logout_ends_admin_session(self):
+        client = self._login(self.creds)
+        self.assertEqual(client.get(self.admin_uri).status_code, 200)
+
+        response = client.post(logout_uri)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(client.get(self.admin_uri).status_code, 302)
+
+    def test_logout_regular_user_204(self):
+        User.objects.create_user("regular.user", "regular.user@example.com", "hunter2")
+        client = self._login({"username": "regular.user", "password": "hunter2"})
+
+        response = client.post(logout_uri)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(AuthToken.objects.count(), 0)
+
+    def test_revoke_other_sessions_ends_other_admin_sessions(self):
+        other = self._login(self.creds)
+        current = self._login(self.creds)
+
+        response = current.delete(revoke_other_sessions_uri)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(other.get(self.admin_uri).status_code, 302)
+        self.assertEqual(current.get(self.admin_uri).status_code, 200)
+        self.assertEqual(AuthToken.objects.filter(user=self.user).count(), 1)
