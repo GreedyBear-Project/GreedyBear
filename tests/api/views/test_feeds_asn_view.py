@@ -370,3 +370,8 @@ class FeedsASNViewTestCase(CustomTestCase):
         """Ensure requesting text/plain returns HTTP 406 Not Acceptable."""
         response = self.client.get(self.url, HTTP_ACCEPT="text/plain")
         self.assertEqual(response.status_code, 406)
+
+    def test_406_asn_feed_accept_ndjson(self):
+        """Ensure requesting application/x-ndjson returns HTTP 406 Not Acceptable."""
+        response = self.client.get(self.url, HTTP_ACCEPT="application/x-ndjson")
+        self.assertEqual(response.status_code, 406)
