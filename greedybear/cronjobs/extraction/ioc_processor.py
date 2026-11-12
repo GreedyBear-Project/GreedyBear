@@ -4,6 +4,7 @@ from greedybear.consts import PAYLOAD_REQUEST, SCANNER
 from greedybear.cronjobs.extraction.utils import is_whatsmyip_domain
 from greedybear.cronjobs.repositories import IocRepository, SensorRepository
 from greedybear.models import IOC, IocType, WhatsMyIPDomain
+from greedybear.utils import normalize_ip
 
 
 class IocProcessor:
@@ -48,6 +49,7 @@ class IocProcessor:
             The persisted IOC record, or None if filtered out.
         """
         self.log.info(f"processing ioc {ioc} for attack_type {attack_type}")
+        ioc.name = normalize_ip(ioc.name)  # Normalize IP addresses for consistent storage
 
         if ioc.name in self.sensor_repo.cache:
             self.log.debug(f"not saved {ioc} because it is a sensor")
@@ -101,6 +103,7 @@ class IocProcessor:
         existing.destination_ports = sorted(set(existing.destination_ports + new.destination_ports))
         existing.protocols = sorted(set(existing.protocols + new.protocols))
         existing.cves = sorted(set(existing.cves + new.cves))
+        existing.days_seen = sorted(set(existing.days_seen) | set(new.days_seen))
         existing.http_attack_types = sorted(set(existing.http_attack_types + new.http_attack_types))
         existing.high_credential_reuse = existing.high_credential_reuse or new.high_credential_reuse
         existing.ip_reputation = existing.ip_reputation or new.ip_reputation

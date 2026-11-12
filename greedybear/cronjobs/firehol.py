@@ -5,6 +5,14 @@ from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import FireHolRepository
 from greedybear.utils import is_valid_cidr, is_valid_ipv4
 
+BASE_PATH = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master"
+SOURCES = {
+    "blocklist_de": f"{BASE_PATH}/blocklist_de.ipset",
+    "greensnow": f"{BASE_PATH}/greensnow.ipset",
+    "bruteforceblocker": f"{BASE_PATH}/bruteforceblocker.ipset",
+    "dshield": f"{BASE_PATH}/dshield.netset",
+}
+
 
 class FireHolCron(Cronjob):
     """
@@ -33,15 +41,8 @@ class FireHolCron(Cronjob):
         parses IP addresses and CIDR blocks, and stores new entries.
         Finally cleans up old entries.
         """
-        base_path = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master"
-        sources = {
-            "blocklist_de": f"{base_path}/blocklist_de.ipset",
-            "greensnow": f"{base_path}/greensnow.ipset",
-            "bruteforceblocker": f"{base_path}/bruteforceblocker.ipset",
-            "dshield": f"{base_path}/dshield.netset",
-        }
 
-        for source, url in sources.items():
+        for source, url in SOURCES.items():
             self.log.info(f"Processing {source} from {url}")
             try:
                 try:

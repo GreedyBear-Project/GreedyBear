@@ -375,3 +375,20 @@ class FeedsASNViewTestCase(CustomTestCase):
         """Ensure requesting application/x-ndjson returns HTTP 406 Not Acceptable."""
         response = self.client.get(self.url, HTTP_ACCEPT="application/x-ndjson")
         self.assertEqual(response.status_code, 406)
+    def test_asn_feed_excludes_iocs_from_inactive_honeypots(self):
+        inactive_only = IOC.objects.create(name="inactive.example.com", type="ip", autonomous_system=self.as_high, attack_count=100)
+        inactive_only.honeypots.add(self.ddospot)
+        mixed = IOC.objects.create(name="mixed.example.com", type="ip", autonomous_system=self.as_low, attack_count=3)
+        mixed.honeypots.add(self.testpot1, self.ddospot)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        results = {str(item["asn"]): item for item in self._get_results(response)}
+
+        # the IOC seen only by an inactive honeypot is left out
+        self.assertEqual(results[self.high_asn]["ioc_count"], 2)
+        self.assertEqual(results[self.high_asn]["total_attack_count"], 20)
+        # an IOC also seen by an active honeypot still counts, but the inactive one is not listed
+        self.assertEqual(results[self.low_asn]["ioc_count"], 2)
+        self.assertEqual(results[self.low_asn]["total_attack_count"], 5)
+        self.assertEqual(results[self.low_asn]["honeypots"], ["testpot1", "testpot2"])

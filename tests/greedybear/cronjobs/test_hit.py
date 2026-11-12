@@ -15,6 +15,17 @@ class TestHitMapping(CustomTestCase):
         self.assertIn("src_ip", hit)
         self.assertEqual(len(hit), 1)
 
+    def test_src_ip_is_normalized(self):
+        """Equivalent IP spellings are stored in one canonical form."""
+        cases = {
+            "2001:DB8:0:0:0:0:0:1": "2001:db8::1",
+            "::ffff:1.2.3.4": "1.2.3.4",
+        }
+        for raw_ip, expected in cases.items():
+            with self.subTest(src_ip=raw_ip):
+                hit = Hit.from_elastic({"src_ip": raw_ip, "type": "Cowrie"})
+                self.assertEqual(hit["src_ip"], expected)
+
     def test_attach_sensor_is_the_only_write(self):
         """ExtractionPipeline.execute() records the sensor on the way through."""
         hit = Hit({"src_ip": "1.2.3.4"})

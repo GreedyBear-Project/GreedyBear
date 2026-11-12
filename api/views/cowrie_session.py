@@ -16,7 +16,7 @@ from api.mixins import QueryParamValidationMixin, RequestLoggingMixin
 from api.serializers import CowrieSessionRequestSerializer, CowrieSessionSerializer
 from api.views.utils import save_request_source
 from greedybear.models import CommandSequence, CowrieSession, ViewType
-from greedybear.utils import is_ip_address, is_sha256hash
+from greedybear.utils import is_ip_address, is_sha256hash, normalize_ip
 
 
 def _ip_sort_key(ip: str) -> tuple[int, ipaddress.IPv4Address | ipaddress.IPv6Address]:
@@ -81,6 +81,7 @@ class CowrieSessionView(RequestLoggingMixin, QueryParamValidationMixin, APIView)
         elif not observable:
             sessions = sessions_qs.prefetch_related("source", "commands", "credentials")
         elif is_ip_address(observable):
+            observable = normalize_ip(observable)
             sessions = sessions_qs.filter(source__name=observable).prefetch_related("source", "commands", "credentials")
             if not sessions.exists() and not has_date_filter:
                 raise Http404(f"No information found for IP: {observable}")
