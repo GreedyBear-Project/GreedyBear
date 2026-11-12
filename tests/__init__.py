@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 from unittest.mock import Mock
 
@@ -274,6 +274,28 @@ class ExtractionTestCase(CustomTestCase):
         self.mock_sensor_repo = Mock()
         self.mock_sensor_repo.cache = {}  # Initialize cache as empty dict for sensor filtering
         self.mock_session_repo = Mock()
+
+    # Start of the fixed time window used by _mock_chunks, far from midnight
+    # so the midnight cut-off of the extraction window never applies.
+    MOCK_WINDOW_START = datetime(2025, 1, 1, 12, 0)
+
+    def _mock_chunks(self, pipeline, chunks):
+        """
+        Make an ExtractionPipeline process the given chunks of hits.
+
+        The pipeline gets a fixed time window of one extraction interval per
+        chunk, independent of the current time, and its mocked ElasticRepository
+        returns one chunk per search() call.
+
+        Args:
+            pipeline: ExtractionPipeline with a mocked elastic_repo.
+            chunks: List of chunks, each a list of hits.
+        """
+        from greedybear.cronjobs.extraction import pipeline as pipeline_module
+
+        window_end = self.MOCK_WINDOW_START + timedelta(minutes=pipeline_module.EXTRACTION_INTERVAL * len(chunks))
+        pipeline._extraction_window = Mock(return_value=(self.MOCK_WINDOW_START, window_end))
+        pipeline.elastic_repo.search.side_effect = list(chunks)
 
     def _create_mock_ioc(
         self,
