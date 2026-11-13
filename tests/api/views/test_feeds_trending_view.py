@@ -6,7 +6,7 @@ from django.core.cache import cache
 from api.throttles import FeedsThrottle
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, TRENDING_FEEDS_DATA_VERSION_KEY
-from greedybear.models import AttackerActivityBucket
+from greedybear.models import AttackerActivityBucket, Statistics, ViewType
 from tests import CustomTestCase
 
 
@@ -166,3 +166,49 @@ class FeedsTrendingViewTestCase(CustomTestCase):
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 429)
+
+    def test_200_trending_records_download_statistics(self):
+        AttackerActivityBucket.objects.create(
+            attacker_ip="8.8.8.8",
+            feed_type="cowrie",
+            bucket_start=datetime(2026, 3, 20, 9, 0),
+            interaction_count=4,
+        )
+
+        with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            response = self.client.get(
+                f"{self.url}?feed_type=cowrie&window_minutes=60&limit=10",
+                HTTP_X_FORWARDED_FOR="203.0.113.7",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        latest = Statistics.objects.filter(view=ViewType.FEEDS_VIEW.value).order_by("-id").first()
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.source, "203.0.113.7")
+
+    def test_trending_records_statistics_on_cache_hit(self):
+        with patch("api.views.feeds.TrendingBucketRepository.get_counts_in_window") as mock_get_counts:
+            mock_get_counts.side_effect = [
+                {"9.9.9.9": 10},
+                {"9.9.9.9": 6},
+            ]
+            with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+                first = self.client.get(
+                    f"{self.url}?feed_type=all&window_minutes=60&limit=10",
+                    HTTP_X_FORWARDED_FOR="203.0.113.7",
+                )
+                second = self.client.get(
+                    f"{self.url}?feed_type=all&window_minutes=60&limit=10",
+                    HTTP_X_FORWARDED_FOR="203.0.113.7",
+                )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(mock_get_counts.call_count, 2)
+        self.assertEqual(Statistics.objects.filter(view=ViewType.FEEDS_VIEW.value).count(), 2)
+
+    def test_400_trending_does_not_record_statistics(self):
+        response = self.client.get(f"{self.url}?window_minutes=90")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Statistics.objects.count(), 0)

@@ -405,6 +405,7 @@ class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRes
         serializer = self.serializer_class(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
+        save_request_source(request, ViewType.FEEDS_VIEW.value)
         cached_response = self.get_cached_response()
         if cached_response is not None:
             return cached_response
