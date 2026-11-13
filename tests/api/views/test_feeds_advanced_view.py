@@ -227,6 +227,57 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertIsNotNone(target_ioc)
         self.assertEqual(target_ioc["http_attack_types"], [])
 
+    def _row(self, response, ioc):
+        self.assertEqual(response.status_code, 200)
+        return next(i for i in response.json()["iocs"] if i["value"] == ioc.name)
+
+    def test_feeds_advanced_includes_cves_and_protocols(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.protocols = ["ssh", "telnet"]
+        self.ioc.save()
+
+        row = self._row(self.client.get("/api/feeds/advanced/"), self.ioc)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+        self.assertEqual(row["protocols"], ["ssh", "telnet"])
+
+    def test_public_feeds_includes_cves_and_protocols(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.protocols = ["ssh"]
+        self.ioc.save()
+        self.client.logout()
+
+        row = self._row(self.client.get("/api/feeds/cowrie/all/recent.json"), self.ioc)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+        self.assertEqual(row["protocols"], ["ssh"])
+
+    def test_feeds_includes_cves_and_protocols_in_ndjson(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.protocols = ["ssh"]
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        rows = [json.loads(line) for line in body.split("\n") if line.strip()]
+        row = next(r for r in rows if r["value"] == self.ioc.name)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+        self.assertEqual(row["protocols"], ["ssh"])
+
+    def test_feeds_includes_cves_and_protocols_in_paginated_feed(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/?paginate=true")
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()["results"]["iocs"]
+        row = next(r for r in rows if r["value"] == self.ioc.name)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+
+    def test_feeds_ioc_without_cves_and_protocols(self):
+        """An IOC without CVEs or protocols is returned with empty lists, not missing keys."""
+        row = self._row(self.client.get("/api/feeds/advanced/"), self.ioc_domain)
+        self.assertEqual(row["cves"], [])
+        self.assertEqual(row["protocols"], [])
+
     def test_min_credential_count_filter(self):
         """IOCs with fewer credentials than min_credential_count are excluded."""
         cred1 = Credential.objects.create(username="admin", password="admin")
