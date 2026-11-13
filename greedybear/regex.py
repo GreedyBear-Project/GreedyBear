@@ -7,3 +7,5 @@ REGEX_URL_PROTOCOL = r"(?:htt|ft|tc|lda)ps?:?" + REGEX_CVE_URL
 REGEX_COWRIE_SESSION_ID = r"[0-9a-fA-F]{1,16}"
 REGEX_DOMAIN = r"^[a-zA-Z\d-]{1,60}(\.[a-zA-Z\d-]{1,60})*$"
 REGEX_PASSWORD = r"^(?=.*[a-zA-Z])\S{12,}$"  # noqa: S105
+
+REGEX_CVE = r"CVE-\d{4}-\d{4,}"

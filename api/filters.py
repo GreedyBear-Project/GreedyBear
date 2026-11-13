@@ -25,6 +25,8 @@ class FeedsFilterSet(django_filters.FilterSet):
     include_reputation = django_filters.Filter(method="filter_include_reputation")
     min_credential_count = django_filters.NumberFilter(method="filter_min_credential_count")
     max_credential_count = django_filters.NumberFilter(method="filter_max_credential_count")
+    cve = django_filters.Filter(method="filter_cve")
+    protocol = django_filters.Filter(method="filter_protocol")
 
     class Meta:
         model = IOC
@@ -42,6 +44,16 @@ class FeedsFilterSet(django_filters.FilterSet):
 
     def filter_port(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         return queryset.filter(destination_ports__contains=[int(value)])
+
+    def filter_cve(self, queryset: QuerySet, name: str, value: list[str]) -> QuerySet:
+        if value:
+            return queryset.filter(cves__overlap=value)
+        return queryset
+
+    def filter_protocol(self, queryset: QuerySet, name: str, value: list[str]) -> QuerySet:
+        if value:
+            return queryset.filter(protocols__overlap=value)
+        return queryset
 
     def filter_country_code(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         return queryset.filter(attacker_country_code=value.upper())

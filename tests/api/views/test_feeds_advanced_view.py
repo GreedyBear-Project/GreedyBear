@@ -227,6 +227,57 @@ class FeedsAdvancedViewTestCase(CustomTestCase):
         self.assertIsNotNone(target_ioc)
         self.assertEqual(target_ioc["http_attack_types"], [])
 
+    def _row(self, response, ioc):
+        self.assertEqual(response.status_code, 200)
+        return next(i for i in response.json()["iocs"] if i["value"] == ioc.name)
+
+    def test_feeds_advanced_includes_cves_and_protocols(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.protocols = ["ssh", "telnet"]
+        self.ioc.save()
+
+        row = self._row(self.client.get("/api/feeds/advanced/"), self.ioc)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+        self.assertEqual(row["protocols"], ["ssh", "telnet"])
+
+    def test_public_feeds_includes_cves_and_protocols(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.protocols = ["ssh"]
+        self.ioc.save()
+        self.client.logout()
+
+        row = self._row(self.client.get("/api/feeds/cowrie/all/recent.json"), self.ioc)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+        self.assertEqual(row["protocols"], ["ssh"])
+
+    def test_feeds_includes_cves_and_protocols_in_ndjson(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.protocols = ["ssh"]
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/?format=ndjson")
+        body = b"".join(response.streaming_content).decode("utf-8")
+        rows = [json.loads(line) for line in body.split("\n") if line.strip()]
+        row = next(r for r in rows if r["value"] == self.ioc.name)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+        self.assertEqual(row["protocols"], ["ssh"])
+
+    def test_feeds_includes_cves_and_protocols_in_paginated_feed(self):
+        self.ioc.cves = ["CVE-2021-44228"]
+        self.ioc.save()
+
+        response = self.client.get("/api/feeds/advanced/?paginate=true")
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()["results"]["iocs"]
+        row = next(r for r in rows if r["value"] == self.ioc.name)
+        self.assertEqual(row["cves"], ["CVE-2021-44228"])
+
+    def test_feeds_ioc_without_cves_and_protocols(self):
+        """An IOC without CVEs or protocols is returned with empty lists, not missing keys."""
+        row = self._row(self.client.get("/api/feeds/advanced/"), self.ioc_domain)
+        self.assertEqual(row["cves"], [])
+        self.assertEqual(row["protocols"], [])
+
     def test_min_credential_count_filter(self):
         """IOCs with fewer credentials than min_credential_count are excluded."""
         cred1 = Credential.objects.create(username="admin", password="admin")
@@ -313,6 +364,8 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         self.ioc.autonomous_system = as_obj1
         # Give the base IOC unique values to isolate filter tests
         self.ioc.destination_ports = [9001, 9002]
+        self.ioc.cves = ["CVE-2021-44228", "CVE-2022-1234"]
+        self.ioc.protocols = ["ssh", "telnet"]
         self.ioc.recurrence_probability = 0.8
         self.ioc.expected_interactions = 10.0
         self.ioc.save()
@@ -332,6 +385,8 @@ class FeedsEnhancementsTestCase(CustomTestCase):
             expected_interactions=1.0,
             autonomous_system=as_obj2,
             destination_ports=[9003],
+            cves=["CVE-2022-1234", "CVE-2023-9999"],
+            protocols=["http"],
             attack_count=1,
             interaction_count=1,
             login_attempts=0,
@@ -393,6 +448,73 @@ class FeedsEnhancementsTestCase(CustomTestCase):
         response = self.client.get("/api/feeds/advanced/?port=9003")
         self.assertEqual(len(response.json()["iocs"]), 1)
         self.assertEqual(response.json()["iocs"][0]["value"], self.ioc2.name)
+
+    def _feed_values(self, query: str) -> set[str]:
+        response = self.client.get(f"/api/feeds/advanced/?{query}")
+        self.assertEqual(response.status_code, 200)
+        return {i["value"] for i in response.json()["iocs"]}
+
+    def test_filter_by_cve(self):
+        """Filter by CVE returns only the IOCs that exploited it."""
+        self.assertEqual(self._feed_values("cve=CVE-2021-44228"), {self.ioc.name})
+        self.assertEqual(self._feed_values("cve=CVE-2023-9999"), {self.ioc2.name})
+        self.assertEqual(self._feed_values("cve=CVE-2022-1234"), {self.ioc.name, self.ioc2.name})
+        self.assertEqual(self._feed_values("cve=CVE-2000-0001"), set())
+
+    def test_filter_by_cve_matches_any_of_several(self):
+        self.assertEqual(self._feed_values("cve=CVE-2021-44228;CVE-2023-9999"), {self.ioc.name, self.ioc2.name})
+
+    def test_filter_by_cve_ignores_case(self):
+        self.assertEqual(self._feed_values("cve=cve-2021-44228"), {self.ioc.name})
+
+    def test_filter_by_cve_empty_value_does_not_filter(self):
+        self.assertGreaterEqual(len(self._feed_values("cve=")), 2)
+
+    def test_400_malformed_cve(self):
+        for value in ("log4shell", "CVE-2021", "CVE-21-44228", "CVE-2021-44228;", "CVE-2021-44228;nope"):
+            with self.subTest(cve=value):
+                response = self.client.get(f"/api/feeds/advanced/?cve={value}")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("cve", response.json().get("errors", response.json()))
+
+    def test_filter_by_protocol(self):
+        self.assertEqual(self._feed_values("protocol=ssh"), {self.ioc.name})
+        self.assertEqual(self._feed_values("protocol=http"), {self.ioc2.name})
+        self.assertEqual(self._feed_values("protocol=ssh;http"), {self.ioc.name, self.ioc2.name})
+        self.assertEqual(self._feed_values("protocol=SSH"), {self.ioc.name})
+        self.assertEqual(self._feed_values("protocol=ftp"), set())
+
+    def test_400_invalid_protocol(self):
+        for value in ("ssh;", "a" * 51):
+            with self.subTest(protocol=value):
+                response = self.client.get(f"/api/feeds/advanced/?protocol={value}")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("protocol", response.json().get("errors", response.json()))
+
+    def test_filter_cve_and_protocol_combined(self):
+        self.assertEqual(self._feed_values("cve=CVE-2022-1234&protocol=http"), {self.ioc2.name})
+        self.assertEqual(self._feed_values("cve=CVE-2021-44228&protocol=http"), set())
+
+    def test_filter_by_cve_in_asn_feed(self):
+        """The ASN feed accepts the same filters and aggregates only the matching IOCs."""
+        response = self.client.get("/api/feeds/asn/?cve=CVE-2021-44228")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["asn"] for row in response.json()], [11111])
+
+    def test_share_token_keeps_cve_filter(self):
+        share_response = self.client.post("/api/feeds/share?cve=CVE-2023-9999")
+        self.assertEqual(share_response.status_code, 200)
+        token = share_response.json()["url"].split("/")[-1]
+        self.client.logout()
+        consume_response = self.client.get(f"/api/feeds/consume/{token}")
+        self.assertEqual(consume_response.status_code, 200)
+        self.assertEqual({i["value"] for i in consume_response.json()["iocs"]}, {self.ioc2.name})
+
+    def test_public_feed_rejects_cve_param(self):
+        """The filters belong to the authenticated feeds only."""
+        self.client.logout()
+        response = self.client.get("/api/feeds/all/all/recent.json?cve=CVE-2021-44228")
+        self.assertEqual(response.status_code, 400)
 
     def test_filter_combined(self):
         """Combined filter (asn + min_score + min_expected_interactions + port) narrows results correctly."""

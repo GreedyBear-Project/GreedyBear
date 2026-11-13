@@ -88,6 +88,8 @@ JSON_BASE_FIELDS = (
     "expected_interactions",
     "honeypot_names",
     "destination_ports",
+    "cves",
+    "protocols",
     "attacker_country",
     "attacker_country_code",
     "autonomous_system",
