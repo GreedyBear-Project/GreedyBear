@@ -461,6 +461,12 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     expected_interactions = serializers.FloatField(min_value=0)
     attacker_country = serializers.CharField(allow_null=True, allow_blank=True, max_length=120)
     attacker_country_code = serializers.CharField(allow_null=True, allow_blank=True, max_length=2)
+    cves = serializers.ListField(
+        child=serializers.CharField(max_length=50), required=False, default=list, help_text="CVE IDs this IOC was seen exploiting, e.g. `CVE-2021-44228`."
+    )
+    protocols = serializers.ListField(
+        child=serializers.CharField(max_length=50), required=False, default=list, help_text="Protocols this IOC was seen using, e.g. `ssh`."
+    )
     tags = TagSerializer(many=True, required=False, default=list)
 
 
