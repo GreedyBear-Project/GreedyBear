@@ -123,6 +123,12 @@ def extract_spamhaus_drop():
     SpamhausDropCron().execute()
 
 
+def enrich_spamhaus_drop():
+    from greedybear.cronjobs.enrichment.spamhaus_drop_blocklist import SpamhausDropBlocklistCron
+
+    SpamhausDropBlocklistCron().execute()
+
+
 def clean_up_trending_buckets():
     from greedybear.cronjobs.bucket_cleanup import TrendingBucketCleanupCron
 

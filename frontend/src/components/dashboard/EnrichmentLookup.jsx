@@ -259,7 +259,9 @@ export default function EnrichmentLookup() {
                   </dd>
 
                   <dt className="col-sm-5">ASN:</dt>
-                  <dd className="col-sm-7">{result.ioc.asn || "N/A"}</dd>
+                  <dd className="col-sm-7">
+                    {result.ioc.autonomous_system || "N/A"}
+                  </dd>
 
                   <dt className="col-sm-5">Destination Ports:</dt>
                   <dd className="col-sm-7">

@@ -26,3 +26,20 @@ class CachedResponseMixinRenderTest(SimpleTestCase):
         cache_set.assert_called_once()
         cached_value = cache_set.call_args.args[1]
         self.assertEqual(cached_value["content"], response.content)
+
+    def test_store_api_response_does_not_cache_empty_content(self):
+        renderer = Mock()
+        renderer.render.return_value = b""
+
+        response = Response([])
+        response.accepted_renderer = renderer
+        response.accepted_media_type = "text/plain"
+        response.renderer_context = {}
+
+        view = CachedResponseMixin()
+        view.cache_key = "test-cache-key"
+
+        with patch.object(view.cache, "set") as cache_set:
+            self.assertFalse(view._store_api_response(response))
+
+        cache_set.assert_not_called()

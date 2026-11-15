@@ -1,6 +1,5 @@
 import logging
 
-from certego_saas.apps.auth.backend import CookieTokenAuthentication
 from django_q.tasks import async_task
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
@@ -9,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.authentication import CSRFProtectedCookieTokenAuthentication
 from api.mixins import RequestLoggingMixin
 from api.serializers import BatchStatusRequestSerializer, BatchStatusSerializer, InjectionResponseSerializer, InjectionSerializer
 from api.views.utils import create_batch_and_events, increment_and_evaluate_lock, resolve_active_api_source
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class EventsCreateView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -100,7 +100,7 @@ class EventsCreateView(RequestLoggingMixin, APIView):
 
 
 class BatchStatusView(RequestLoggingMixin, APIView):
-    authentication_classes = [CookieTokenAuthentication]
+    authentication_classes = [CSRFProtectedCookieTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     @extend_schema(

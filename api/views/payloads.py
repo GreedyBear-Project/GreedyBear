@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from api.filters import HoneypotPayloadFilterSet
+from api.mixins import QueryParamValidationMixin
 from api.permissions import IsThreatResearcherOrAdmin
 from api.serializers.payloads import HoneypotPayloadSerializer
 from greedybear.cronjobs.repositories import PayloadRepository
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
         tags=["Payloads"],
         responses={
             200: HoneypotPayloadSerializer(many=True),
+            400: OpenApiResponse(description="An unknown query parameter was given."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
         },
     ),
@@ -38,12 +40,13 @@ logger = logging.getLogger(__name__)
         tags=["Payloads"],
         responses={
             200: HoneypotPayloadSerializer,
+            400: OpenApiResponse(description="An unknown query parameter was given; this endpoint takes none."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
             404: OpenApiResponse(description="No payload found with the given SHA256 hash."),
         },
     ),
 )
-class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
+class HoneypotPayloadViewSet(QueryParamValidationMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only viewset for honeypot-captured payloads.
 
     ``list`` / ``retrieve`` — metadata only (hashes, MIME type, source
@@ -59,6 +62,16 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = "sha256"
     filter_backends = [DjangoFilterBackend]
     filterset_class = HoneypotPayloadFilterSet
+
+    def get_allowed_query_params(self) -> set[str]:
+        """
+        Only the list action reads query params: the page params, `paginate` (which the default
+        CustomPageNumberPagination reads to turn pagination off) and the filterset params.
+        serializer_class is the response serializer here, so its fields are not query params.
+        """
+        if getattr(self, "action", None) == "list":
+            return self.get_page_query_params() | {"paginate"} | set(HoneypotPayloadFilterSet.base_filters)
+        return set()
 
     def get_queryset(self) -> QuerySet:
         return PayloadRepository().list_payloads()
@@ -87,6 +100,7 @@ class HoneypotPayloadViewSet(viewsets.ReadOnlyModelViewSet):
                 description="Raw binary file streamed as `application/octet-stream`.",
                 response=OpenApiTypes.BINARY,
             ),
+            400: OpenApiResponse(description="An unknown query parameter was given; this endpoint takes none."),
             401: OpenApiResponse(description="Authentication credentials were not provided or are invalid."),
             403: OpenApiResponse(description="Permission denied — requires staff or `threat_researcher` group membership."),
             404: OpenApiResponse(description="Payload record not found, or the file has been removed from the quarantine directory."),

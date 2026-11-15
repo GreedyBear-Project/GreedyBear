@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models.functions import Lower, Now
 from netfields import CidrAddressField, NetManager
 
+from greedybear.consts import SHARE_TOKEN_SALT
 from greedybear.enums import IpReputation
 from greedybear.settings import AUTH_USER_MODEL
 from greedybear.storage import QuarantineStorage
@@ -392,6 +393,16 @@ class ShareToken(models.Model):
     def __str__(self):
         status = "revoked" if self.revoked else "active"
         return f"ShareToken({self.token_hash[:12]}… [{status}])"
+
+    @staticmethod
+    def salt_for_user(user_id: int) -> str:
+        """Derive a signing salt scoped to the user who creates a share token."""
+        return f"{SHARE_TOKEN_SALT}:{user_id}"
+
+    @property
+    def signing_salt(self) -> str:
+        """Salt this token was signed with, derived from its owner's ID."""
+        return self.salt_for_user(self.user_id)  # ty: ignore[unresolved-attribute]
 
 
 class AttackerActivityBucket(models.Model):

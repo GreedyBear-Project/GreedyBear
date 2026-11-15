@@ -77,3 +77,22 @@ class FireHolBlocklistCronTestCase(CustomTestCase):
         self._run_tagging()
 
         self.assertTrue(Tag.objects.filter(ioc=self.ioc, source="threatfox").exists())
+
+    def test_spamhaus_rows_are_skipped(self):
+        """Spamhaus DROP rows in the same table are not tagged as FireHol."""
+        FireHolList.objects.create(ip_address=self.ioc.name, source="greensnow")
+        FireHolList.objects.create(ip_address=self.ioc.name, source="spamhaus_drop")
+
+        self._run_tagging()
+
+        values = list(Tag.objects.filter(ioc=self.ioc, source="firehol").values_list("value", flat=True))
+        self.assertEqual(values, ["greensnow"])
+
+    def test_only_spamhaus_rows_keeps_existing_tags(self):
+        """Spamhaus rows alone do not count as FireHol data, so tags stay."""
+        FireHolList.objects.create(ip_address="5.5.5.5", source="spamhaus_drop")
+        Tag.objects.create(ioc=self.ioc, key="blocklist", value="greensnow", source="firehol")
+
+        self._run_tagging()
+
+        self.assertEqual(Tag.objects.filter(ioc=self.ioc, source="firehol").count(), 1)

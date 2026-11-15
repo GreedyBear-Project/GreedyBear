@@ -15,7 +15,7 @@ from greedybear.cronjobs.extraction.utils import iocs_from_hits
 from greedybear.cronjobs.repositories import IocRepository, PayloadRepository, SensorRepository
 from greedybear.cronjobs.scoring.scoring_jobs import UpdateScores
 from greedybear.models import IOC, CommandSequence, Credential, EventStatus, EventStatusType, Honeypot, RawEvent
-from greedybear.utils import get_attack_type, hash_command_sequence, is_valid_url
+from greedybear.utils import fits_field, get_attack_type, hash_command_sequence, is_valid_url
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,16 @@ def _process_related_urls(saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     Validates that URLs have non-empty paths, deduplicates against existing records
     to maintain idempotency, and persists changes back to the database.
     """
-    new_urls = {hit["_related_url"] for hit in ip_hits if hit.get("_related_url") and is_valid_url(hit["_related_url"])}
+    new_urls = set()
+    for hit in ip_hits:
+        url = hit.get("_related_url")
+        if not url or not is_valid_url(url):
+            continue
+        # an over long URL is truncated rather than rejected by the column, so drop it here
+        if not fits_field(IOC, "related_urls", url):
+            logger.warning(f"dropping over long related URL for IOC {saved_ioc.name}: {len(url)} characters")
+            continue
+        new_urls.add(url)
     if not new_urls:
         return
     # IOC.related_urls is a db ArrayField. We deduplicate against

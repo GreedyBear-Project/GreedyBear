@@ -231,6 +231,28 @@ class TestProcessRelatedUrls(CustomTestCase):
         self.ioc.refresh_from_db()
         self.assertEqual(self.ioc.related_urls or [], [])
 
+    def test_over_long_url_dropped_but_ioc_kept(self):
+        """The column truncates silently, so an over long URL is rejected rather than stored."""
+        long_url = f"http://evil.com/{'a' * 900}"
+        _process_related_urls(self.ioc, [self._hit(long_url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls or [], [])
+        self.assertTrue(IOC.objects.filter(name=self.ioc.name).exists())
+
+    def test_over_long_url_does_not_cost_the_valid_ones(self):
+        long_url = f"http://evil.com/{'a' * 900}"
+        good_url = "http://evil.com/stage2"
+        _process_related_urls(self.ioc, [self._hit(long_url), self._hit(good_url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls, [good_url])
+
+    def test_url_at_the_column_width_is_stored_whole(self):
+        url = f"http://evil.com/{'a' * (900 - len('http://evil.com/'))}"
+        self.assertEqual(len(url), 900)
+        _process_related_urls(self.ioc, [self._hit(url)])
+        self.ioc.refresh_from_db()
+        self.assertEqual(self.ioc.related_urls, [url])
+
     def test_duplicate_url_not_added_twice(self):
         url = "http://evil.com/stage2"
         _process_related_urls(self.ioc, [self._hit(url)])
@@ -1080,6 +1102,52 @@ class TestLongProtocolDoesNotFailBatch(CustomTestCase):
         credential_width = Credential._meta.get_field("protocol").max_length
         self.assertEqual(credential_width, RawEvent._meta.get_field("protocol").max_length)
         self.assertEqual(credential_width, EventSerializer().fields["protocol"].max_length)
+
+
+class TestMultiDayBatchDaysSeen(CustomTestCase):
+    """A batch can span several days, so days_seen must list every day with an event."""
+
+    ATTACKER = "193.32.162.44"
+
+    def setUp(self):
+        super().setUp()
+        self.user = make_user(username="multi_day_user")
+        self.api_source = make_api_source(self.user, name="MultiDaySource")
+        self.sensor = make_sensor(api_source=self.api_source, address="203.0.113.60", honeypot_software="Cowrie")
+
+    def _process(self, task_id, *days_ago):
+        batch = make_batch(self.api_source, task_id=task_id)
+        now = timezone.now().replace(microsecond=0)
+        for days in days_ago:
+            make_raw_event(batch, self.sensor, src_ip=self.ATTACKER, timestamp=now - timedelta(days=days))
+        process_incoming_event(self.api_source.pk, task_id)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_new_ioc_gets_every_day_of_the_batch(self, mock_scores):
+        self._process("task-days-new", 5, 3, 3, 1)
+
+        ioc = IOC.objects.get(name=self.ATTACKER)
+        today = timezone.now().date()
+        self.assertEqual(ioc.days_seen, [today - timedelta(days=d) for d in (5, 3, 1)])
+        self.assertEqual(ioc.number_of_days_seen, 3)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_later_batch_adds_its_days_to_the_stored_ones(self, mock_scores):
+        self._process("task-days-first", 2)
+        self._process("task-days-second", 6, 4)
+
+        ioc = IOC.objects.get(name=self.ATTACKER)
+        today = timezone.now().date()
+        self.assertEqual(ioc.days_seen, [today - timedelta(days=d) for d in (6, 4, 2)])
+        self.assertEqual(ioc.number_of_days_seen, 3)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_single_day_batch_still_records_one_day(self, mock_scores):
+        self._process("task-days-single", 1, 1)
+
+        ioc = IOC.objects.get(name=self.ATTACKER)
+        self.assertEqual(ioc.days_seen, [timezone.now().date() - timedelta(days=1)])
+        self.assertEqual(ioc.number_of_days_seen, 1)
 
 
 INVALIDATION_CACHES = {
