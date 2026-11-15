@@ -1,29 +1,31 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 import logging
+from collections import defaultdict
 
-from certego_saas.ext.helpers import parse_humanized_range
 from django.db.models import Count, Q
 from django.db.models.functions import Trunc
 from django.http import HttpResponseBadRequest
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from api.mixins import CachedResponseMixin
+from api.mixins import CachedResponseMixin, QueryParamValidationMixin
+from api.serializers import StatisticsRequestSerializer
 from greedybear.models import IOC, Honeypot, Statistics, ViewType
 
 logger = logging.getLogger(__name__)
 
 
-class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
+class StatisticsViewSet(QueryParamValidationMixin, CachedResponseMixin, viewsets.ViewSet):
     """
     A viewset for viewing and editing statistics related to feeds and enrichment data.
 
     Provides actions to retrieve statistics about the sources and downloads of feeds,
     as well as statistics on enrichment data.
     """
+
+    serializer_class = StatisticsRequestSerializer
 
     # Only cache statistics derived from IOC data that is refreshed by the extraction.
     # These actions can use extraction-driven invalidation; user/request-dependent statistics
@@ -131,19 +133,28 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
             request: The incoming request object.
 
         Returns:
-            Response: A JSON response containing the feed type statistics.
+            Response: A JSON list of time buckets, each with a ``date`` and a
+                ``counts`` mapping from active Honeypot names to IOC counts.
         """
         cached_response = self.get_cached_response()
         if cached_response is not None:
             return cached_response
 
-        # Build annotations for each active general honeypot
-        annotations = {}
-        honeypots = Honeypot.objects.all().filter(active=True)
-        for hp in honeypots:
-            # Use M2M relationship instead of boolean fields
-            annotations[hp.name] = Count("name", distinct=True, filter=Q(honeypots__name__iexact=hp.name))
-        return self.__aggregation_response_static_ioc(annotations)
+        names = list(Honeypot.objects.filter(active=True).order_by("name").values_list("name", flat=True))
+        delta, basis = self.__parse_range(self.request)
+        rows = (
+            IOC.objects.filter(last_seen__gte=delta, honeypots__active=True)
+            .annotate(date=Trunc("last_seen", basis))
+            .values("date", "honeypots__name")
+            .annotate(count=Count("id", distinct=True))
+        )
+
+        buckets = defaultdict(lambda: dict.fromkeys(names, 0))
+        for row in rows:
+            buckets[row["date"]][row["honeypots__name"]] = row["count"]
+
+        data = [{"date": bucket_date, "counts": counts} for bucket_date, counts in sorted(buckets.items())]
+        return Response(data)
 
     def __aggregation_response_static_statistics(self, annotations: dict) -> Response:
         """
@@ -159,29 +170,7 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
         qs = Statistics.objects.filter(request_date__gte=delta).annotate(date=Trunc("request_date", basis)).values("date").annotate(**annotations)
         return Response(qs)
 
-    def __aggregation_response_static_ioc(self, annotations: dict) -> Response:
-        """
-        Helper method to generate IOC response based on annotations.
-
-        Args:
-            annotations (dict): Dictionary containing the annotations for the query.
-
-        Returns:
-            Response: A JSON response containing the aggregated IOC data.
-        """
-        delta, basis = self.__parse_range(self.request)
-
-        qs = (
-            IOC.objects.filter(last_seen__gte=delta)
-            .filter(honeypots__active=True)
-            .annotate(date=Trunc("last_seen", basis))
-            .values("date")
-            .annotate(**annotations)
-        )
-        return Response(qs)
-
-    @staticmethod
-    def __parse_range(request):
+    def __parse_range(self, request):
         """
         Parse the range parameter from the request query string to determine the time range for the query.
 
@@ -194,14 +183,6 @@ class StatisticsViewSet(CachedResponseMixin, viewsets.ViewSet):
         Raises:
             ValidationError: If the range parameter cannot be parsed as a valid time range.
         """
-        try:
-            range_str = request.GET["range"]
-        except KeyError:
-            # default
-            range_str = "7d"
-
-        try:
-            return parse_humanized_range(range_str)
-        except (OverflowError, ValueError, TypeError, KeyError, AttributeError) as exc:
-            logger.info(f"Invalid range parameter '{range_str}': {exc}")
-            raise ValidationError(f"Invalid 'range' parameter: '{range_str}'. Expected format like '7d', '24h', or '30d'.") from exc
+        request_serializer = self.serializer_class(data=request.query_params.dict())
+        request_serializer.is_valid(raise_exception=True)
+        return request_serializer.validated_data["range"]

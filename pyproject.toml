@@ -1,6 +1,6 @@
 [project]
 name = "greedybear"
-version = "3.6.3"
+version = "3.6.4"
 description = "Threat intelligence platform that extracts attack data from a T-Pot or a cluster of them and generates actionable live feeds."
 readme = "README.md"
 license = "MIT"
@@ -14,11 +14,12 @@ dependencies = [
     "django-ses~=4.7",
     "django-q2~=1.10",
     "django-filter~=26.1",
+    "django-netfields~=1.5",
     "drf-spectacular~=0.30.0",
     "croniter~=6.2",
     "certego-saas==0.7.12",
     # Server Gateway Interface
-    "gunicorn~=26.0",
+    "gunicorn~=27.0",
     # Data stores
     # For ES compatibility, check https://github.com/elastic/elasticsearch-py#compatibility
     "elasticsearch==9.5.1",

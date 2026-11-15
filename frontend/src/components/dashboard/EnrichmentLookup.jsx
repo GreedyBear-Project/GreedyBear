@@ -59,6 +59,14 @@ const isValidQuery = (value) => {
   return looksLikeIp(q) || looksLikeDomain(q);
 };
 
+// FireHol membership now arrives as tags rather than its own IOC field.
+const fireholBlocklists = (tags) =>
+  Array.isArray(tags)
+    ? tags
+        .filter((tag) => tag.source === "firehol" && tag.key === "blocklist")
+        .map((tag) => tag.value)
+    : [];
+
 export default function EnrichmentLookup() {
   const [result, setResult] = React.useState(null);
   const [showAllHashes, setShowAllHashes] = React.useState(false);
@@ -251,7 +259,9 @@ export default function EnrichmentLookup() {
                   </dd>
 
                   <dt className="col-sm-5">ASN:</dt>
-                  <dd className="col-sm-7">{result.ioc.asn || "N/A"}</dd>
+                  <dd className="col-sm-7">
+                    {result.ioc.autonomous_system || "N/A"}
+                  </dd>
 
                   <dt className="col-sm-5">Destination Ports:</dt>
                   <dd className="col-sm-7">
@@ -260,24 +270,18 @@ export default function EnrichmentLookup() {
                       : "N/A"}
                   </dd>
 
-                  {Array.isArray(result.ioc.firehol_categories) &&
-                    result.ioc.firehol_categories.length > 0 && (
-                      <>
-                        <dt className="col-sm-5">Firehol Categories:</dt>
-                        <dd className="col-sm-7">
-                          {result.ioc.firehol_categories.map(
-                            (category, idx) => (
-                              <span
-                                key={idx}
-                                className="badge bg-secondary me-1"
-                              >
-                                {category}
-                              </span>
-                            ),
-                          )}
-                        </dd>
-                      </>
-                    )}
+                  {fireholBlocklists(result.ioc.tags).length > 0 && (
+                    <>
+                      <dt className="col-sm-5">Firehol Blocklists:</dt>
+                      <dd className="col-sm-7">
+                        {fireholBlocklists(result.ioc.tags).map((name, idx) => (
+                          <span key={idx} className="badge bg-secondary me-1">
+                            {name}
+                          </span>
+                        ))}
+                      </dd>
+                    </>
+                  )}
                 </dl>
               </Col>
             </Row>

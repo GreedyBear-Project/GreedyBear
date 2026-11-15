@@ -67,6 +67,9 @@ class FeedsFilterSet(django_filters.FilterSet):
         return queryset.filter(id__in=qualifying)
 
     def filter_end_date(self, queryset: QuerySet, name: str, value: date) -> QuerySet:
+        # there is no day after date.max, and nothing can be seen later than it anyway
+        if value == date.max:
+            return queryset
         return queryset.filter(last_seen__lt=value + timedelta(days=1))
 
     def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:

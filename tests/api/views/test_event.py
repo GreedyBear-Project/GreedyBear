@@ -65,6 +65,19 @@ class TestEventsCreateAuth(BaseEventTestCase):
 
 
 class TestEventsCreateValidation(BaseEventTestCase):
+    def test_src_ip_normalized(self):
+        cases = {
+            "::ffff:1.2.3.4": "1.2.3.4",
+            "2001:DB8:0:0:0:0:0:1": "2001:db8::1",
+        }
+        for raw_ip, expected in cases.items():
+            with self.subTest(src_ip=raw_ip):
+                event = valid_event(self.sensor.id, src_ip=raw_ip)
+                res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+                self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+                raw = RawEvent.objects.get(batch__task_id=res.data["task_id"])
+                self.assertEqual(raw.src_ip, expected)
+
     def test_empty_events_list_returns_400(self):
         res = self.client.post(EVENTS_URL, {"events": []}, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)

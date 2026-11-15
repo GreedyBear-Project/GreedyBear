@@ -289,7 +289,6 @@ class ExtractionTestCase(CustomTestCase):
         last_seen=None,
         ip_reputation="",
         asn=1234,
-        firehol_categories=None,
         attacker_country="",
         attacker_country_code="",
         protocols=None,
@@ -311,7 +310,6 @@ class ExtractionTestCase(CustomTestCase):
         mock.first_seen = first_seen if first_seen is not None else datetime.now()
         mock.last_seen = last_seen if last_seen is not None else datetime.now()
         mock.ip_reputation = ip_reputation
-        mock.firehol_categories = firehol_categories if firehol_categories is not None else []
         mock.number_of_days_seen = len(mock.days_seen)
         mock.attacker_country = attacker_country
         mock.attacker_country_code = attacker_country_code

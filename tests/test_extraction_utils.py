@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import Mock, patch
 
 from greedybear.consts import IP
@@ -11,7 +11,7 @@ from greedybear.cronjobs.extraction.utils import (
     threatfox_submission,
 )
 from greedybear.enums import IpReputation
-from greedybear.models import FireHolList, MassScanner
+from greedybear.models import MassScanner
 
 from . import CustomTestCase, ExtractionTestCase
 
@@ -60,6 +60,18 @@ class TestGroupValidHitsByIp(CustomTestCase):
 
     def test_empty_input_returns_empty_dict(self):
         self.assertEqual(group_valid_hits_by_ip([]), {})
+
+    def test_equivalent_ip_forms_are_grouped_together(self):
+        grouped = group_valid_hits_by_ip(
+            [
+                self._hit("2001:DB8::1"),
+                self._hit("2001:db8::1"),
+                self._hit("2001:0db8:0:0:0:0:0:0001"),
+                self._hit("::ffff:1.2.3.4"),
+            ]
+        )
+        self.assertEqual(set(grouped), {"2001:db8::1", "1.2.3.4"})
+        self.assertEqual(len(grouped["2001:db8::1"]), 3)
 
 
 class IocsFromHitsTestCase(CustomTestCase):
@@ -133,6 +145,32 @@ class IocsFromHitsTestCase(CustomTestCase):
         ]
         iocs = iocs_from_hits(hits)
         self.assertEqual({ioc.name for ioc in iocs}, {"1.2.3.4", "5.6.7.8"})
+
+    def test_collects_every_day_with_a_hit(self):
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-03T23:59:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T08:00:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T09:00:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-05T00:01:00.000Z"),
+        ]
+        ioc = iocs_from_hits(hits)[0]
+        self.assertEqual(ioc.days_seen, [date(2025, 1, 1), date(2025, 1, 3), date(2025, 1, 5)])
+
+    def test_single_day_gives_single_day_seen(self):
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T12:00:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T12:05:00.000Z"),
+        ]
+        ioc = iocs_from_hits(hits)[0]
+        self.assertEqual(ioc.days_seen, [date(2025, 1, 1)])
+
+    def test_days_seen_are_kept_per_ip(self):
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T12:00:00.000Z"),
+            self._create_hit(src_ip="1.1.1.1", timestamp="2025-01-02T12:00:00.000Z"),
+        ]
+        days_by_ip = {ioc.name: ioc.days_seen for ioc in iocs_from_hits(hits)}
+        self.assertEqual(days_by_ip, {"8.8.8.8": [date(2025, 1, 1)], "1.1.1.1": [date(2025, 1, 2)]})
 
     def test_aggregates_destination_ports(self):
         hits = [
@@ -345,69 +383,6 @@ class IocsFromHitsTestCase(CustomTestCase):
     def test_empty_hits_returns_empty_list(self):
         iocs = iocs_from_hits([])
         self.assertEqual(iocs, [])
-
-    def test_firehol_enrichment_exact_ip_match(self):
-        """Test that IOCs get FireHol categories for exact IP matches (.ipset files)"""
-        FireHolList.objects.create(ip_address="8.8.8.8", source="blocklist_de")
-        FireHolList.objects.create(ip_address="8.8.8.8", source="greensnow")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertIn("blocklist_de", ioc.firehol_categories)
-        self.assertIn("greensnow", ioc.firehol_categories)
-        self.assertEqual(len(ioc.firehol_categories), 2)
-
-    def test_firehol_enrichment_network_range_match(self):
-        """Test that IOCs get FireHol categories when IP is within a CIDR range (.netset files)"""
-        FireHolList.objects.create(ip_address="8.8.8.0/24", source="dshield")
-
-        hits = [self._create_hit(src_ip="8.8.8.100")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertIn("dshield", ioc.firehol_categories)
-
-    def test_firehol_enrichment_no_match(self):
-        """Test that IOCs have empty FireHol categories when there's no match"""
-        FireHolList.objects.create(ip_address="1.1.1.1", source="blocklist_de")
-        FireHolList.objects.create(ip_address="9.9.9.0/24", source="dshield")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertEqual(ioc.firehol_categories, [])
-
-    def test_firehol_enrichment_mixed_match(self):
-        """Test FireHol enrichment with both exact match and network range match"""
-        FireHolList.objects.create(ip_address="8.8.8.8", source="blocklist_de")
-        FireHolList.objects.create(ip_address="8.8.0.0/16", source="dshield")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        self.assertIn("blocklist_de", ioc.firehol_categories)
-        self.assertIn("dshield", ioc.firehol_categories)
-
-    def test_firehol_enrichment_deduplicates_sources(self):
-        """Test that duplicate sources are not added"""
-        FireHolList.objects.create(ip_address="8.8.8.8", source="blocklist_de")
-        FireHolList.objects.create(ip_address="8.8.0.0/16", source="blocklist_de")
-
-        hits = [self._create_hit(src_ip="8.8.8.8")]
-        iocs = iocs_from_hits(hits)
-
-        self.assertEqual(len(iocs), 1)
-        ioc = iocs[0]
-        # Should only have one instance of blocklist_de
-        self.assertEqual(ioc.firehol_categories.count("blocklist_de"), 1)
 
     def test_collects_sensors_from_hits(self):
         """Test that sensors are collected from hits and returned"""
