@@ -1,103 +1,134 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-
+import { render, screen, waitFor } from "@testing-library/react";
+import { BrowserRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import axiosHooks from "axios-hooks";
 import Payloads from "../../../src/components/payloads/Payloads";
 
 const SHA = "a".repeat(64);
 
-const payload = {
-  id: 1,
-  sha256: SHA,
-  md5: "b".repeat(32),
-  sha1: "c".repeat(40),
-  mime_type: "application/x-dosexec",
-  size: 1234,
-  source_honeypots: ["Cowrie"],
-  iocs: [],
-  cowrie_sessions: [],
-};
+const fixture = vi.hoisted(() => ({
+  count: 1,
+  total_pages: 1,
+  results: [
+    {
+      id: 1,
+      sha256: "a".repeat(64),
+      md5: "b".repeat(32),
+      sha1: "c".repeat(40),
+      mime_type: "application/x-dosexec",
+      size: 1234,
+      source_honeypots: ["Cowrie"],
+      iocs: [],
+      cowrie_sessions: [],
+    },
+  ],
+}));
 
-const okResponse = (data) => ({
-  ok: true,
-  status: 200,
-  json: async () => data,
-});
+const auth = vi.hoisted(() => ({ canDownloadPayloads: true }));
 
-const lastUrl = () => global.fetch.mock.calls.at(-1)[0];
+vi.mock("axios-hooks", () => ({
+  default: vi.fn(() => [
+    { data: fixture, loading: false, error: undefined },
+    vi.fn(),
+  ]),
+}));
+
+vi.mock("../../../src/stores", () => ({
+  useAuthStore: (selector) => selector(auth),
+}));
+
+vi.mock(
+  "../../../src/components/common/gb-ui/index",
+  async (importOriginal) => {
+    const originalModule = await importOriginal();
+    const loader = (props) => (
+      <originalModule.Loader loading={false} {...props} />
+    );
+    const Select = ({ id, choices, value, onChange, name }) => (
+      <select id={id} value={value} onChange={onChange} name={name}>
+        {choices.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    );
+    return {
+      ...originalModule,
+      Select,
+      useAxiosComponentLoader: vi.fn(() => [["Cowrie", "Dionaea"], loader]),
+    };
+  },
+);
+
+const renderPage = () =>
+  render(
+    <BrowserRouter>
+      <Payloads />
+    </BrowserRouter>,
+  );
+
+const allRequests = () =>
+  axiosHooks.mock.calls.map((call) => JSON.stringify(call[0]));
 
 describe("Payloads", () => {
   beforeEach(() => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValue(
-        okResponse({ count: 1, total_pages: 1, results: [payload] }),
-      );
+    auth.canDownloadPayloads = true;
+    axiosHooks.mockClear();
+    window.history.replaceState({}, "", "/");
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test("renders payload rows from the API", async () => {
-    render(<Payloads />);
+  test("renders payload rows and total count", async () => {
+    renderPage();
     expect(await screen.findByText(SHA)).toBeInTheDocument();
     expect(screen.getByText("application/x-dosexec")).toBeInTheDocument();
-    expect(screen.getByText("1 payloads found")).toBeInTheDocument();
+    expect(screen.getByText(/1 total/)).toBeInTheDocument();
   });
 
-  test("download link points to the download endpoint", async () => {
-    render(<Payloads />);
+  test("download link is shown for authorized users", async () => {
+    renderPage();
     await screen.findByText(SHA);
     const link = screen.getByRole("link", { name: "Download" });
-    expect(link.getAttribute("href")).toMatch(`${SHA}/download`);
+    expect(link.getAttribute("href")).toContain(`${SHA}/download`);
   });
 
-  test("hash search is sent to the server", async () => {
-    render(<Payloads />);
+  test("download link is hidden for unauthorized users", async () => {
+    auth.canDownloadPayloads = false;
+    renderPage();
     await screen.findByText(SHA);
-    fireEvent.change(screen.getByLabelText("Search hash"), {
-      target: { value: "abc123" },
-    });
-    await waitFor(() => expect(lastUrl()).toContain("search=abc123"));
+    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
   });
 
-  test("MIME type and honeypot filters are sent to the server", async () => {
-    render(<Payloads />);
+  test("honeypot dropdown lists the active honeypots", async () => {
+    renderPage();
+    const select = await screen.findByLabelText("Honeypot:");
+    expect(select).toHaveTextContent("Cowrie");
+    expect(select).toHaveTextContent("Dionaea");
+  });
+
+  test("typing does not request; Search submits the filters", async () => {
+    const user = userEvent.setup();
+    renderPage();
     await screen.findByText(SHA);
-    fireEvent.change(screen.getByLabelText("MIME type"), {
-      target: { value: "text/x-shellscript" },
-    });
-    fireEvent.change(screen.getByLabelText("Source honeypot"), {
-      target: { value: "Cowrie" },
-    });
-    await waitFor(() => {
-      expect(lastUrl()).toContain("mime_type=text%2Fx-shellscript");
-      expect(lastUrl()).toContain("honeypot=Cowrie");
-    });
-  });
-
-  test("Next requests the next page", async () => {
-    global.fetch.mockResolvedValue(
-      okResponse({ count: 12, total_pages: 2, results: [payload] }),
+    await user.type(screen.getByLabelText("Hash:"), "abc123");
+    expect(allRequests().some((r) => r.includes("abc123"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() =>
+      expect(allRequests().some((r) => r.includes("abc123"))).toBe(true),
     );
-    render(<Payloads />);
-    await screen.findByText(SHA);
-    const next = screen.getByRole("button", { name: "Next" });
-    await waitFor(() => expect(next).not.toBeDisabled());
-    fireEvent.click(next);
-    await waitFor(() => expect(lastUrl()).toContain("page=2"));
   });
 
-  test("shows an error when the API fails", async () => {
-    global.fetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: async () => ({}),
-    });
-    render(<Payloads />);
-    expect(
-      await screen.findByText("Failed to load payloads (500)"),
-    ).toBeInTheDocument();
+  test("selecting a honeypot submits the filter", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.selectOptions(
+      await screen.findByLabelText("Honeypot:"),
+      "Cowrie",
+    );
+    await waitFor(() =>
+      expect(allRequests().some((r) => r.includes("Cowrie"))).toBe(true),
+    );
   });
 });
