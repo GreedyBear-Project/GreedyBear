@@ -70,7 +70,7 @@ class HoneypotPayloadViewSet(QueryParamValidationMixin, viewsets.ReadOnlyModelVi
         serializer_class is the response serializer here, so its fields are not query params.
         """
         if getattr(self, "action", None) == "list":
-            return self.get_page_query_params() | {"paginate"} | set(HoneypotPayloadFilterSet.base_filters)
+            return self.get_page_query_params() | {"paginate"} | set(HoneypotPayloadFilterSet.Meta.fields)
         return set()
 
     def get_queryset(self) -> QuerySet:
