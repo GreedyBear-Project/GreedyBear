@@ -234,7 +234,6 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                     self.session_repo.save_command_sequence(session_record.commands)
                     self.log.info(f"saved new command execute from {ioc.name} with hash {session_record.commands.commands_hash}")
 
-                self.ioc_repo.save(session_record.source)
                 self.session_repo.save_session(session_record)
 
         self.log.info(f"{len(hits_per_session)} sessions added")

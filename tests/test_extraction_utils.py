@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import Mock, patch
 
 from greedybear.consts import IP
@@ -60,6 +60,18 @@ class TestGroupValidHitsByIp(CustomTestCase):
 
     def test_empty_input_returns_empty_dict(self):
         self.assertEqual(group_valid_hits_by_ip([]), {})
+
+    def test_equivalent_ip_forms_are_grouped_together(self):
+        grouped = group_valid_hits_by_ip(
+            [
+                self._hit("2001:DB8::1"),
+                self._hit("2001:db8::1"),
+                self._hit("2001:0db8:0:0:0:0:0:0001"),
+                self._hit("::ffff:1.2.3.4"),
+            ]
+        )
+        self.assertEqual(set(grouped), {"2001:db8::1", "1.2.3.4"})
+        self.assertEqual(len(grouped["2001:db8::1"]), 3)
 
 
 class IocsFromHitsTestCase(CustomTestCase):
@@ -133,6 +145,32 @@ class IocsFromHitsTestCase(CustomTestCase):
         ]
         iocs = iocs_from_hits(hits)
         self.assertEqual({ioc.name for ioc in iocs}, {"1.2.3.4", "5.6.7.8"})
+
+    def test_collects_every_day_with_a_hit(self):
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-03T23:59:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T08:00:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T09:00:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-05T00:01:00.000Z"),
+        ]
+        ioc = iocs_from_hits(hits)[0]
+        self.assertEqual(ioc.days_seen, [date(2025, 1, 1), date(2025, 1, 3), date(2025, 1, 5)])
+
+    def test_single_day_gives_single_day_seen(self):
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T12:00:00.000Z"),
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T12:05:00.000Z"),
+        ]
+        ioc = iocs_from_hits(hits)[0]
+        self.assertEqual(ioc.days_seen, [date(2025, 1, 1)])
+
+    def test_days_seen_are_kept_per_ip(self):
+        hits = [
+            self._create_hit(src_ip="8.8.8.8", timestamp="2025-01-01T12:00:00.000Z"),
+            self._create_hit(src_ip="1.1.1.1", timestamp="2025-01-02T12:00:00.000Z"),
+        ]
+        days_by_ip = {ioc.name: ioc.days_seen for ioc in iocs_from_hits(hits)}
+        self.assertEqual(days_by_ip, {"8.8.8.8": [date(2025, 1, 1)], "1.1.1.1": [date(2025, 1, 2)]})
 
     def test_aggregates_destination_ports(self):
         hits = [

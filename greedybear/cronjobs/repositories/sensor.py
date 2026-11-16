@@ -30,8 +30,9 @@ class SensorRepository:
         Returns:
             Sensor object if valid, None if invalid IP format.
         """
-        from greedybear.utils import get_ioc_type
+        from greedybear.utils import get_ioc_type, normalize_ip
 
+        ip = normalize_ip(ip)
         if ip in self.cache:
             return self.cache[ip]
         if get_ioc_type(ip) != IP:

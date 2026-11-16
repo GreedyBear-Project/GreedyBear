@@ -1104,6 +1104,52 @@ class TestLongProtocolDoesNotFailBatch(CustomTestCase):
         self.assertEqual(credential_width, EventSerializer().fields["protocol"].max_length)
 
 
+class TestMultiDayBatchDaysSeen(CustomTestCase):
+    """A batch can span several days, so days_seen must list every day with an event."""
+
+    ATTACKER = "193.32.162.44"
+
+    def setUp(self):
+        super().setUp()
+        self.user = make_user(username="multi_day_user")
+        self.api_source = make_api_source(self.user, name="MultiDaySource")
+        self.sensor = make_sensor(api_source=self.api_source, address="203.0.113.60", honeypot_software="Cowrie")
+
+    def _process(self, task_id, *days_ago):
+        batch = make_batch(self.api_source, task_id=task_id)
+        now = timezone.now().replace(microsecond=0)
+        for days in days_ago:
+            make_raw_event(batch, self.sensor, src_ip=self.ATTACKER, timestamp=now - timedelta(days=days))
+        process_incoming_event(self.api_source.pk, task_id)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_new_ioc_gets_every_day_of_the_batch(self, mock_scores):
+        self._process("task-days-new", 5, 3, 3, 1)
+
+        ioc = IOC.objects.get(name=self.ATTACKER)
+        today = timezone.now().date()
+        self.assertEqual(ioc.days_seen, [today - timedelta(days=d) for d in (5, 3, 1)])
+        self.assertEqual(ioc.number_of_days_seen, 3)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_later_batch_adds_its_days_to_the_stored_ones(self, mock_scores):
+        self._process("task-days-first", 2)
+        self._process("task-days-second", 6, 4)
+
+        ioc = IOC.objects.get(name=self.ATTACKER)
+        today = timezone.now().date()
+        self.assertEqual(ioc.days_seen, [today - timedelta(days=d) for d in (6, 4, 2)])
+        self.assertEqual(ioc.number_of_days_seen, 3)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_single_day_batch_still_records_one_day(self, mock_scores):
+        self._process("task-days-single", 1, 1)
+
+        ioc = IOC.objects.get(name=self.ATTACKER)
+        self.assertEqual(ioc.days_seen, [timezone.now().date() - timedelta(days=1)])
+        self.assertEqual(ioc.number_of_days_seen, 1)
+
+
 INVALIDATION_CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
