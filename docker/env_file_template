@@ -59,7 +59,8 @@ PUBLIC_DEPLOYMENT=False
 # Interval for the honeypot data extraction in minutes (only choose divisors of 60)
 EXTRACTION_INTERVAL=10
 
-# Lookback time for the first extraction run in minutes (default: 1 day)
+# Maximum lookback time in minutes. The first extraction run backfills this much data,
+# and a run that has to catch up after downtime never reaches further back than this.
 INITIAL_EXTRACTION_TIMESPAN = 1440
 
 # Set True to cluster command sequences recorded by Cowrie once a day

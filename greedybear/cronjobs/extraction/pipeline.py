@@ -120,7 +120,7 @@ class ExtractionPipeline:
                         ioc_records = self._process_chunk(chunk, factory, bucket_updater)
                         self.run_repo.advance(run, chunk_end, len(ioc_records))
                 except RecoverableError as exc:
-                    self.log.warning(f"Chunk {chunk_start} - {chunk_end} failed, the next run will retry it")
+                    self.log.exception(f"Chunk {chunk_start} - {chunk_end} failed, the next run will retry it")
                     self._reset_after_failure(run, bucket_updater)
                     self.run_repo.finish(run, error=str(exc), retryable=True)
                     raise

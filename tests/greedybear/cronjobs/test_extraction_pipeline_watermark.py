@@ -277,3 +277,16 @@ class TestExtractionWatermark(ExtractionTestCase):
 
         self._execute(pipeline, datetime(2025, 1, 10, 0, 13))
         self.assertFalse(pipeline.day_completed)
+
+    def test_run_with_empty_window_does_not_keep_day_completed_of_previous_run(self, mock_factory, mock_scores):
+        self._mock_strategies(mock_factory)
+        self._set_watermark(datetime(2025, 1, 9, 23, 50))
+        pipeline = self._create_pipeline()
+        pipeline.elastic_repo.search.side_effect = [cowrie_chunk()]
+
+        self._execute(pipeline, datetime(2025, 1, 10, 0, 3))
+        self.assertTrue(pipeline.day_completed)
+
+        # Everything up to 00:00 is extracted, so this run has an empty window and returns early.
+        self._execute(pipeline, datetime(2025, 1, 10, 0, 5))
+        self.assertFalse(pipeline.day_completed)
