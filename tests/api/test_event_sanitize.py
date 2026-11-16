@@ -131,7 +131,10 @@ class EventSerializerDefaultDataTests(SimpleTestCase):
         self.assertEqual(username, "a" * 250 + NUL_REPLACEMENT)
         self.assertLessEqual(len(username), 255)
 
-    def test_clean_username_over_max_length_is_rejected(self):
+    def test_clean_username_over_max_length_is_clamped(self):
+        # #1707 chose to reject a clean over long username. The attacker picks
+        # that value, and rejecting it discarded every other event in the batch,
+        # so it is now cut to the column width instead.
         serializer = EventSerializer(
             data={
                 "src_ip": "1.2.3.4",
@@ -141,8 +144,8 @@ class EventSerializerDefaultDataTests(SimpleTestCase):
                 "username": "a" * 256,
             }
         )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("username", serializer.errors)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["username"], "a" * 255)
 
     def test_command_is_not_capped(self):
         command = "a" * 300 + "\x00"
