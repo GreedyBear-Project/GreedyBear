@@ -608,6 +608,13 @@ class IocsFromHitsTestCase(CustomTestCase):
         ioc = iocs[0]
         self.assertEqual(ioc.cves, ["CVE-2026-24061"])
 
+    def test_cve_with_too_many_digits_is_ignored(self):
+        """An over long CVE would not fit the IOC.cves column."""
+        hits = [
+            Hit({**self._create_hit(src_ip="8.8.8.8", hit_type="Cowrie"), "cve": "CVE-2026-" + "1" * 45}),
+        ]
+        self.assertEqual(iocs_from_hits(hits)[0].cves, [])
+
     def test_ciscoasa_hardcoded_cve(self):
         """Every Ciscoasa hit gets CVE-2018-0101 hardcoded."""
         hits = [
