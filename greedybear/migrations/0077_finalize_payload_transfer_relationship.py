@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("greedybear", "0075_link_cowrie_file_transfer_to_payload"),
+        ("greedybear", "0076_link_cowrie_file_transfer_to_payload"),
     ]
 
     operations = [

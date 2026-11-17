@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 from collections.abc import Mapping
 
 from django.conf import settings
@@ -11,9 +12,14 @@ from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_vali
 from greedybear.consts import SHARE_TOKEN_MAX_AGE
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
-from greedybear.models import ShareToken
+from greedybear.models import IOC, ShareToken
+from greedybear.regex import REGEX_CVE
 
 logger = logging.getLogger(__name__)
+
+CVE_MAX_LENGTH = IOC._meta.get_field("cves").base_field.max_length  # ty: ignore[unresolved-attribute]
+PROTOCOL_MAX_LENGTH = IOC._meta.get_field("protocols").base_field.max_length  # ty: ignore[unresolved-attribute]
+
 
 FEED_DEFAULTS = {
     "max_age": 3,
@@ -61,16 +67,17 @@ class FeedTypeField(serializers.CharField):
         return [super().get_default()]  # ty: ignore[invalid-return-type]
 
 
-class ReputationListField(serializers.ListField):
-    """ListField for the include_reputation and exclude_reputation query params.
+class SemicolonListField(serializers.ListField):
+    """ListField for query params that take several ``;``-separated values,
+    like include_reputation, exclude_reputation, cve and protocol.
     Takes a query string that contains ``;``-separated values
     and represents it as a list.
     """
 
     def to_internal_value(self, data: str) -> list[str]:  # ty: ignore[invalid-method-override]
-        logger.debug(f"Converting reputation list: {data}")
-        reputations = data.split(";") if data else []
-        return super().to_internal_value(reputations)
+        logger.debug(f"Converting semicolon separated list: {data}")
+        values = data.split(";") if data else []
+        return super().to_internal_value(values)
 
 
 ### REQUESTS ###
@@ -182,10 +189,10 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     )
     min_days_seen = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["min_days_seen"], help_text="Minimum distinct days an IOC has been seen.")
     feed_size = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["feed_size"], help_text="Maximum number of IOCs to return.")
-    include_reputation = ReputationListField(
+    include_reputation = SemicolonListField(
         child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["include_reputation"], help_text="`;`-separated reputations to include."
     )
-    exclude_reputation = ReputationListField(
+    exclude_reputation = SemicolonListField(
         child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["exclude_reputation"], help_text="`;`-separated reputations to exclude."
     )
     verbose = serializers.BooleanField(default=FEED_DEFAULTS["verbose"], help_text="Include extended per-IOC fields in JSON output.")
@@ -201,6 +208,31 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     tag_key = serializers.CharField(max_length=128, required=False, allow_blank=True, help_text="Filter by tag key (case-insensitive exact match).")
     tag_value = serializers.CharField(max_length=256, required=False, allow_blank=True, help_text="Filter by tag value.")
     country_code = serializers.CharField(max_length=2, required=False, allow_blank=True, help_text="Filter by 2-letter attacker country code.")
+    cve = SemicolonListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="`;`-separated CVE IDs (e.g. `CVE-2021-44228`). Only IOCs that were seen exploiting at least one of them.",
+    )
+    protocol = SemicolonListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="`;`-separated protocols (e.g. `ssh;telnet`). Only IOCs that were seen using at least one of them.",
+    )
+
+    def validate_cve(self, values: list[str]) -> list[str]:
+        """Normalize the CVE IDs to upper case, the way they are stored, and reject malformed ones."""
+        cves = [value.strip().upper() for value in values]
+        invalid = [cve for cve in cves if not re.fullmatch(REGEX_CVE, cve)]
+        if invalid:
+            raise serializers.ValidationError(f"Invalid CVE ID: {', '.join(invalid)}. Expected the format CVE-YYYY-NNNN.")
+        return cves
+
+    def validate_protocol(self, values: list[str]) -> list[str]:
+        """Normalize the protocols to lower case, the way they are stored, and reject empty or over long ones."""
+        protocols = [value.strip().lower() for value in values]
+        if any(not 0 < len(protocol) <= PROTOCOL_MAX_LENGTH for protocol in protocols):
+            raise serializers.ValidationError(f"Invalid protocol: each one must have 1 to {PROTOCOL_MAX_LENGTH} characters.")
+        return protocols
 
     def validate(self, attrs: dict) -> dict:
         logger.debug("Validating advanced feed request")
@@ -430,6 +462,10 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     expected_interactions = serializers.FloatField(min_value=0)
     attacker_country = serializers.CharField(allow_null=True, allow_blank=True, max_length=120)
     attacker_country_code = serializers.CharField(allow_null=True, allow_blank=True, max_length=2)
+    cves = serializers.ListField(
+        child=serializers.CharField(max_length=CVE_MAX_LENGTH), help_text="CVE IDs this IOC was seen exploiting, e.g. `CVE-2021-44228`."
+    )
+    protocols = serializers.ListField(child=serializers.CharField(max_length=PROTOCOL_MAX_LENGTH), help_text="Protocols this IOC was seen using, e.g. `ssh`.")
     tags = TagSerializer(many=True, required=False, default=list)
 
 

@@ -342,6 +342,8 @@ class FeedResponseSerializersTestCase(CustomTestCase):
                 "expected_interactions": "11.1",
                 "attacker_country": "Nepal",
                 "attacker_country_code": "NP",
+                "cves": ["CVE-2021-44228"],
+                "protocols": ["ssh"],
             }
             serializer = SimpleFeedResponseSerializer(
                 data=data_,

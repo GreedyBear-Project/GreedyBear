@@ -660,9 +660,50 @@ class TestRenameTorExitReputation(MigrationTestCase):
 
 
 @tag("migration")
-class TestLinkCowrieFileTransferToPayload(MigrationTestCase):
+class TestMoveSpamhausDropTags(MigrationTestCase):
+    """Tests that Spamhaus DROP tags move from the FireHol source to their own."""
+
     migrate_from = "0074_rename_tor_exit_reputation"
-    migrate_to = "0076_finalize_payload_transfer_relationship"
+    migrate_to = "0075_move_spamhaus_drop_tags"
+
+    def test_spamhaus_tags_get_own_source(self):
+        """A Spamhaus DROP tag written by the FireHol job gets source spamhaus_drop."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="1.1.1.1", type="ip")
+        Tag.objects.create(ioc=ioc, key="blocklist", value="spamhaus_drop", source="firehol")
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(
+            list(Tag.objects.values_list("key", "value", "source")),
+            [("blocklist", "spamhaus_drop", "spamhaus_drop")],
+        )
+
+    def test_other_tags_are_kept(self):
+        """FireHol tags of other lists and tags of other sources are not touched."""
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        Tag = self.old_state.apps.get_model(self.app_name, "Tag")
+
+        ioc = IOC.objects.create(name="2.2.2.2", type="ip")
+        Tag.objects.create(ioc=ioc, key="blocklist", value="dshield", source="firehol")
+        Tag.objects.create(ioc=ioc, key="malware", value="mirai", source="threatfox")
+
+        new_state = self.apply_tested_migration()
+        Tag = new_state.apps.get_model(self.app_name, "Tag")
+
+        self.assertEqual(
+            sorted(Tag.objects.values_list("value", "source")),
+            [("dshield", "firehol"), ("mirai", "threatfox")],
+        )
+
+
+@tag("migration")
+class TestLinkCowrieFileTransferToPayload(MigrationTestCase):
+    migrate_from = "0075_move_spamhaus_drop_tags"
+    migrate_to = "0077_finalize_payload_transfer_relationship"
 
     def test_existing_payload_is_normalized_and_linked(self):
         IOC = self.old_state.apps.get_model(self.app_name, "IOC")

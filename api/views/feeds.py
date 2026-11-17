@@ -2,7 +2,8 @@
 # See the file 'LICENSE' for copying permission.
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
+from functools import cached_property
 from typing import cast
 
 from certego_saas.ext.pagination import CustomPageNumberPagination
@@ -153,10 +154,11 @@ class BaseFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRespons
                 type_filter |= Q(honeypots__name__iexact=ft)
             iocs = iocs.filter(type_filter)
 
+        iocs = iocs.filter(honeypots__active=True)
+
         if self.is_aggregated:
             return iocs
 
-        iocs = iocs.filter(honeypots__active=True)
         iocs = iocs.annotate(honeypot_names=ArrayAgg("honeypots__name", distinct=True))
         if self.request_params["format"] in ["json", "ndjson"]:
             iocs = iocs.annotate(
@@ -374,6 +376,7 @@ class AsnFeedView(BaseFeedView):
     throttle_classes = [FeedsAdvancedThrottle]
     serializer_class = ASNFeedRequestSerializer
     is_aggregated = True
+    renderer_classes = [FeedJSONRenderer]
 
     def render_response(self, request: Request, iocs_queryset: QuerySet) -> Response:
         rows = aggregate_iocs_by_asn(iocs_queryset, self.request_params["ordering"])
@@ -402,15 +405,25 @@ class TrendingFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRes
     cache_namespace = "trending_feeds"
     cache_version_key = TRENDING_FEEDS_DATA_VERSION_KEY
 
+    @cached_property
+    def current_window_end(self) -> datetime:
+        """Return the current hour's starting timestamp."""
+        return timezone.now().replace(minute=0, second=0, microsecond=0)
+
+    def get_cache_key_material(self) -> str:
+        """Separate cached trending responses at each completed-hour boundary."""
+        return f"{super().get_cache_key_material()}|{self.current_window_end.isoformat()}"
+
     def get(self, request: Request) -> HttpResponseBase:
         serializer = self.serializer_class(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
+        save_request_source(request, ViewType.FEEDS_VIEW.value)
         cached_response = self.get_cached_response()
         if cached_response is not None:
             return cached_response
 
-        current_window_end = timezone.now().replace(minute=0, second=0, microsecond=0)
+        current_window_end = self.current_window_end
         current_window_start = current_window_end - timedelta(minutes=validated["window_minutes"])
         previous_window_end = current_window_start
         previous_window_start = previous_window_end - timedelta(minutes=validated["window_minutes"])

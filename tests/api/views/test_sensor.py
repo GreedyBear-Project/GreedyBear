@@ -114,6 +114,18 @@ class SensorCreateTests(BaseSensorTestCase):
         self.assertEqual(sensor.api_source, self.api_source)
         self.assertEqual(sensor.source_type, SourceType.EXTERNAL)
 
+    def test_ipv4_mapped_address_is_normalized(self):
+        """An IPv4-mapped address is stored as plain IPv4 and matches the same sensor."""
+        mapped_payload = {**VALID_PAYLOAD, "address": "::ffff:1.2.3.4"}
+        response = self.client.post(SENSOR_CREATE_URL, mapped_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(Sensor.objects.filter(address="1.2.3.4").exists())
+
+        # the plain IPv4 form must hit the same sensor
+        response = self.client.post(SENSOR_CREATE_URL, VALID_PAYLOAD, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Sensor.objects.filter(address="1.2.3.4").count(), 1)
+
     def test_existing_sensor_returns_existing_record(self):
         # first request creates sensor
         self.client.post(

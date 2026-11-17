@@ -93,22 +93,22 @@ export default function useWidgetData(url, extraParams = {}) {
       return;
     }
 
-    const controller = new AbortController();
     let cancelled = false;
 
     setLoading(true);
     setError(null);
 
     // Reuse an in-flight promise if one already exists for this key,
-    // otherwise start a new request and register it.
+    // otherwise start a new request and cache the response when resolved.
     let promise = inflight.get(cacheKey);
     if (!promise) {
       promise = axios
-        .get(url, {
-          params: { range, ...extraParams },
-          signal: controller.signal,
+        .get(url, { params: { range, ...extraParams } })
+        .then((resp) => {
+          const result = resp.data ?? null;
+          cache.set(cacheKey, { data: result, ts: Date.now() });
+          return result;
         })
-        .then((resp) => resp.data ?? null)
         .finally(() => inflight.delete(cacheKey));
       inflight.set(cacheKey, promise);
     }
@@ -116,12 +116,11 @@ export default function useWidgetData(url, extraParams = {}) {
     promise
       .then((result) => {
         if (cancelled) return;
-        cache.set(cacheKey, { data: result, ts: Date.now() });
         setData(result);
         setLoading(false);
       })
       .catch((err) => {
-        if (cancelled || axios.isCancel(err)) return;
+        if (cancelled) return;
         console.error(`[useWidgetData] fetch failed for ${url}:`, err);
         setError("Failed to load data.");
         setLoading(false);
@@ -129,7 +128,6 @@ export default function useWidgetData(url, extraParams = {}) {
 
     return () => {
       cancelled = true;
-      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey]);

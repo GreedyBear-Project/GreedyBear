@@ -15,6 +15,7 @@ from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import ASRepository
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, Credential, MassScanner
+from greedybear.regex import REGEX_CVE
 from greedybear.utils import clamp_to_field, get_ioc_type, get_nested_value, is_non_global_ip
 
 log = logging.getLogger(__name__)
@@ -162,7 +163,7 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
             cve_value = get_nested_value(hit, *cve_field_path)
             if cve_value:
                 for cve in str(cve_value).strip().split():
-                    if re.match(r"^CVE-\d{4}-\d{4,10}$", cve, re.IGNORECASE):
+                    if re.fullmatch(REGEX_CVE, cve, re.IGNORECASE):
                         cves.add(cve.upper())
             # Ciscoasa: hardcoded CVE see https://github.com/Cymmetria/ciscoasa_honeypot
             if honeypot_type == "ciscoasa":
@@ -194,6 +195,8 @@ def iocs_from_hits(hits: Sequence[Hit], allow_non_global: bool = False) -> list[
             ip_reputation=correct_ip_reputation(ip, next((h.get("ip_rep", "") for h in ip_hits if h.get("ip_rep")), ""), mass_scanner_ips),
             autonomous_system=autonomous_system,
             destination_ports=sorted(dest_ports),
+            # every day with a hit, not just the latest: event batches can span several days
+            days_seen=sorted({timestamp.date() for timestamp in timestamps}),
             login_attempts=login_attempts,
             attacker_country=attacker_country,
             attacker_country_code=attacker_country_code,

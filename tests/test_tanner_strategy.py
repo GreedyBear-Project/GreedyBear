@@ -416,7 +416,7 @@ class TestTannerRfiExtraction(ExtractionTestCase):
         self.strategy.extract_from_hits(hits)
 
         scanner_record.related_ioc.add.assert_called_with(hostname_record)
-        hostname_record.related_ioc.add.assert_called_with(scanner_record)
+        hostname_record.related_ioc.add.assert_not_called()
 
     @patch("greedybear.cronjobs.extraction.strategies.tanner.iocs_from_hits")
     def test_rfi_same_hostname_deduplicated(self, mock_iocs_from_hits):
@@ -600,7 +600,7 @@ class TestTannerAddFks(ExtractionTestCase):
         self.strategy._add_fks("1.2.3.4", "evil.com")
 
         scanner.related_ioc.add.assert_called_once_with(hostname)
-        hostname.related_ioc.add.assert_called_once_with(scanner)
+        hostname.related_ioc.add.assert_not_called()
         self.assertEqual(self.mock_ioc_repo.save.call_count, 0)
 
     def test_add_fks_scanner_none(self):

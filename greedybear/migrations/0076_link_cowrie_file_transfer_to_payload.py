@@ -94,7 +94,7 @@ def link_transfers_to_payloads(apps, schema_editor):
         transfer.save(using=database, update_fields=["payload"])
 
 class Migration(migrations.Migration):
-    dependencies = [("greedybear", "0074_rename_tor_exit_reputation")]
+    dependencies = [("greedybear", "0075_move_spamhaus_drop_tags")]
 
     operations = [
         migrations.AddField(
