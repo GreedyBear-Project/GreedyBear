@@ -2,82 +2,54 @@ import logging
 
 from django.contrib.postgres.expressions import ArraySubquery
 from django.db.models import OuterRef, Q, QuerySet
-from django.db.models.functions import Lower
 
-from greedybear.models import CowrieSession, HoneypotPayload
+from greedybear.models import IOC, Honeypot, HoneypotPayload
+from greedybear.utils import normalize_sha256
 
 
 class PayloadRepository:
     """
-    Repository for data access to HoneypotPayload records.
+    Repository for creating, updating, and querying HoneypotPayload records.
 
-    It also links payloads to the CowrieSession(s) that transferred the same
-    file, matched by SHA256 hash. ExtractionJob (Cowrie) and
-    PayloadExtractionJob run independently and can complete in either order
-    within the same tick, so the linking is done from both directions: once a
-    payload is downloaded, and once a Cowrie file transfer is recorded, each
-    side looks for a match already stored by the other. Stubs created by the
-    event collector link pre-existing sessions at creation time.
+    Each payload is identified by a lowercase SHA256. Event processing links
+    payloads to the related IOCs and honeypots. PayloadExtractionJob adds file
+    metadata and downloaded files to the same records.
     """
 
     def __init__(self):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def link_sessions_to_payload(self, payload: HoneypotPayload) -> int:
+    def get_or_create_payload_from_event(
+        self,
+        sha256: str,
+        ioc: IOC,
+        honeypot_names: list[str] | None = None,
+    ) -> tuple[HoneypotPayload, bool]:
         """
-        Find Cowrie sessions that transferred a file matching this payload's
-        SHA256, and link them (and their source IOCs) to the payload.
+        Get or create a payload reported by an event.
+
+        The payload is linked to the attacker IOC and the honeypots that
+        reported the event. File metadata and payload_file are added later by
+        PayloadExtractionJob.
 
         Args:
-            payload: HoneypotPayload instance to link, already saved.
+            sha256: SHA256 reported by the event.
+            ioc: Attacker IOC associated with the event.
+            honeypot_names: Names of the honeypots that reported the event.
 
         Returns:
-            Number of sessions linked.
-        """
-        # assumption: Cowrie always emits lowercase hex for shasum (hashlib.hexdigest()), and payload.sha256 is
-        # always stored in lowercase too, hence this plain comparison works with CowrieFileTransfer's shasum index.
-        sessions = CowrieSession.objects.filter(file_transfers__shasum=payload.sha256.lower()).select_related("source")
-        linked = 0
-        for session in sessions:
-            payload.cowrie_sessions.add(session)
-            payload.iocs.add(session.source)
-            linked += 1
-        return linked
-
-    def link_payload_to_session(self, session: CowrieSession, shasum: str) -> bool:
-        """
-        Find a HoneypotPayload matching this file transfer's SHA256, and link
-        it (and the session's source IOC) to the session.
-
-        Args:
-            session: CowrieSession instance that transferred the file.
-            shasum: SHA256 checksum of the transferred file.
-
-        Returns:
-            True if a matching payload was found and linked.
-        """
-        payload = HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256")).filter(sha256_lower=shasum.lower()).first()
-        if payload is None:
-            return False
-        payload.cowrie_sessions.add(session)
-        payload.iocs.add(session.source)
-        return True
-
-    def get_or_create_stub(self, sha256: str) -> tuple[HoneypotPayload, bool]:
-        """
-        Get an existing HoneypotPayload row for this hash, or create a
-        hash-only stub if none exists yet.
-
-        Args:
-            sha256: SHA256 hash, expected already lower-cased by the caller.
-
-        Returns:
-            Tuple of (HoneypotPayload object, created_flag) where created_flag is True if new.
+            The payload and whether it was created.
         """
         payload, created = HoneypotPayload.objects.get_or_create(
-            sha256=sha256,
-            defaults={"payload_file": None, "md5": "", "sha1": ""},
+            sha256=normalize_sha256(sha256),
+            defaults={"payload_file": None},
         )
+        payload.iocs.add(ioc)
+
+        if honeypot_names:
+            honeypots = Honeypot.objects.filter(name__in=honeypot_names)
+            payload.source_honeypots.add(*honeypots)
+
         return payload, created
 
     def upsert_downloaded_payload(self, payload: HoneypotPayload) -> tuple[HoneypotPayload, bool]:
@@ -97,7 +69,7 @@ class PayloadRepository:
             Tuple of (HoneypotPayload object, created_flag) where created_flag is True if new.
         """
         payload_record, created = HoneypotPayload.objects.get_or_create(
-            sha256=payload.sha256,
+            sha256=normalize_sha256(payload.sha256),
             defaults={
                 "md5": payload.md5,
                 "sha1": payload.sha1,
@@ -135,7 +107,7 @@ class PayloadRepository:
             Tuple of (HoneypotPayload object, created_flag) where created_flag is True if new.
         """
         payload_record, created = HoneypotPayload.objects.get_or_create(
-            sha256=payload.sha256,
+            sha256=normalize_sha256(payload.sha256),
             defaults={
                 # None rather than "", to match the hash-only stubs written by
                 # _process_payload_hashes. The field still expresses "no file"
@@ -167,13 +139,12 @@ class PayloadRepository:
         Returns:
             The subset of hashes (lower-cased) that already have a file attached.
         """
-        hashes_lower = {h.lower() for h in hashes}
+        hashes_lower = {h.strip().lower() for h in hashes}
         return set(
-            HoneypotPayload.objects.annotate(sha256_lower=Lower("sha256"))
-            .filter(sha256_lower__in=hashes_lower)
+            HoneypotPayload.objects.filter(sha256__in=hashes_lower)
             # Django stores an unset FileField as an empty string, but exclude NULL as well.
             .exclude(Q(payload_file="") | Q(payload_file__isnull=True))
-            .values_list("sha256_lower", flat=True)
+            .values_list("sha256", flat=True)
         )
 
     def get_pending_malwarebazaar_submissions(self, max_size_bytes: int, limit: int) -> list[HoneypotPayload]:
@@ -204,7 +175,7 @@ class PayloadRepository:
     def list_payloads(self) -> QuerySet:
         """
         Return the base queryset for listing/retrieving payloads, with
-        related honeypots/IOCs/sessions prefetched, most recent first.
+        related honeypots, IOCs, and transfers prefetched, most recent first.
 
         Left unevaluated so the API view can paginate or filter further on
         top of it.
@@ -212,26 +183,12 @@ class PayloadRepository:
         Returns:
             QuerySet of HoneypotPayload.
         """
-        return HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_sessions").order_by("-id")
-
-    def annotate_lower_sha256(self, queryset: QuerySet) -> QuerySet:
-        """
-        Annotate a HoneypotPayload queryset with sha256_lower, so it can be
-        filtered by SHA256 case-insensitively.
-
-        Args:
-            queryset: A HoneypotPayload queryset.
-
-        Returns:
-            The same queryset, annotated with sha256_lower.
-        """
-        return queryset.annotate(sha256_lower=Lower("sha256"))
+        return HoneypotPayload.objects.prefetch_related("source_honeypots", "iocs", "cowrie_file_transfers").order_by("-id")
 
     def payload_hashes_for_ioc(self) -> ArraySubquery:
         """
-        Return an expression yielding an array of the lower-cased SHA256 hashes
-        of the HoneypotPayloads linked to each IOC, ready to pass to annotate()
-        on an IOC queryset.
+        Return an expression yielding an array of payload SHA256 values linked
+        to each IOC, ready to pass to annotate() on an IOC queryset.
 
         Correlates via OuterRef("pk"), so it only works there - it depends
         on that outer query to run.
@@ -239,5 +196,5 @@ class PayloadRepository:
         Returns:
             An ArraySubquery expression.
         """
-        payloads = HoneypotPayload.objects.filter(iocs=OuterRef("pk")).annotate(sha256_lower=Lower("sha256")).order_by("sha256_lower").values("sha256_lower")
+        payloads = HoneypotPayload.objects.filter(iocs=OuterRef("pk")).order_by("sha256").values("sha256")
         return ArraySubquery(payloads)

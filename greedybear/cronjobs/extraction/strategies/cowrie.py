@@ -289,25 +289,31 @@ class CowrieExtractionStrategy(BaseExtractionStrategy):
                 session_record.duration = hit.get_float("duration")
 
             case "cowrie.session.file_download" | "cowrie.session.file_upload":
-                shasum = hit.get_str("shasum")
-                if shasum:
-                    url = hit.get_str("url")
-                    outfile = hit.get_str("outfile")
-                    timestamp = hit.require_time("timestamp")
-                    self.log.info(f"found file with shasum {shasum[:8]}... from {ioc.name}")
-
-                    self.session_repo.get_or_create_file_transfer(
-                        session=session_record,
-                        shasum=shasum,
-                        url=url,
-                        outfile=outfile,
-                        timestamp=timestamp,
-                    )
-
-                    if self.payload_repo.link_payload_to_session(session_record, shasum):
-                        self.log.info(f"linked existing payload {shasum[:8]}... to session {session_record.session_id:x}")
+                self._process_file_transfer(session_record, hit, ioc)
 
         session_record.interaction_count += 1
+
+    def _process_file_transfer(self, session: CowrieSession, hit: Hit, ioc: IOC) -> None:
+        """Create the payload and transfer recorded by a Cowrie file event."""
+        shasum = hit.get_str("shasum")
+        if not shasum:
+            self.log.warning("ignoring file transfer without SHA256")
+            return
+
+        try:
+            payload, _ = self.payload_repo.get_or_create_payload_from_event(shasum, ioc, ["Cowrie"])
+        except ValueError:
+            self.log.warning(f"ignoring file transfer with invalid SHA256 {shasum!r}")
+            return
+
+        self.log.info(f"found file with shasum {shasum[:8]}... from {ioc.name}")
+        self.session_repo.get_or_create_file_transfer(
+            session=session,
+            payload=payload,
+            url=hit.get_str("url"),
+            outfile=hit.get_str("outfile"),
+            timestamp=hit.require_time("timestamp"),
+        )
 
     def _deduplicate_command_sequence(self, session: CowrieSession) -> bool:
         """

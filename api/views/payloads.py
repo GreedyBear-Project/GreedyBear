@@ -74,16 +74,11 @@ class HoneypotPayloadViewSet(QueryParamValidationMixin, viewsets.ReadOnlyModelVi
 
     def get_object(self) -> HoneypotPayload:
         """
-        Look up the payload by SHA256, ignoring case.
-
-        The hash comes from the URL so it can be any case, while stored hashes
-        are lower-cased. Matching on Lower("sha256") also finds older rows that
-        were saved before that was true.
+        Look up the payload by SHA256 in lowercase.
         """
-        payload_repo = PayloadRepository()
         queryset = self.filter_queryset(self.get_queryset())
-        sha256 = self.kwargs[self.lookup_field].lower()
-        obj = get_object_or_404(payload_repo.annotate_lower_sha256(queryset), sha256_lower=sha256)
+        sha256 = self.kwargs[self.lookup_field].strip().lower()
+        obj = get_object_or_404(queryset, sha256=sha256)
         self.check_object_permissions(self.request, obj)
         return obj
 

@@ -273,19 +273,20 @@ class CowrieSession(models.Model):
 
 class CowrieFileTransfer(models.Model):
     session = models.ForeignKey(CowrieSession, on_delete=models.CASCADE, related_name="file_transfers")
-    shasum = models.CharField(max_length=64)
+    payload = models.ForeignKey(
+        "HoneypotPayload",
+        on_delete=models.PROTECT,
+        related_name="cowrie_file_transfers",
+    )
     url = models.CharField(max_length=900, blank=True)
     outfile = models.CharField(max_length=256, blank=True)
     timestamp = models.DateTimeField(blank=False)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["shasum"]),
-        ]
-        constraints = [models.UniqueConstraint(fields=["shasum", "session"], name="unique_download_per_session")]
+        constraints = [models.UniqueConstraint(fields=["payload", "session"], name="unique_payload_transfer_per_session")]
 
     def __str__(self):
-        return f"{self.shasum[:8]} from session {self.session_id}"  # ty: ignore[unresolved-attribute]
+        return f"File transfer {self.pk} from session {self.session_id}"  # ty: ignore[unresolved-attribute]
 
 
 class Statistics(models.Model):
@@ -526,14 +527,13 @@ class HoneypotPayload(models.Model):
     payload_file = models.FileField(storage=QuarantineStorage(), blank=True, null=True)
     md5 = models.CharField(max_length=32, blank=True, default="")
     sha1 = models.CharField(max_length=40, blank=True, default="")
-    sha256 = models.CharField(max_length=64)
+    sha256 = models.CharField(max_length=64, unique=True)
     mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
     locator = models.CharField(max_length=1024, blank=True, default="")
     mtime = models.FloatField(blank=True, null=True)
     source_honeypots = models.ManyToManyField("Honeypot", blank=True)
     iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
-    cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
     is_uploaded_mb = models.BooleanField(
         default=False,
         db_index=True,
@@ -542,10 +542,10 @@ class HoneypotPayload(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                Lower("sha256"),
-                name="unique_honeypotpayload_sha256_lower",
-            )
+            models.CheckConstraint(
+                condition=models.Q(sha256__regex=r"^[0-9a-f]{64}$"),
+                name="honeypotpayload_sha256_valid",
+            ),
         ]
 
     def __str__(self):

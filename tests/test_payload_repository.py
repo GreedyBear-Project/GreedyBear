@@ -1,7 +1,7 @@
-from django.utils import timezone
+from django.db import IntegrityError, transaction
 
 from greedybear.cronjobs.repositories import PayloadRepository
-from greedybear.models import IOC, CowrieFileTransfer, CowrieSession, HoneypotPayload
+from greedybear.models import IOC, Honeypot, HoneypotPayload
 
 from . import CustomTestCase
 
@@ -10,102 +10,55 @@ class TestPayloadRepository(CustomTestCase):
     def setUp(self):
         super().setUp()
         self.repo = PayloadRepository()
+        self.cowrie_hp, _ = Honeypot.objects.get_or_create(name="Cowrie")
 
-    def _make_transfer(self, session, shasum):
-        return CowrieFileTransfer.objects.create(
-            session=session,
-            shasum=shasum,
-            url="",
-            outfile="",
-            timestamp=timezone.now(),
+    def test_get_or_create_payload_from_event_creates_minimal_payload(self):
+        payload, created = self.repo.get_or_create_payload_from_event(
+            sha256="A" * 64,
+            ioc=self.ioc,
+            honeypot_names=["Cowrie"],
         )
 
-    def test_link_sessions_to_payload_no_match(self):
-        payload = HoneypotPayload.objects.create(sha256="a" * 64)
-        linked = self.repo.link_sessions_to_payload(payload)
-        self.assertEqual(linked, 0)
-        self.assertEqual(payload.cowrie_sessions.count(), 0)
-        self.assertEqual(payload.iocs.count(), 0)
-
-    def test_link_sessions_to_payload_single_match(self):
-        self._make_transfer(self.cowrie_session, "a" * 64)
-        payload = HoneypotPayload.objects.create(sha256="a" * 64)
-
-        linked = self.repo.link_sessions_to_payload(payload)
-
-        self.assertEqual(linked, 1)
-        self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
-        self.assertIn(self.cowrie_session.source, payload.iocs.all())
-
-    def test_link_sessions_to_payload_multiple_sessions(self):
-        self._make_transfer(self.cowrie_session, "c" * 64)
-        self._make_transfer(self.cowrie_session_2, "c" * 64)
-        payload = HoneypotPayload.objects.create(sha256="c" * 64)
-
-        linked = self.repo.link_sessions_to_payload(payload)
-
-        self.assertEqual(linked, 2)
-        self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
-        self.assertIn(self.cowrie_session_2, payload.cowrie_sessions.all())
-
-    def test_link_payload_to_session_no_match(self):
-        linked = self.repo.link_payload_to_session(self.cowrie_session, "e" * 64)
-        self.assertFalse(linked)
-
-    def test_link_payload_to_session_match(self):
-        payload = HoneypotPayload.objects.create(sha256="f" * 64)
-
-        linked = self.repo.link_payload_to_session(self.cowrie_session, "f" * 64)
-
-        self.assertTrue(linked)
-        self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
-        self.assertIn(self.cowrie_session.source, payload.iocs.all())
-
-    def test_link_payload_to_session_case_insensitive_match(self):
-        payload = HoneypotPayload.objects.create(sha256=("11" * 32).lower())
-
-        linked = self.repo.link_payload_to_session(self.cowrie_session, ("11" * 32).upper())
-
-        self.assertTrue(linked)
-        self.assertIn(self.cowrie_session, payload.cowrie_sessions.all())
-
-    def test_link_payload_to_session_idempotent(self):
-        payload = HoneypotPayload.objects.create(sha256="9" * 64)
-
-        self.repo.link_payload_to_session(self.cowrie_session, "9" * 64)
-        self.repo.link_payload_to_session(self.cowrie_session, "9" * 64)
-
-        self.assertEqual(payload.cowrie_sessions.count(), 1)
-        self.assertEqual(payload.iocs.count(), 1)
-
-    def test_link_sessions_to_payload_only_matches_exact_hash(self):
-        other_ioc = IOC.objects.create(name="203.0.113.9", type="ip")
-        other_session = CowrieSession.objects.create(session_id=0x7777, source=other_ioc)
-        self._make_transfer(other_session, "b" * 64)
-        payload = HoneypotPayload.objects.create(sha256="a" * 64)
-
-        linked = self.repo.link_sessions_to_payload(payload)
-
-        self.assertEqual(linked, 0)
-        self.assertNotIn(other_session, payload.cowrie_sessions.all())
-
-    def test_get_or_create_stub_creates_minimal_row(self):
-        payload, created = self.repo.get_or_create_stub("d" * 64)
-
         self.assertTrue(created)
-        self.assertEqual(payload.sha256, "d" * 64)
+        self.assertEqual(payload.sha256, "a" * 64)
         self.assertFalse(payload.payload_file)
-        self.assertEqual(payload.md5, "")
-        self.assertEqual(payload.sha1, "")
+        self.assertIn(self.ioc, payload.iocs.all())
+        self.assertIn(self.cowrie_hp, payload.source_honeypots.all())
 
-    def test_get_or_create_stub_returns_existing_row(self):
+    def test_get_or_create_payload_from_event_returns_existing_payload(self):
         existing = HoneypotPayload.objects.create(sha256="e" * 64, md5="deadbeef")
 
-        payload, created = self.repo.get_or_create_stub("e" * 64)
+        payload, created = self.repo.get_or_create_payload_from_event(
+            sha256="E" * 64,
+            ioc=self.ioc,
+            honeypot_names=["Cowrie"],
+        )
 
         self.assertFalse(created)
         self.assertEqual(payload.id, existing.id)
         self.assertEqual(payload.md5, "deadbeef")
+        self.assertIn(self.ioc, payload.iocs.all())
+        self.assertIn(self.cowrie_hp, payload.source_honeypots.all())
+
+    def test_get_or_create_payload_from_event_is_idempotent(self):
+        for _ in range(2):
+            self.repo.get_or_create_payload_from_event(
+                sha256="c" * 64,
+                ioc=self.ioc,
+                honeypot_names=["Cowrie"],
+            )
+
+        payload = HoneypotPayload.objects.get(sha256="c" * 64)
+        self.assertEqual(HoneypotPayload.objects.count(), 1)
+        self.assertEqual(payload.iocs.count(), 1)
+        self.assertEqual(payload.source_honeypots.count(), 1)
+
+    def test_get_or_create_payload_from_event_rejects_invalid_sha256(self):
+        with self.assertRaises(ValueError):
+            self.repo.get_or_create_payload_from_event(
+                sha256="not-a-sha256",
+                ioc=self.ioc,
+            )
 
     def test_get_downloaded_hashes_excludes_stub_without_file(self):
         HoneypotPayload.objects.create(sha256="1" * 64)
@@ -158,6 +111,16 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(payload.size, 100)
         self.assertEqual(payload.locator, "cowrie/aaa")
         self.assertEqual(payload.mtime, 123.0)
+
+    def test_upsert_downloaded_payload_normalizes_sha256(self):
+        payload, created = self.repo.upsert_downloaded_payload(HoneypotPayload(sha256="F" * 64))
+
+        self.assertTrue(created)
+        self.assertEqual(payload.sha256, "f" * 64)
+
+    def test_upsert_downloaded_payload_rejects_invalid_sha256(self):
+        with self.assertRaises(ValueError):
+            self.repo.upsert_downloaded_payload(HoneypotPayload(sha256="not-a-sha256"))
 
     def test_upsert_downloaded_payload_upgrades_existing_stub_with_truthy_fields(self):
         stub = HoneypotPayload.objects.create(sha256="7" * 64, md5="", sha1="")
@@ -215,6 +178,16 @@ class TestPayloadRepository(CustomTestCase):
         self.assertEqual(payload.size, 42)
         self.assertEqual(payload.locator, "cowrie/ddd")
         self.assertEqual(payload.mtime, 789.0)
+
+    def test_upsert_metadata_only_payload_normalizes_sha256(self):
+        payload, created = self.repo.upsert_metadata_only_payload(HoneypotPayload(sha256="A" * 64))
+
+        self.assertTrue(created)
+        self.assertEqual(payload.sha256, "a" * 64)
+
+    def test_upsert_metadata_only_payload_rejects_invalid_sha256(self):
+        with self.assertRaises(ValueError):
+            self.repo.upsert_metadata_only_payload(HoneypotPayload(sha256="not-a-sha256"))
 
     def test_upsert_metadata_only_payload_backfills_missing_locator_on_stub(self):
         stub = HoneypotPayload.objects.create(sha256=("cd" * 32).lower())
@@ -309,22 +282,16 @@ class TestPayloadRepository(CustomTestCase):
 
         self.assertEqual(filtered.count(), 1)
 
-    def test_annotate_lower_sha256_matches_regardless_of_stored_case(self):
-        HoneypotPayload.objects.create(sha256=("a6" * 32).upper())
-
-        queryset = self.repo.annotate_lower_sha256(HoneypotPayload.objects.all())
-        match = queryset.filter(sha256_lower=("a6" * 32).lower())
-
-        self.assertEqual(match.count(), 1)
-
-    def test_payload_hashes_for_ioc_returns_lower_cased_hashes_for_linked_payloads(self):
+    def test_payload_hashes_for_ioc_returns_sorted_linked_hashes(self):
         ioc = IOC.objects.create(name="203.0.113.50", type="ip")
-        payload = HoneypotPayload.objects.create(sha256=("bb" * 32).upper())
-        payload.iocs.add(ioc)
+        payload_b = HoneypotPayload.objects.create(sha256="b" * 64)
+        payload_a = HoneypotPayload.objects.create(sha256="a" * 64)
+        payload_b.iocs.add(ioc)
+        payload_a.iocs.add(ioc)
 
-        result = IOC.objects.filter(pk=ioc.pk).annotate(payload_hashes=self.repo.payload_hashes_for_ioc()).first()
+        result = IOC.objects.filter(pk=ioc.pk).annotate(payload_hashes=self.repo.payload_hashes_for_ioc()).get()
 
-        self.assertEqual(result.payload_hashes, [("bb" * 32).lower()])
+        self.assertEqual(result.payload_hashes, ["a" * 64, "b" * 64])
 
     def test_payload_hashes_for_ioc_returns_empty_array_when_no_payloads(self):
         ioc = IOC.objects.create(name="203.0.113.51", type="ip")
@@ -332,3 +299,21 @@ class TestPayloadRepository(CustomTestCase):
         result = IOC.objects.filter(pk=ioc.pk).annotate(payload_hashes=self.repo.payload_hashes_for_ioc()).first()
 
         self.assertEqual(result.payload_hashes, [])
+
+    def test_sha256_constraint_rejects_uppercase(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            HoneypotPayload.objects.create(sha256="A" * 64)
+
+    def test_sha256_constraint_rejects_non_hex(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            HoneypotPayload.objects.create(sha256="g" * 64)
+
+    def test_sha256_constraint_rejects_wrong_length(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            HoneypotPayload.objects.create(sha256="a" * 63)
+
+    def test_sha256_is_unique(self):
+        HoneypotPayload.objects.create(sha256="f" * 64)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            HoneypotPayload.objects.create(sha256="f" * 64)

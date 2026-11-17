@@ -43,4 +43,5 @@ class HoneypotPayloadSerializer(serializers.ModelSerializer):
         }
 
     def get_cowrie_sessions(self, obj: HoneypotPayload) -> list[str]:
-        return [f"{session.session_id:x}" for session in obj.cowrie_sessions.all()]
+        transfers = obj.cowrie_file_transfers.all()  # ty: ignore[unresolved-attribute]
+        return sorted({f"{transfer.session_id:x}" for transfer in transfers})

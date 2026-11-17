@@ -1,6 +1,6 @@
 import logging
 
-from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession
+from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, HoneypotPayload
 
 
 class CowrieSessionRepository:
@@ -33,36 +33,47 @@ class CowrieSessionRepository:
         self.log.debug(f"created new session {session_id}" if created else f"{session_id} already exists")
         return record
 
-    def get_or_create_file_transfer(self, session: CowrieSession, shasum: str, url: str, outfile: str, timestamp) -> CowrieFileTransfer:
+    def get_or_create_file_transfer(
+        self,
+        session: CowrieSession,
+        payload: HoneypotPayload,
+        url: str,
+        outfile: str,
+        timestamp,
+    ) -> CowrieFileTransfer:
         """
-        Create or update a file transfer associated with a Cowrie session.
+        Create or update a Cowrie file-transfer event.
 
-        If a transfer with the same session and shasum already exists,
-        its timestamp will be updated to the latest event time.
-        Otherwise, a new CowrieFileTransfer record will be created.
+        A transfer is uniquely identified by its Cowrie session and payload.
+        The payload relationship avoids storing a duplicate SHA256 on the transfer.
+
+        If the transfer already exists, its timestamp is updated to the most
+        recently processed event time.
 
         Args:
-            session: The CowrieSession instance the file transfer belongs to.
-            shasum: SHA256 checksum of the transferred file.
-            url: Source URL of the file if downloaded by the attacker.
-            outfile: File path recorded by Cowrie when storing the transferred file on the honeypot.
-            timestamp: Timestamp of the transfer event.
+            session: Cowrie session in which the transfer occurred.
+            payload: Payload transferred during the session.
+            url: Source URL reported by Cowrie, if available.
+            outfile: File path reported by Cowrie, if available.
+            timestamp: Time at which the transfer occurred.
 
         Returns:
-            The created or updated CowrieFileTransfer instance.
+            The created or updated file-transfer record.
         """
         transfer, created = CowrieFileTransfer.objects.get_or_create(
             session=session,
-            shasum=shasum,
+            payload=payload,
             defaults={
                 "url": url,
                 "outfile": outfile,
                 "timestamp": timestamp,
             },
         )
+
         if not created:
             transfer.timestamp = timestamp
-            transfer.save()
+            transfer.save(update_fields=["timestamp"])
+
         return transfer
 
     def get_command_sequence_by_hash(self, commands_hash: str) -> CommandSequence | None:

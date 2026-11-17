@@ -442,7 +442,7 @@ class HoneypotPayloadAdmin(GreedyBearModelAdmin):
     search_fields = ["sha256", "md5", "sha1", "mime_type"]
     list_filter = ["source_honeypots", "mime_type"]
     readonly_fields = ["payload_file"]
-    raw_id_fields = ["iocs", "cowrie_sessions"]
+    raw_id_fields = ["iocs"]
 
     @admin.display(description="Source Honeypots")
     def get_source_honeypots(self, obj):

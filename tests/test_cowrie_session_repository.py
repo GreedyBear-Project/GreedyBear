@@ -2,9 +2,10 @@ from datetime import datetime, timedelta
 from hashlib import sha256
 
 from django.db import IntegrityError
+from django.db.models.deletion import ProtectedError
 
 from greedybear.cronjobs.repositories import CowrieSessionRepository
-from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential
+from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, HoneypotPayload
 
 from . import CustomTestCase
 
@@ -104,37 +105,36 @@ class TestCowrieSessionRepository(CustomTestCase):
             )
 
     def test_get_or_create_file_transfer_creates_new(self):
-        session = self.cowrie_session
+        payload = HoneypotPayload.objects.create(sha256="a" * 64)
 
         transfer = self.repo.get_or_create_file_transfer(
-            session=session,
-            shasum="abc123def456",
+            session=self.cowrie_session,
+            payload=payload,
             url="http://malware.com/bad.exe",
             outfile="/data/cowrie/downloads/bad.exe",
             timestamp=datetime(2023, 1, 1, 10, 0, 4),
         )
 
         self.assertIsNotNone(transfer.pk)
-        self.assertEqual(transfer.session, session)
-        self.assertEqual(transfer.shasum, "abc123def456")
+        self.assertEqual(transfer.session, self.cowrie_session)
+        self.assertEqual(transfer.payload, payload)
         self.assertEqual(transfer.url, "http://malware.com/bad.exe")
         self.assertEqual(transfer.outfile, "/data/cowrie/downloads/bad.exe")
         self.assertEqual(transfer.timestamp, datetime(2023, 1, 1, 10, 0, 4))
 
-    def test_get_or_create_file_transfer_updates_timestamp(self):
-        session = self.cowrie_session
-
+    def test_get_or_create_file_transfer_updates_only_timestamp(self):
+        payload = HoneypotPayload.objects.create(sha256="a" * 64)
         existing = CowrieFileTransfer.objects.create(
-            session=session,
-            shasum="abc123def456",
+            session=self.cowrie_session,
+            payload=payload,
             url="http://malware.com/bad.exe",
             outfile="/data/cowrie/downloads/bad.exe",
             timestamp=datetime(2023, 1, 1, 10, 0, 4),
         )
 
         transfer = self.repo.get_or_create_file_transfer(
-            session=session,
-            shasum="abc123def456",
+            session=self.cowrie_session,
+            payload=payload,
             url="http://malware.com/ignored.exe",
             outfile="/data/cowrie/downloads/ignored.exe",
             timestamp=datetime(2023, 1, 2, 10, 0, 4),
@@ -142,10 +142,67 @@ class TestCowrieSessionRepository(CustomTestCase):
 
         self.assertEqual(transfer.pk, existing.pk)
         self.assertEqual(transfer.timestamp, datetime(2023, 1, 2, 10, 0, 4))
-        self.assertEqual(
-            CowrieFileTransfer.objects.filter(session=session, shasum="abc123def456").count(),
-            1,
+        self.assertEqual(transfer.url, "http://malware.com/bad.exe")
+        self.assertEqual(transfer.outfile, "/data/cowrie/downloads/bad.exe")
+        self.assertEqual(CowrieFileTransfer.objects.filter(session=self.cowrie_session, payload=payload).count(), 1)
+
+    def test_same_payload_can_be_transferred_in_different_sessions(self):
+        payload = HoneypotPayload.objects.create(sha256="b" * 64)
+
+        first = self.repo.get_or_create_file_transfer(
+            session=self.cowrie_session,
+            payload=payload,
+            url="",
+            outfile="",
+            timestamp=datetime(2023, 1, 1, 10, 0, 0),
         )
+        second = self.repo.get_or_create_file_transfer(
+            session=self.cowrie_session_2,
+            payload=payload,
+            url="",
+            outfile="",
+            timestamp=datetime(2023, 1, 1, 10, 1, 0),
+        )
+
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(CowrieFileTransfer.objects.filter(payload=payload).count(), 2)
+
+    def test_same_session_can_transfer_different_payloads(self):
+        first_payload = HoneypotPayload.objects.create(sha256="c" * 64)
+        second_payload = HoneypotPayload.objects.create(sha256="d" * 64)
+
+        first = self.repo.get_or_create_file_transfer(
+            session=self.cowrie_session,
+            payload=first_payload,
+            url="",
+            outfile="",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+        )
+        second = self.repo.get_or_create_file_transfer(
+            session=self.cowrie_session,
+            payload=second_payload,
+            url="",
+            outfile="",
+            timestamp=datetime(2026, 1, 1, 12, 1, 0),
+        )
+
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(CowrieFileTransfer.objects.filter(session=self.cowrie_session).count(), 2)
+
+    def test_payload_with_transfer_cannot_be_deleted(self):
+        payload = HoneypotPayload.objects.create(sha256="e" * 64)
+        transfer = CowrieFileTransfer.objects.create(
+            session=self.cowrie_session,
+            payload=payload,
+            url="",
+            outfile="",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+        )
+
+        with self.assertRaises(ProtectedError):
+            payload.delete()
+
+        self.assertTrue(CowrieFileTransfer.objects.filter(pk=transfer.pk).exists())
 
     def test_add_credential_uses_default_protocol_variant(self):
         session = self.cowrie_session
