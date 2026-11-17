@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from greedybear.models import EventStatus, RawEvent, Sensor
+from greedybear.regex import REGEX_CVE
 from greedybear.utils import fits_field, is_ip_address, normalize_ip
 
 logger = logging.getLogger(__name__)
@@ -318,7 +319,7 @@ class EventSerializer(serializers.Serializer):
 
     def validate_cve_id(self, value):
         value = value.strip().upper()
-        if value and not re.fullmatch(r"CVE-\d{4}-\d{4,}", value):
+        if value and not re.fullmatch(REGEX_CVE, value):
             raise serializers.ValidationError("cve_id must follow the CVE format: CVE-YYYY-NNNNN (e.g. CVE-2021-44228).")
         return value
 
