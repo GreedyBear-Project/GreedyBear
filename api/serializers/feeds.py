@@ -12,13 +12,14 @@ from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_vali
 from greedybear.consts import SHARE_TOKEN_MAX_AGE
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
-from greedybear.models import ShareToken
+from greedybear.models import IOC, ShareToken
 from greedybear.regex import REGEX_CVE
 
 logger = logging.getLogger(__name__)
 
-# width of IOC.protocols items
-MAX_PROTOCOL_LENGTH = 50
+CVE_MAX_LENGTH = IOC._meta.get_field("cves").base_field.max_length  # ty: ignore[unresolved-attribute]
+PROTOCOL_MAX_LENGTH = IOC._meta.get_field("protocols").base_field.max_length  # ty: ignore[unresolved-attribute]
+
 
 FEED_DEFAULTS = {
     "max_age": 3,
@@ -229,8 +230,8 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     def validate_protocol(self, values: list[str]) -> list[str]:
         """Normalize the protocols to lower case, the way they are stored, and reject empty or over long ones."""
         protocols = [value.strip().lower() for value in values]
-        if any(not 0 < len(protocol) <= MAX_PROTOCOL_LENGTH for protocol in protocols):
-            raise serializers.ValidationError(f"Invalid protocol: each one must have 1 to {MAX_PROTOCOL_LENGTH} characters.")
+        if any(not 0 < len(protocol) <= PROTOCOL_MAX_LENGTH for protocol in protocols):
+            raise serializers.ValidationError(f"Invalid protocol: each one must have 1 to {PROTOCOL_MAX_LENGTH} characters.")
         return protocols
 
     def validate(self, attrs: dict) -> dict:
@@ -461,8 +462,10 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     expected_interactions = serializers.FloatField(min_value=0)
     attacker_country = serializers.CharField(allow_null=True, allow_blank=True, max_length=120)
     attacker_country_code = serializers.CharField(allow_null=True, allow_blank=True, max_length=2)
-    cves = serializers.ListField(child=serializers.CharField(max_length=50), help_text="CVE IDs this IOC was seen exploiting, e.g. `CVE-2021-44228`.")
-    protocols = serializers.ListField(child=serializers.CharField(max_length=50), help_text="Protocols this IOC was seen using, e.g. `ssh`.")
+    cves = serializers.ListField(
+        child=serializers.CharField(max_length=CVE_MAX_LENGTH), help_text="CVE IDs this IOC was seen exploiting, e.g. `CVE-2021-44228`."
+    )
+    protocols = serializers.ListField(child=serializers.CharField(max_length=PROTOCOL_MAX_LENGTH), help_text="Protocols this IOC was seen using, e.g. `ssh`.")
     tags = TagSerializer(many=True, required=False, default=list)
 
 
