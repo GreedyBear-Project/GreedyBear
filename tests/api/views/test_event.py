@@ -206,6 +206,11 @@ class TestEventsCreateValidation(BaseEventTestCase):
         res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_cve_id_with_too_many_digits_returns_400(self):
+        event = valid_event(self.sensor.id, cve_id="CVE-2021-" + "1" * 11)
+        res = self.client.post(EVENTS_URL, {"events": [event]}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_cve_id_empty_string_accepted(self):
         """Empty cve_id is optional — must not be validated against the CVE regex."""
         event = valid_event(self.sensor.id, cve_id="")

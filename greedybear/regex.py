@@ -8,4 +8,5 @@ REGEX_COWRIE_SESSION_ID = r"[0-9a-fA-F]{1,16}"
 REGEX_DOMAIN = r"^[a-zA-Z\d-]{1,60}(\.[a-zA-Z\d-]{1,60})*$"
 REGEX_PASSWORD = r"^(?=.*[a-zA-Z])\S{12,}$"  # noqa: S105
 
-REGEX_CVE = r"CVE-\d{4}-\d{4,}"
+# at most 10 digits keeps an item within the 50 characters of the IOC.cves column
+REGEX_CVE = r"CVE-\d{4}-\d{4,10}"
