@@ -662,7 +662,7 @@ class TestRenameTorExitReputation(MigrationTestCase):
 @tag("migration")
 class TestLinkCowrieFileTransferToPayload(MigrationTestCase):
     migrate_from = "0074_rename_tor_exit_reputation"
-    migrate_to = "0075_link_cowrie_file_transfer_to_payload"
+    migrate_to = "0076_finalize_payload_transfer_relationship"
 
     def test_existing_payload_is_normalized_and_linked(self):
         IOC = self.old_state.apps.get_model(self.app_name, "IOC")
@@ -772,8 +772,8 @@ class TestLinkCowrieFileTransferToPayload(MigrationTestCase):
         HoneypotPayload = self.old_state.apps.get_model(self.app_name, "HoneypotPayload")
         payload = HoneypotPayload.objects.create(sha256=" " + "a" * 63)
 
-        with self.assertRaisesRegex(
-            RuntimeError,
-            rf"HoneypotPayload {payload.pk} has an invalid SHA256",
-        ):
-            self.apply_tested_migration()
+        try:
+            with self.assertRaisesRegex(RuntimeError, rf"HoneypotPayload {payload.pk} has an invalid SHA256"):
+                self.apply_tested_migration()
+        finally:
+            HoneypotPayload.objects.filter(pk=payload.pk).delete()

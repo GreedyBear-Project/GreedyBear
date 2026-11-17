@@ -102,6 +102,8 @@ class Migration(migrations.Migration):
             name="payload",
             field=models.ForeignKey(
                 null=True,
+                db_index=False,
+                db_constraint=False,
                 on_delete=django.db.models.deletion.PROTECT,
                 related_name="cowrie_file_transfers",
                 to="greedybear.honeypotpayload",
@@ -130,37 +132,5 @@ class Migration(migrations.Migration):
         migrations.RunPython(
             link_transfers_to_payloads,
             reverse_code=migrations.RunPython.noop,
-        ),
-        migrations.AlterField(
-            model_name="cowriefiletransfer",
-            name="payload",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.PROTECT,
-                related_name="cowrie_file_transfers",
-                to="greedybear.honeypotpayload",
-            ),
-        ),
-        migrations.RemoveConstraint(
-            model_name="cowriefiletransfer",
-            name="unique_download_per_session",
-        ),
-        migrations.AddConstraint(
-            model_name="cowriefiletransfer",
-            constraint=models.UniqueConstraint(
-                fields=("payload", "session"),
-                name="unique_payload_transfer_per_session",
-            ),
-        ),
-        migrations.RemoveIndex(
-            model_name="cowriefiletransfer",
-            name="greedybear__shasum_083f18_idx",
-        ),
-        migrations.RemoveField(
-            model_name="cowriefiletransfer",
-            name="shasum",
-        ),
-        migrations.RemoveField(
-            model_name="honeypotpayload",
-            name="cowrie_sessions",
         ),
     ]
