@@ -90,7 +90,7 @@ class CleanUp(Cronjob):
         n = self.cowrie_repo.delete_sessions_without_login(session_expiration_date)
         self.log.info(f"{n} objects deleted")
 
-        self.log.info(f"deleting all Cowrie sessions without associated commands older then {COWRIE_SESSION_RETENTION} days")
+        self.log.info(f"deleting all Cowrie sessions with login attempts and without associated commands older then {COWRIE_SESSION_RETENTION} days")
         n = self.cowrie_repo.delete_sessions_without_commands(session_with_login_expiration_date)
         self.log.info(f"{n} objects deleted")
 
