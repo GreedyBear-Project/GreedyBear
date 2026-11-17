@@ -55,7 +55,8 @@ class CleanUp(Cronjob):
         2. Deletes IOCs older than IOC_RETENTION days
         3. Deletes incomplete Cowrie sessions (those without start time)
         4. Deletes Cowrie sessions without login attempts older than 30 days
-        5. Deletes all Cowrie sessions older than COWRIE_SESSION_RETENTION days
+        5. Deletes Cowrie sessions without associated commands older than COWRIE_SESSION_RETENTION days
+           (sessions with a command sequence are kept until it expires or their source IOC is deleted)
         6. Deletes all command sequences older than COMMAND_SEQUENCE_RETENTION days
         7. Deletes Statistics records older than STATISTICS_RETENTION days
         8. Resets APISource invalid_event_count daily for retention enforcement
