@@ -24,10 +24,6 @@ SCORERS = [RFClassifier(), RFRegressor()]
 TRAINING_DATA_FILENAME = "training_data.json"
 
 
-class TrainingDataError(Exception):
-    """Raised when there are issues with training data validity."""
-
-
 class TrainModels(Cronjob):
     """
     Trains scoring models using historical IoC data.
@@ -90,9 +86,6 @@ class TrainModels(Cronjob):
         6. Check for correlated features
         7. Train and save each model
         8. Store current data for next training iteration
-
-        Raises:
-            TrainingDataError: If training data is not older than current data.
         """
         self.log.info("fetching current IoC data from DB")
         self.current_data = get_current_data()
@@ -119,8 +112,9 @@ class TrainModels(Cronjob):
         self.log.info(f"training data is from {training_date}, contains {len(training_data)} IoCs")
 
         if not training_date < current_date:
-            self.log.error("training data must be older than current data")
-            raise TrainingDataError()
+            self.log.warning("training data is not older than current data, skip training")
+            self.save_training_data()
+            return
 
         current_ips = defaultdict(
             int,
