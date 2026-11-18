@@ -93,13 +93,16 @@ function Payloads() {
     [honeypots],
   );
 
-  const onSubmit = React.useCallback((values) => {
-    navigate({ search: "" }, { replace: true });
-    setTableState((prev) => ({
-      tableParams: buildParams(values),
-      tableKey: prev.tableKey + 1,
-    }));
-  }, [navigate]);
+  const onSubmit = React.useCallback(
+    (values) => {
+      navigate({ search: "" }, { replace: true });
+      setTableState((prev) => ({
+        tableParams: buildParams(values),
+        tableKey: prev.tableKey + 1,
+      }));
+    },
+    [navigate],
+  );
 
   const isDefault = Object.keys(tableState.tableParams).length === 0;
 
