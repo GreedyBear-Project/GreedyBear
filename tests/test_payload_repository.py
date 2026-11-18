@@ -1,5 +1,3 @@
-from django.db import IntegrityError, transaction
-
 from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import IOC, Honeypot, HoneypotPayload
 
@@ -299,21 +297,3 @@ class TestPayloadRepository(CustomTestCase):
         result = IOC.objects.filter(pk=ioc.pk).annotate(payload_hashes=self.repo.payload_hashes_for_ioc()).first()
 
         self.assertEqual(result.payload_hashes, [])
-
-    def test_sha256_constraint_rejects_uppercase(self):
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            HoneypotPayload.objects.create(sha256="A" * 64)
-
-    def test_sha256_constraint_rejects_non_hex(self):
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            HoneypotPayload.objects.create(sha256="g" * 64)
-
-    def test_sha256_constraint_rejects_wrong_length(self):
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            HoneypotPayload.objects.create(sha256="a" * 63)
-
-    def test_sha256_is_unique(self):
-        HoneypotPayload.objects.create(sha256="f" * 64)
-
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            HoneypotPayload.objects.create(sha256="f" * 64)

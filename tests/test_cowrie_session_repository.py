@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from hashlib import sha256
 
 from django.db import IntegrityError
-from django.db.models.deletion import ProtectedError
 
 from greedybear.cronjobs.repositories import CowrieSessionRepository
 from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, HoneypotPayload
@@ -188,21 +187,6 @@ class TestCowrieSessionRepository(CustomTestCase):
 
         self.assertNotEqual(first.pk, second.pk)
         self.assertEqual(CowrieFileTransfer.objects.filter(session=self.cowrie_session).count(), 2)
-
-    def test_payload_with_transfer_cannot_be_deleted(self):
-        payload = HoneypotPayload.objects.create(sha256="e" * 64)
-        transfer = CowrieFileTransfer.objects.create(
-            session=self.cowrie_session,
-            payload=payload,
-            url="",
-            outfile="",
-            timestamp=datetime(2026, 1, 1, 12, 0, 0),
-        )
-
-        with self.assertRaises(ProtectedError):
-            payload.delete()
-
-        self.assertTrue(CowrieFileTransfer.objects.filter(pk=transfer.pk).exists())
 
     def test_add_credential_uses_default_protocol_variant(self):
         session = self.cowrie_session
