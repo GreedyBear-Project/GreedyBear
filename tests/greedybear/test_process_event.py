@@ -11,7 +11,7 @@ from django.utils import timezone
 from api.serializers.events import EventSerializer
 from greedybear.cache import Cache
 from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
-from greedybear.cronjobs.extraction.hit import InvalidHitError
+from greedybear.cronjobs.extraction.hit import Hit, InvalidHitError
 from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
 from greedybear.cronjobs.repositories import CowrieSessionRepository, IocRepository, PayloadRepository
 from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
@@ -284,11 +284,14 @@ class TestProcessRelatedUrls(CustomTestCase):
 class TestProcessCommands(CustomTestCase):
     def setUp(self):
         super().setUp()
-        # enabling isolated test
+        # Enabling isolated test
         CommandSequence.objects.all().delete()
 
-    def _hit(self, cmd):
-        return {"_command": cmd}
+    def _hit(self, cmd, timestamp=None):
+        data = {"_command": cmd}
+        if timestamp is not None:
+            data["@timestamp"] = timestamp.isoformat()
+        return Hit(data)
 
     def test_command_sequence_created(self):
         _process_commands([self._hit("whoami"), self._hit("id")])
@@ -344,20 +347,65 @@ class TestProcessCommands(CustomTestCase):
         _process_commands([self._hit(c) for c in cmds])
         event_seq = CommandSequence.objects.get()
 
-        session = CowrieSession(session_id=0xABC, source=IOC.objects.create(name="5.6.7.8", type="ip"))
-        session.commands = CommandSequence(commands=list(cmds), first_seen=timezone.now(), last_seen=timezone.now())
-        strategy = CowrieExtractionStrategy("Cowrie", ioc_repo=None, sensor_repo=None, session_repo=CowrieSessionRepository())
+        session = CowrieSession(
+            session_id=0xABC,
+            source=IOC.objects.create(name="5.6.7.8", type="ip"),
+        )
+        session.commands = CommandSequence(
+            commands=list(cmds),
+            first_seen=timezone.now(),
+            last_seen=timezone.now(),
+        )
+        strategy = CowrieExtractionStrategy(
+            "Cowrie",
+            ioc_repo=None,
+            sensor_repo=None,
+            session_repo=CowrieSessionRepository(),
+        )
 
         self.assertTrue(strategy._deduplicate_command_sequence(session))
         self.assertEqual(session.commands.pk, event_seq.pk)
 
     def test_empty_hits_creates_nothing(self):
-        _process_commands([{"src_ip": "1.1.1.1"}])
+        _process_commands([Hit({"src_ip": "1.1.1.1"})])
         self.assertEqual(CommandSequence.objects.count(), 0)
 
     def test_empty_command_string_skipped(self):
         _process_commands([self._hit("")])
         self.assertEqual(CommandSequence.objects.count(), 0)
+
+    def test_first_and_last_seen_use_event_timestamp(self):
+        observed_at = datetime(2026, 1, 1, 12, 0, 0)
+
+        _process_commands([self._hit("whoami", observed_at)])
+
+        sequence = CommandSequence.objects.get()
+        self.assertEqual(sequence.first_seen, observed_at)
+        self.assertEqual(sequence.last_seen, observed_at)
+
+    def test_repeated_sequence_updates_last_seen_only(self):
+        first_seen = datetime(2026, 1, 1, 12, 0, 0)
+        later_seen = datetime(2026, 1, 2, 12, 0, 0)
+
+        _process_commands([self._hit("whoami", first_seen)])
+        _process_commands([self._hit("whoami", later_seen)])
+
+        sequence = CommandSequence.objects.get()
+        self.assertEqual(sequence.first_seen, first_seen)
+        self.assertEqual(sequence.last_seen, later_seen)
+
+    def test_older_event_does_not_move_last_seen_backwards(self):
+        first_seen = datetime(2026, 1, 1, 12, 0, 0)
+        later_seen = datetime(2026, 1, 3, 12, 0, 0)
+        older_event = datetime(2026, 1, 2, 12, 0, 0)
+
+        _process_commands([self._hit("whoami", first_seen)])
+        _process_commands([self._hit("whoami", later_seen)])
+        _process_commands([self._hit("whoami", older_event)])
+
+        sequence = CommandSequence.objects.get()
+        self.assertEqual(sequence.first_seen, first_seen)
+        self.assertEqual(sequence.last_seen, later_seen)
 
 
 class TestProcessIncomingEvent(CustomTestCase):
