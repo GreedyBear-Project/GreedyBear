@@ -1,5 +1,6 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
+from django.contrib.auth.models import Group
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -26,14 +27,9 @@ class TestUserAccessCanDownloadPayloads(CustomTestCase):
         self.assertTrue(self._flag(self.superuser))
 
     def test_threat_researcher_can_download(self):
-        from django.contrib.auth.models import Group
-
         group, _ = Group.objects.get_or_create(name=THREAT_RESEARCHER_GROUP)
         self.regular_user.groups.add(group)
-        try:
-            self.assertTrue(self._flag(self.regular_user))
-        finally:
-            self.regular_user.groups.remove(group)
+        self.assertTrue(self._flag(self.regular_user))
 
     def test_user_payload_still_present(self):
         self.client.force_authenticate(user=self.regular_user)

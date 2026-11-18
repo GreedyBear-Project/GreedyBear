@@ -81,6 +81,8 @@ class FeedsFilterSet(django_filters.FilterSet):
 
 
 class HoneypotPayloadFilterSet(django_filters.FilterSet):
+    """Filter payloads by hash (SHA256, SHA1 or MD5 substring), honeypot name and MIME type."""
+
     search = django_filters.CharFilter(method="filter_hash")
     honeypot = django_filters.CharFilter(
         field_name="source_honeypots__name",

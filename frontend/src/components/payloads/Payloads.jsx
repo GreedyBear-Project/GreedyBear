@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Container,
   Button,
@@ -71,6 +72,7 @@ function Payloads() {
     React.useCallback((s) => s.canDownloadPayloads, []),
   );
 
+  const navigate = useNavigate();
   const formikRef = React.useRef(null);
   const [tableState, setTableState] = React.useState({
     tableParams: {},
@@ -92,11 +94,12 @@ function Payloads() {
   );
 
   const onSubmit = React.useCallback((values) => {
+    navigate({ search: "" }, { replace: true });
     setTableState((prev) => ({
       tableParams: buildParams(values),
       tableKey: prev.tableKey + 1,
     }));
-  }, []);
+  }, [navigate]);
 
   const isDefault = Object.keys(tableState.tableParams).length === 0;
 
