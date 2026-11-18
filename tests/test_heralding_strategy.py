@@ -31,7 +31,7 @@ class TestHeraldingExtractionStrategy(ExtractionTestCase):
 
     @patch("greedybear.cronjobs.extraction.strategies.heralding.iocs_from_hits")
     @patch("greedybear.cronjobs.extraction.strategies.heralding.Credential.objects")
-    @patch("greedybear.cronjobs.extraction.strategies.heralding.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_extract_scanner_ips(self, mock_threatfox, mock_credential_objects, mock_iocs_from_hits):
         """Scanner IPs are extracted as SCANNER-type IOCs linked to Heralding."""
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
@@ -67,7 +67,7 @@ class TestHeraldingExtractionStrategy(ExtractionTestCase):
 
     @patch("greedybear.cronjobs.extraction.strategies.heralding.iocs_from_hits")
     @patch("greedybear.cronjobs.extraction.strategies.heralding.Credential.objects")
-    @patch("greedybear.cronjobs.extraction.strategies.heralding.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_multiple_scanners(self, mock_threatfox, mock_credential_objects, mock_iocs_from_hits):
         """Multiple scanner IPs from the same batch are all processed."""
         mock_credential_objects.get_or_create.return_value = (Mock(), True)
@@ -336,7 +336,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
 
     @patch("greedybear.cronjobs.extraction.strategies.heralding.iocs_from_hits")
     @patch("greedybear.cronjobs.extraction.strategies.heralding.Credential.objects")
-    @patch("greedybear.cronjobs.extraction.strategies.heralding.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_credential_sources_linked(self, mock_threatfox, mock_credential_objects, mock_iocs_from_hits):
         """Credentials are linked to their source IOC via credential.sources.add()."""
         mock_credential = Mock()
@@ -352,7 +352,7 @@ class TestHeraldingCredentialClassification(ExtractionTestCase):
 
     @patch("greedybear.cronjobs.extraction.strategies.heralding.iocs_from_hits")
     @patch("greedybear.cronjobs.extraction.strategies.heralding.Credential.objects")
-    @patch("greedybear.cronjobs.extraction.strategies.heralding.threatfox_submission")
+    @patch("greedybear.cronjobs.extraction.strategies.base.threatfox_submission")
     def test_credential_sources_multiple_ips(self, mock_threatfox, mock_credential_objects, mock_iocs_from_hits):
         """Same credential from two IPs links both sources."""
         mock_credential = Mock()

@@ -23,6 +23,15 @@ class TestAddIoc(ExtractionTestCase):
         self.assertIsNone(result)
         self.mock_ioc_repo.save.assert_not_called()
 
+    def test_filters_sensor_ips_with_uncompressed_ipv6(self):
+        self.mock_sensor_repo.cache = {"2001:db8::1": Mock()}
+        ioc = self._create_mock_ioc(name="2001:DB8:0:0:0:0:0:1", ioc_type=IocType.IP)
+
+        result = self.processor.add_ioc(ioc, attack_type=SCANNER)
+
+        self.assertIsNone(result)
+        self.mock_ioc_repo.save.assert_not_called()
+
     def test_filters_whatsmyip_domains(self):
         self.processor._whatsmyip_domains = {"some.domain.com"}
         ioc = self._create_mock_ioc(name="some.domain.com", ioc_type=IocType.DOMAIN)
@@ -178,6 +187,46 @@ class TestAddIoc(ExtractionTestCase):
         self.assertEqual(len(result.days_seen), 2)
         self.assertTrue(result.payload_request)
 
+    def test_merge_adds_all_days_of_the_new_ioc(self):
+        self.mock_sensor_repo.cache = {}
+        existing = self._create_mock_ioc(days_seen=[date(2025, 1, 1)], last_seen=datetime(2025, 1, 1, 12, 0, 0))
+        self.mock_ioc_repo.get_ioc_by_name.return_value = existing
+        new = self._create_mock_ioc(
+            days_seen=[date(2025, 1, 3), date(2025, 1, 4), date(2025, 1, 6)],
+            last_seen=datetime(2025, 1, 6, 12, 0, 0),
+        )
+        self.mock_ioc_repo.save.return_value = existing
+
+        result = self.processor.add_ioc(new, attack_type=SCANNER)
+
+        self.assertEqual(result.days_seen, [date(2025, 1, 1), date(2025, 1, 3), date(2025, 1, 4), date(2025, 1, 6)])
+        self.assertEqual(result.number_of_days_seen, 4)
+
+    def test_merge_records_days_older_than_last_seen(self):
+        # a sensor uploads yesterday's events after today's
+        self.mock_sensor_repo.cache = {}
+        existing = self._create_mock_ioc(days_seen=[date(2025, 1, 2)], last_seen=datetime(2025, 1, 2, 12, 0, 0))
+        self.mock_ioc_repo.get_ioc_by_name.return_value = existing
+        new = self._create_mock_ioc(days_seen=[date(2025, 1, 1)], last_seen=datetime(2025, 1, 1, 12, 0, 0))
+        self.mock_ioc_repo.save.return_value = existing
+
+        result = self.processor.add_ioc(new, attack_type=SCANNER)
+
+        self.assertEqual(result.days_seen, [date(2025, 1, 1), date(2025, 1, 2)])
+        self.assertEqual(result.number_of_days_seen, 2)
+
+    def test_merge_does_not_duplicate_known_days(self):
+        self.mock_sensor_repo.cache = {}
+        existing = self._create_mock_ioc(days_seen=[date(2025, 1, 1), date(2025, 1, 2)], last_seen=datetime(2025, 1, 2, 12, 0, 0))
+        self.mock_ioc_repo.get_ioc_by_name.return_value = existing
+        new = self._create_mock_ioc(days_seen=[date(2025, 1, 2)], last_seen=datetime(2025, 1, 2, 13, 0, 0))
+        self.mock_ioc_repo.save.return_value = existing
+
+        result = self.processor.add_ioc(new, attack_type=SCANNER)
+
+        self.assertEqual(result.days_seen, [date(2025, 1, 1), date(2025, 1, 2)])
+        self.assertEqual(result.number_of_days_seen, 2)
+
     def test_only_checks_whatsmyip_for_domains(self):
         self.processor._whatsmyip_domains = {"1.2.3.4"}
         self.mock_sensor_repo.cache = {}
@@ -308,22 +357,6 @@ class TestMergeIocs(ExtractionTestCase):
         self.assertEqual(result.related_urls, [])
         self.assertEqual(result.destination_ports, [])
 
-    def test_updates_firehol_categories(self):
-        existing = self._create_mock_ioc(firehol_categories=[])
-        new = self._create_mock_ioc(firehol_categories=["blocklist_de", "greensnow"])
-
-        result = self.processor._merge_iocs(existing, new)
-
-        self.assertEqual(sorted(result.firehol_categories), ["blocklist_de", "greensnow"])
-
-    def test_clears_stale_firehol_categories(self):
-        existing = self._create_mock_ioc(firehol_categories=["greensnow"])
-        new = self._create_mock_ioc(firehol_categories=[])
-
-        result = self.processor._merge_iocs(existing, new)
-
-        self.assertEqual(result.firehol_categories, [])
-
     def test_updates_attacker_country_code(self):
         existing = self._create_mock_ioc(attacker_country_code="")
         new = self._create_mock_ioc(attacker_country_code="NP")
@@ -366,6 +399,15 @@ class TestMergeIocs(ExtractionTestCase):
 
         self.assertEqual(result.cves, ["CVE-2021-44228", "CVE-2022-0001"])
 
+    def test_merges_http_attack_types(self):
+        """HTTP attack types from both IOCs are merged and deduplicated."""
+        existing = self._create_mock_ioc(http_attack_types=["lfi", "sqli"])
+        new = self._create_mock_ioc(http_attack_types=["sqli", "xss"])
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertEqual(result.http_attack_types, ["lfi", "sqli", "xss"])
+
     def test_handles_empty_protocols_and_cves(self):
         """Empty protocols and cves on both sides stay empty after merge."""
         existing = self._create_mock_ioc(protocols=[], cves=[])
@@ -375,6 +417,33 @@ class TestMergeIocs(ExtractionTestCase):
 
         self.assertEqual(result.protocols, [])
         self.assertEqual(result.cves, [])
+
+    def test_preserves_high_credential_reuse_when_new_is_false(self):
+        """A flagged IOC stays flagged when merged with an unflagged one."""
+        existing = self._create_mock_ioc(high_credential_reuse=True)
+        new = self._create_mock_ioc(high_credential_reuse=False)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, True)
+
+    def test_sets_high_credential_reuse_when_new_is_true(self):
+        """An unflagged IOC becomes flagged when merged with a flagged one."""
+        existing = self._create_mock_ioc(high_credential_reuse=False)
+        new = self._create_mock_ioc(high_credential_reuse=True)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, True)
+
+    def test_keeps_high_credential_reuse_false_when_both_false(self):
+        """Merging two unflagged IOCs does not flag the result."""
+        existing = self._create_mock_ioc(high_credential_reuse=False)
+        new = self._create_mock_ioc(high_credential_reuse=False)
+
+        result = self.processor._merge_iocs(existing, new)
+
+        self.assertIs(result.high_credential_reuse, False)
 
 
 class TestUpdateDaysSeen(ExtractionTestCase):

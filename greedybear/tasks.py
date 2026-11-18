@@ -111,10 +111,22 @@ def enrich_abuseipdb():
     AbuseIPDBCron().execute()
 
 
+def enrich_firehol():
+    from greedybear.cronjobs.enrichment.firehol_blocklist import FireHolBlocklistCron
+
+    FireHolBlocklistCron().execute()
+
+
 def extract_spamhaus_drop():
     from greedybear.cronjobs.spamhaus_drop import SpamhausDropCron
 
     SpamhausDropCron().execute()
+
+
+def enrich_spamhaus_drop():
+    from greedybear.cronjobs.enrichment.spamhaus_drop_blocklist import SpamhausDropBlocklistCron
+
+    SpamhausDropBlocklistCron().execute()
 
 
 def clean_up_trending_buckets():

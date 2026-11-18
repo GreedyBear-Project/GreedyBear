@@ -116,6 +116,105 @@ describe("useWidgetData", () => {
     // Only one GET was ever issued
     expect(axios.get).toHaveBeenCalledTimes(1);
   });
+
+  test("unmounting first subscriber while request is in-flight does not prevent second subscriber from receiving data", async () => {
+    const URL = `${TEST_URL}/shared-inflight`;
+    let resolveRequest;
+
+    axios.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = (data) => resolve({ data });
+        }),
+    );
+
+    function TwoConsumers({ showFirst, showSecond }) {
+      return (
+        <>
+          {showFirst && <DataConsumer url={URL} />}
+          {showSecond && (
+            <div data-testid="second">
+              <DataConsumer url={URL} />
+            </div>
+          )}
+        </>
+      );
+    }
+
+    const { rerender } = render(
+      <TwoConsumers showFirst={true} showSecond={true} />,
+    );
+
+    // Both show loading initially
+    expect(screen.getAllByText("loading")).toHaveLength(2);
+
+    // Unmount the first consumer while the request is in-flight
+    rerender(<TwoConsumers showFirst={false} showSecond={true} />);
+
+    // Resolve the in-flight request
+    resolveRequest([123]);
+
+    // The second consumer successfully receives data and stops loading
+    await waitFor(() => {
+      expect(screen.getByTestId("second")).toHaveTextContent("data: [123]");
+    });
+
+    expect(axios.get).toHaveBeenCalledTimes(1);
+  });
+
+  test("populates cache even if all subscribers unmount before in-flight request resolves", async () => {
+    const URL = `${TEST_URL}/all-unmount-cache`;
+    let resolveRequest;
+
+    axios.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = (data) => resolve({ data });
+        }),
+    );
+
+    // Mount consumer
+    const { unmount } = render(<DataConsumer url={URL} />);
+    expect(screen.getByText("loading")).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
+
+    // Unmount before request resolves
+    unmount();
+
+    // Settle the in-flight request
+    resolveRequest([789]);
+
+    // Mount a new consumer for the same URL - should hit cache immediately without firing axios.get
+    render(<DataConsumer url={URL} />);
+    await waitFor(() => {
+      expect(screen.getByText("data: [789]")).toBeInTheDocument();
+    });
+
+    // axios.get was not called a second time
+    expect(axios.get).toHaveBeenCalledTimes(1);
+  });
+
+  test("swallows error gracefully if subscriber unmounts before request fails", async () => {
+    const URL = `${TEST_URL}/unmount-fail`;
+    let rejectRequest;
+
+    axios.get.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectRequest = (err) => reject(err);
+        }),
+    );
+
+    const { unmount } = render(<DataConsumer url={URL} />);
+    expect(screen.getByText("loading")).toBeInTheDocument();
+
+    unmount();
+
+    // Rejection occurs after unmount - should not set state on unmounted component
+    rejectRequest(new Error("network error"));
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
 });
 
 describe("normalizeAttackerCountries", () => {

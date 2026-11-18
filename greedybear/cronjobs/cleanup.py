@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories import (
     APISourceRepository,
@@ -54,7 +55,8 @@ class CleanUp(Cronjob):
         2. Deletes IOCs older than IOC_RETENTION days
         3. Deletes incomplete Cowrie sessions (those without start time)
         4. Deletes Cowrie sessions without login attempts older than 30 days
-        5. Deletes all Cowrie sessions older than COWRIE_SESSION_RETENTION days
+        5. Deletes Cowrie sessions without associated commands older than COWRIE_SESSION_RETENTION days
+           (sessions with a command sequence are kept until it expires or their source IOC is deleted)
         6. Deletes all command sequences older than COMMAND_SEQUENCE_RETENTION days
         7. Deletes Statistics records older than STATISTICS_RETENTION days
         8. Resets APISource invalid_event_count daily for retention enforcement
@@ -74,6 +76,7 @@ class CleanUp(Cronjob):
         self.log.info(f"deleting all IOC older then {IOC_RETENTION} days")
         n = self.ioc_repo.delete_old_iocs(ioc_expiration_date)
         self.log.info(f"{n} objects deleted")
+        invalidate_ioc_cache()
 
         self.log.info(f"deleting all command sequences older then {COMMAND_SEQUENCE_RETENTION} days")
         n = self.cowrie_repo.delete_old_command_sequences(command_expiration_date)

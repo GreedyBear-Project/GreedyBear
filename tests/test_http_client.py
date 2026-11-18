@@ -19,13 +19,13 @@ class RetryHandler(BaseHTTPRequestHandler):
         self.send_response(500)
         self.end_headers()
 
-    def log_message(self, format_str, *args):
+    def log_message(self, *args, **kwargs):
         pass
 
 
 class TestHttpClient(TestCase):
     def setUp(self):
-        self.client = HttpClient(default_timeout=5.0)
+        self.http_client = HttpClient(default_timeout=5.0)
 
     @patch("requests.Session.request")
     def test_default_timeout_applied(self, mock_request):
@@ -34,7 +34,7 @@ class TestHttpClient(TestCase):
         mock_response.status_code = 200
         mock_request.return_value = mock_response
 
-        self.client.get("https://example.com")
+        self.http_client.get("https://example.com")
 
         mock_request.assert_called_once_with("GET", "https://example.com", timeout=5.0)
 
@@ -45,7 +45,7 @@ class TestHttpClient(TestCase):
         mock_response.status_code = 200
         mock_request.return_value = mock_response
 
-        self.client.get("https://example.com", timeout=15.0)
+        self.http_client.get("https://example.com", timeout=15.0)
 
         mock_request.assert_called_once_with("GET", "https://example.com", timeout=15.0)
 
@@ -59,7 +59,7 @@ class TestHttpClient(TestCase):
         mock_request.return_value = mock_response
 
         with self.assertRaises(requests.HTTPError):
-            self.client.get("https://example.com")
+            self.http_client.get("https://example.com")
 
         mock_response.raise_for_status.assert_called_once()
         mock_logger.exception.assert_called_once()
@@ -73,7 +73,7 @@ class TestHttpClient(TestCase):
         mock_request.return_value = mock_response
 
         payload = {"key": "value"}
-        self.client.post("https://example.com", json=payload)
+        self.http_client.post("https://example.com", json=payload)
 
         mock_request.assert_called_once_with("POST", "https://example.com", data=None, json=payload, timeout=5.0)
 

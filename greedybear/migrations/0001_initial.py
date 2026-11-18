@@ -41,8 +41,8 @@ class Migration(migrations.Migration):
                 ),
                 ("name", models.CharField(max_length=256)),
                 ("type", models.CharField(max_length=32)),
-                ("first_seen", models.DateTimeField(default=datetime.datetime.utcnow)),
-                ("last_seen", models.DateTimeField(default=datetime.datetime.utcnow)),
+                ("first_seen", models.DateTimeField(default=datetime.datetime.now)),
+                ("last_seen", models.DateTimeField(default=datetime.datetime.now)),
                 (
                     "days_seen",
                     django.contrib.postgres.fields.ArrayField(

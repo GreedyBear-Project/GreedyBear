@@ -4,9 +4,8 @@ from collections.abc import Iterable
 from datetime import datetime
 from ipaddress import ip_address
 
-from greedybear.cronjobs.extraction.utils import parse_timestamp
 from greedybear.cronjobs.repositories import TrendingBucketRepository
-from greedybear.utils import is_non_global_ip
+from greedybear.utils import is_non_global_ip, parse_timestamp
 
 logger = logging.getLogger(__name__)
 

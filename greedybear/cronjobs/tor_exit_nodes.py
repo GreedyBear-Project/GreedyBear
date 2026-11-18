@@ -2,6 +2,7 @@ import re
 
 import requests
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import IocRepository
@@ -31,8 +32,8 @@ class TorExitNodesCron(Cronjob):
             findings = ip_regex.findall(r.text)
 
             for ip_candidate in findings:
-                is_valid, ip_address = is_valid_ipv4(ip_candidate)
-                if not is_valid:
+                _, ip_address = is_valid_ipv4(ip_candidate)
+                if ip_address is None:
                     self.log.debug(f"Invalid IPv4 address: {ip_candidate}")
                     continue
 
@@ -42,6 +43,7 @@ class TorExitNodesCron(Cronjob):
                     self.ioc_repo.update_ioc_reputation(ip_address, IpReputation.TOR_EXIT_NODE)
 
             self.log.info("Completed download of Tor exit node list")
+            invalidate_ioc_cache()
 
         except requests.RequestException:
             self.log.exception("Failed to fetch Tor exit nodes")
