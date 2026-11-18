@@ -40,8 +40,13 @@ vi.mock("recharts", async (importOriginal) => {
         })}
       </div>
     ),
-    ComposedChart: ({ children }) => (
-      <div data-testid="composed-chart">{children}</div>
+    ComposedChart: ({ children, reverseStackOrder }) => (
+      <div
+        data-testid="composed-chart"
+        data-reverse-stack-order={String(Boolean(reverseStackOrder))}
+      >
+        {children}
+      </div>
     ),
     BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
     Bar: ({ dataKey, name }) => <div data-testid={`bar-${name ?? dataKey}`} />,
@@ -133,6 +138,28 @@ describe("Charts Components", () => {
       expect(axios.get).toHaveBeenCalledWith(
         FEEDS_STATISTICS_TYPES_URI,
         expect.anything(),
+      ),
+    );
+  });
+
+  test("FeedsTypesChart reverses stack order so the bar matches the tooltip order", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_TYPES });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composed-chart")).toHaveAttribute(
+        "data-reverse-stack-order",
+        "true",
+      ),
+    );
+  });
+
+  test("FeedsSourcesChart does not reverse stack order", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
+    render(<FeedsSourcesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composed-chart")).toHaveAttribute(
+        "data-reverse-stack-order",
+        "false",
       ),
     );
   });
