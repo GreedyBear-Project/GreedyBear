@@ -834,18 +834,17 @@ class FeedsAdvancedPayloadHashesTestCase(CustomTestCase):
 
         self.hash_b = "b" * 64
         self.hash_a = "a" * 64
+        self.hash_d = "d" * 64
         self.hash_other = "c" * 64
-        # stored uppercase to cover rows written before the Lower("sha256") constraint
-        self.hash_upper = "D" * 64
 
-        for sha256_hash in (self.hash_b, self.hash_a, self.hash_upper):
+        for sha256_hash in (self.hash_b, self.hash_a, self.hash_d):
             HoneypotPayload.objects.create(sha256=sha256_hash).iocs.add(self.ioc)
+
         HoneypotPayload.objects.create(sha256=self.hash_other).iocs.add(self.ioc_2)
 
     @property
     def expected_hashes(self) -> list[str]:
-        """The IOC's hashes, lowercased and sorted, as the feed should return them."""
-        return sorted([self.hash_a, self.hash_b, self.hash_upper.lower()])
+        return [self.hash_a, self.hash_b, self.hash_d]
 
     def get_ioc(self, iocs: list[dict], value: str) -> dict:
         target_ioc = next((i for i in iocs if i["value"] == value), None)

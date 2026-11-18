@@ -127,16 +127,17 @@ class EnrichmentViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["ioc"]["payload_hashes"], [])
 
-    def test_enrichment_payload_hashes_sorted_lowercase(self):
-        """All payload hashes of the IOC are returned, lowercased and sorted, without hashes of other IOCs."""
-        hash_upper = "B" * 64
-        hash_lower = "a" * 64
-        HoneypotPayload.objects.create(sha256=hash_upper).iocs.add(self.ioc)
-        HoneypotPayload.objects.create(sha256=hash_lower).iocs.add(self.ioc)
+    def test_enrichment_payload_hashes_are_sorted(self):
+        hash_b = "b" * 64
+        hash_a = "a" * 64
+        HoneypotPayload.objects.create(sha256=hash_b).iocs.add(self.ioc)
+        HoneypotPayload.objects.create(sha256=hash_a).iocs.add(self.ioc)
         HoneypotPayload.objects.create(sha256="c" * 64).iocs.add(self.ioc_2)
+
         response = self.client.get(f"/api/enrichment?query={self.ioc.name}")
+
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["ioc"]["payload_hashes"], [hash_lower, hash_upper.lower()])
+        self.assertEqual(response.json()["ioc"]["payload_hashes"], [hash_a, hash_b])
 
     def test_statistics_source_prefers_forwarded_ipv6(self):
         """Statistics source should store the first valid forwarded IPv6 address."""

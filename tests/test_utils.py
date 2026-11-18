@@ -30,6 +30,7 @@ from greedybear.utils import (
     is_valid_ipv4,
     is_valid_url,
     normalize_ip,
+    normalize_sha256,
     parse_url_hostname,
 )
 
@@ -388,6 +389,16 @@ class UtilsTestCase(SimpleTestCase):
         self.assertFalse(is_sha256hash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8555"))  # 65 chars
         self.assertFalse(is_sha256hash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4g49b934ca495991b7852b855"))  # Invalid char 'g'
         self.assertFalse(is_sha256hash(""))
+
+    def test_normalize_sha256(self):
+        self.assertEqual(normalize_sha256(f"  {'A' * 64}  "), "a" * 64)
+
+        with self.assertRaises(TypeError):
+            normalize_sha256(None)
+
+        for invalid in ("g" * 64, "a" * 63):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                normalize_sha256(invalid)
 
     def test_is_non_global_ip(self):
         self.assertTrue(is_non_global_ip(ip_address("127.0.0.1")))

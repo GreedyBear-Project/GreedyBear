@@ -193,25 +193,29 @@ def _process_array_field(saved_ioc: IOC, ip_hits: list[Hit], hit_key: str, field
 
 def _process_payload_hashes(payload_repo: PayloadRepository, saved_ioc: IOC, ip_hits: list[Hit]) -> None:
     """
-    Links observed payload hashes to HoneypotPayload rows.
+    Create or retrieve payload hashes reported in incoming events.
 
-    A hash observed here may later be enriched with an actual file by
-    PayloadExtractionJob. We only create a hash-only stub row if one doesn't
-    already exist. New stubs are linked to already-recorded Cowrie sessions
-    and their attacker IOCs.
+    Each payload is linked to the attacker IOC and the honeypots that
+    reported the event. Payload metadata and files are added later by
+    PayloadExtractionJob.
+
+    Args:
+        payload_repo: Repository used to create or retrieve payloads.
+        saved_ioc: Attacker IOC associated with the events.
+        ip_hits: Events associated with the attacker IOC.
     """
-    hashes = {hit["_payload_hash"].lower() for hit in ip_hits if hit.get("_payload_hash")}
+    hashes = {hit["_payload_hash"] for hit in ip_hits if hit.get("_payload_hash")}
     if not hashes:
         return
+
+    honeypot_names = _sensor_honeypot_names(ip_hits)
+
     for sha256_hash in hashes:
-        payload, created = payload_repo.get_or_create_stub(sha256_hash)
-        payload.iocs.add(saved_ioc)
-        if created:
-            logger.debug(f"created hash-only payload {sha256_hash[:12]}…")
-            linked = payload_repo.link_sessions_to_payload(payload)
-            if linked:
-                logger.debug(f"linked payload {sha256_hash[:12]}… to {linked} cowrie session(s).")
-        logger.debug(f"linked payload {sha256_hash[:12]}… → IOC {saved_ioc.name}")
+        payload_repo.get_or_create_payload_from_event(
+            sha256=sha256_hash,
+            ioc=saved_ioc,
+            honeypot_names=honeypot_names,
+        )
 
 
 def _sensor_honeypot_names(ip_hits: list[Hit]) -> list[str]:

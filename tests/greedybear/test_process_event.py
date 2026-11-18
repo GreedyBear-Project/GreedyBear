@@ -14,7 +14,7 @@ from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
 from greedybear.cronjobs.extraction.hit import InvalidHitError
 from greedybear.cronjobs.extraction.strategies.cowrie import CowrieExtractionStrategy
 from greedybear.cronjobs.repositories import CowrieSessionRepository, IocRepository, PayloadRepository
-from greedybear.models import IOC, CommandSequence, CowrieFileTransfer, CowrieSession, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
+from greedybear.models import IOC, CommandSequence, CowrieSession, Credential, EventStatus, Honeypot, HoneypotPayload, RawEvent, Sensor
 from greedybear.process_event import (
     DEFAULT_EXTERNAL_HONEYPOT,
     HONEYPOT_NAME_MAX_LENGTH,
@@ -695,6 +695,30 @@ class TestProcessIncomingEvent(CustomTestCase):
 
         self.assertEqual(self.batch.ioc_count, 0)
 
+    @patch(PATCH_UPDATE_SCORES)
+    def test_payload_hash_creates_payload_with_ioc_and_honeypot(self, mock_scores_cls):
+        self.sensor.honeypot_software = "Cowrie"
+        self.sensor.save(update_fields=["honeypot_software"])
+
+        raw_event = self._make_raw(src_ip="198.51.100.20", payload_hash="A" * 64)
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        payload = HoneypotPayload.objects.get(sha256="a" * 64)
+        ioc = IOC.objects.get(name="198.51.100.20")
+
+        self.assertTrue(payload.iocs.filter(pk=ioc.pk).exists())
+        self.assertTrue(payload.source_honeypots.filter(name="Cowrie").exists())
+        self.assertFalse(payload.payload_file)
+        self.assertFalse(payload.cowrie_file_transfers.exists())
+
+        raw_event.refresh_from_db()
+        self.assertTrue(raw_event.processed)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
+        self.assertEqual(self.batch.ioc_count, 1)
+
 
 class TestProcessArrayField(CustomTestCase):
     def setUp(self):
@@ -811,42 +835,24 @@ class TestProcessPayloadHashes(CustomTestCase):
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
     def test_uppercase_hash_deduplicates_with_lowercase(self):
-        """
-        DB-level Lower() constraint must treat the same hash in different
-        cases as the same row, no duplicate created.
-        """
+        """Event payload hashes are normalized before lookup."""
         _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("a" * 64)])
-        # same hash, uppercase, should find existing row, not create a second
         _process_payload_hashes(self.payload_repo, self.ioc, [self._hit("A" * 64)])
+
+        payload = HoneypotPayload.objects.get()
+        self.assertEqual(payload.sha256, "a" * 64)
         self.assertEqual(HoneypotPayload.objects.count(), 1)
 
-    def test_stub_links_preexisting_session(self):
-        # transfer recorded FIRST, external hit carrying same hash SECOND
-        _, session = self._make_session_with_transfer(self.sha256)
-        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
-        payload = HoneypotPayload.objects.get(sha256=self.sha256)
-        self.assertIn(session, payload.cowrie_sessions.all())
+    def test_payload_hash_links_reporting_honeypot(self):
+        sensor = MagicMock()
+        sensor.honeypot_software = "Cowrie"
+        hit = self._hit(self.sha256)
+        hit["_sensor"] = sensor
 
-    def test_stub_links_cowrie_attacker_ioc(self):
-        cowrie_ioc, _ = self._make_session_with_transfer(self.sha256)
-        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
-        payload = HoneypotPayload.objects.get(sha256=self.sha256)
-        self.assertIn(cowrie_ioc, payload.iocs.all())
+        _process_payload_hashes(self.payload_repo, self.ioc, [hit])
 
-    def test_existing_stub_skips_linking(self):
-        # stub FIRST (no sessions exist yet), transfer recorded SECOND
-        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
-        cowrie_ioc, _ = self._make_session_with_transfer(self.sha256)
-        _process_payload_hashes(self.payload_repo, self.ioc, [self._hit(self.sha256)])
         payload = HoneypotPayload.objects.get(sha256=self.sha256)
-        self.assertEqual(payload.cowrie_sessions.count(), 0)
-        self.assertNotIn(cowrie_ioc, payload.iocs.all())
-
-    def _make_session_with_transfer(self, sha256):
-        cowrie_ioc = IOC.objects.create(name="9.9.9.9", type="ip")
-        session = CowrieSession.objects.create(session_id=0xABCDEF, source=cowrie_ioc)
-        CowrieFileTransfer.objects.create(session=session, shasum=sha256, timestamp=timezone.now())
-        return cowrie_ioc, session
+        self.assertTrue(payload.source_honeypots.filter(name="Cowrie").exists())
 
 
 class TestSensorHoneypotNames(CustomTestCase):

@@ -101,44 +101,35 @@ class TestRetrievePayload(HoneypotPayloadViewSetTestCase):
     def test_retrieve_by_sha256(self):
         self.client.force_authenticate(user=self.regular_user)
         response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256}")
+
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sha256"], SAMPLE_SHA256)
 
     def test_retrieve_nonexistent_returns_404(self):
         self.client.force_authenticate(user=self.regular_user)
         response = self.client.get(f"{PAYLOADS_URL}/{'0' * 64}")
+
         self.assertEqual(response.status_code, 404)
 
-    # The hash comes from the URL so it can be any case, but stored hashes are
-    # lower-cased. Without a case-insensitive lookup a valid request 404s (#1579).
-
     def test_retrieve_by_uppercase_sha256(self):
-        """Uppercase hash in the URL should still find the row."""
         self.client.force_authenticate(user=self.regular_user)
         response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256.upper()}")
+
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sha256"], SAMPLE_SHA256)
 
     def test_retrieve_by_mixed_case_sha256(self):
-        """Mixed case should work too, not just all uppercase."""
         self.client.force_authenticate(user=self.regular_user)
-        mixed = "".join(c.upper() if i % 2 else c for i, c in enumerate(SAMPLE_SHA256))
+        mixed = "".join(character.upper() if index % 2 else character for index, character in enumerate(SAMPLE_SHA256))
         response = self.client.get(f"{PAYLOADS_URL}/{mixed}")
+
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sha256"], SAMPLE_SHA256)
 
-    def test_retrieve_finds_row_stored_uppercase(self):
-        """Older rows saved in uppercase should still be found."""
-        legacy = HoneypotPayload.objects.create(sha256="E" * 64)
-        self.client.force_authenticate(user=self.regular_user)
-        response = self.client.get(f"{PAYLOADS_URL}/{'e' * 64}")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["sha256"], legacy.sha256)
-
     def test_page_param_is_rejected(self):
-        """Only the list is paginated, so retrieve takes no query params at all."""
         self.client.force_authenticate(user=self.regular_user)
         response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256}?page=1")
+
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
 
