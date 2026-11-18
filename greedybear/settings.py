@@ -198,6 +198,11 @@ REST_DURIN = {
     "API_ACCESS_CLIENT_TOKEN_TTL": timedelta(days=3650),
 }
 
+# certego_saas
+CERTEGO_SAAS = {
+    "USER_ACCESS_SERIALIZER": "api.serializers.user.GreedyBearUserAccessSerializer",
+}
+
 # django-rest-email-auth
 REST_EMAIL_AUTH = {
     "EMAIL_VERIFICATION_URL": HOST_URI + "/verify-email?key={key}",
