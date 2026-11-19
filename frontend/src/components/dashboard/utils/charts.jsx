@@ -46,7 +46,13 @@ const colors = getRandomColorsArray(30, true);
  * Shared chart skeleton: handles loading / empty / error states and renders a
  * ResponsiveContainer
  */
-function ChartSkeleton({ data, loading, error, children, reverseStackOrder = false, }) {
+function ChartSkeleton({
+  data,
+  loading,
+  error,
+  children,
+  reverseStackOrder = false,
+}) {
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center py-4 text-muted">
@@ -68,7 +74,11 @@ function ChartSkeleton({ data, loading, error, children, reverseStackOrder = fal
   }
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <ComposedChart data={data} margin={CHART_MARGIN} reverseStackOrder={reverseStackOrder}>
+      <ComposedChart
+        data={data}
+        margin={CHART_MARGIN}
+        reverseStackOrder={reverseStackOrder}
+      >
         <Legend verticalAlign="top" height={40} />
         <Tooltip contentStyle={TOOLTIP_STYLE} />
         <CartesianGrid stroke="#25404b" strokeDasharray="1 1" />
@@ -199,9 +209,14 @@ export const FeedsTypesChart = React.memo(() => {
   // alphabetically (top to bottom), so reverse the stack to make the bar
   // read the same way (top to bottom).
   return (
-    < ChartSkeleton data = { data } loading = { loading } error = { error } reverseStackOrder >
-      { bars }
-    </ChartSkeleton >
+    <ChartSkeleton
+      data={data}
+      loading={loading}
+      error={error}
+      reverseStackOrder
+    >
+      {bars}
+    </ChartSkeleton>
   );
 });
 FeedsTypesChart.displayName = "FeedsTypesChart";
