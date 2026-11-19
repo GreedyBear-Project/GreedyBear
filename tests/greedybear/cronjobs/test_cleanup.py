@@ -6,6 +6,7 @@ from greedybear.cronjobs.repositories import (
     APISourceRepository,
     CowrieSessionRepository,
     EventRepository,
+    ExtractionRunRepository,
     IocRepository,
     StatisticsRepository,
 )
@@ -27,6 +28,7 @@ class TestCleanUp(CustomTestCase):
         self.assertIsInstance(cleanup_job.api_source_repo, APISourceRepository)
         self.assertIsInstance(cleanup_job.event_repo, EventRepository)
         self.assertIsNotNone(cleanup_job.event_repo)
+        self.assertIsInstance(cleanup_job.extraction_run_repo, ExtractionRunRepository)
 
     @patch("greedybear.cronjobs.cleanup.IOC_RETENTION", 100)
     @patch("greedybear.cronjobs.cleanup.COMMAND_SEQUENCE_RETENTION", 90)
@@ -34,6 +36,7 @@ class TestCleanUp(CustomTestCase):
     @patch("greedybear.cronjobs.cleanup.STATISTICS_RETENTION", 700)
     @patch("greedybear.cronjobs.cleanup.RAW_EVENT_RETENTION", 7)
     @patch("greedybear.cronjobs.cleanup.EVENT_STATUS_RETENTION", 30)
+    @patch("greedybear.cronjobs.cleanup.EXTRACTION_RUN_RETENTION", 40)
     def test_run_calls_repository_methods_with_correct_dates(self):
         """Test that run method calls repository deletion methods with correct retention dates."""
         # Create mock repositories
@@ -42,6 +45,7 @@ class TestCleanUp(CustomTestCase):
         stats_repo = MagicMock()
         api_source_repo = MagicMock()
         event_repo = MagicMock()
+        extraction_run_repo = MagicMock()
 
         # Setup return values for logging purposes
         ioc_repo.delete_old_iocs.return_value = 10
@@ -53,6 +57,7 @@ class TestCleanUp(CustomTestCase):
         api_source_repo.reset_invalid_counts.return_value = 4
         event_repo.delete_old_raw_events.return_value = 50
         event_repo.delete_old_event_statuses.return_value = 12
+        extraction_run_repo.delete_old_runs.return_value = 6
 
         # Initialize CleanUp with mocks
         cleanup_job = CleanUp(
@@ -61,6 +66,7 @@ class TestCleanUp(CustomTestCase):
             stats_repo=stats_repo,
             api_source_repo=api_source_repo,
             event_repo=event_repo,
+            extraction_run_repo=extraction_run_repo,
         )
 
         # Mock the logger to verify logging calls
@@ -130,13 +136,21 @@ class TestCleanUp(CustomTestCase):
         actual_date = args[0]
         time_diff = abs((actual_date - expected_status_date).total_seconds())
         self.assertLess(time_diff, 1, f"EventStatus Date difference ({time_diff}s) exceeds 1 second tolerance")
+
+        # Verify interactions with ExtractionRunRepository
+        extraction_run_repo.delete_old_runs.assert_called_once()
+        expected_run_date = datetime.now() - timedelta(days=40)
+        args, _ = extraction_run_repo.delete_old_runs.call_args
+        actual_date = args[0]
+        time_diff = abs((actual_date - expected_run_date).total_seconds())
+        self.assertLess(time_diff, 1, f"ExtractionRun Date difference ({time_diff}s) exceeds 1 second tolerance")
         # Verify interactions with APISourceRepository
         api_source_repo.reset_invalid_counts.assert_called_once()
 
         # Verify logging messages
         # We expect 7 pairs/entries of logs (including your new retention entries)
         # 14 total calls to info level
-        self.assertEqual(cleanup_job.log.info.call_count, 18)
+        self.assertEqual(cleanup_job.log.info.call_count, 20)
 
         # Check specific log messages to ensure counts are logged
         cleanup_job.log.info.assert_any_call("10 objects deleted")
@@ -148,6 +162,7 @@ class TestCleanUp(CustomTestCase):
         cleanup_job.log.info.assert_any_call("Reset invalid_event_count to 0 for 4 APISources")
         cleanup_job.log.info.assert_any_call("50 objects deleted")
         cleanup_job.log.info.assert_any_call("12 objects deleted")
+        cleanup_job.log.info.assert_any_call("6 objects deleted")
 
     @patch("greedybear.cronjobs.cleanup.invalidate_ioc_cache")
     def test_run_invalidates_ioc_cache(self, mock_invalidate):

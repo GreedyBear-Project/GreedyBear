@@ -1,12 +1,13 @@
 import logging
-from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from django.conf import settings
+from elasticsearch import ConnectionError as ElasticConnectionError
+from elasticsearch import ConnectionTimeout as ElasticConnectionTimeout
 from elasticsearch.dsl import Q, Search
 
 from greedybear.consts import FIELDS_TO_EXTRACT
-from greedybear.settings import EXTRACTION_INTERVAL
+from greedybear.cronjobs.exceptions import ElasticServerDownError
 from greedybear.utils import get_time_window
 
 
@@ -14,12 +15,9 @@ class ElasticRepository:
     """
     Repository for querying honeypot log data from a T-Pot Elasticsearch instance.
 
-    Provides a chunked search interface for retrieving log entries within
+    Provides a search interface for retrieving log entries within
     a specified time window from logstash indices.
     """
-
-    class ElasticServerDownError(Exception):
-        """Raised when the Elasticsearch server is unreachable."""
 
     def __init__(self):
         """Initialize the repository with an Elasticsearch client."""
@@ -57,41 +55,38 @@ class ElasticRepository:
         search = search.filter("term", **{"type.keyword": honeypot_name})
         return search.count() > 0
 
-    def search(self, minutes_back_to_lookup: int) -> Iterator[list]:
+    def search(self, window_start: datetime, window_end: datetime) -> list:
         """
-        Search for log entries within a specified time window, yielding results
-        in chunks of at most EXTRACTION_INTERVAL minutes.
+        Search for log entries within a time window.
 
-        Yields nothing when Elasticsearch is not configured.
+        Callers keep the window short (one extraction interval) so the result fits in memory.
+        Returns an empty list when Elasticsearch is not configured.
 
         Args:
-            minutes_back_to_lookup: Number of minutes to look back from the current time.
+            window_start: Start of the time window (inclusive).
+            window_end: End of the time window (exclusive).
 
-        Yields:
-            list: Log entries sorted by @timestamp for each chunk, containing only FIELDS_TO_EXTRACT.
+        Returns:
+            list: Log entries sorted by @timestamp, containing only FIELDS_TO_EXTRACT.
 
         Raises:
             ElasticServerDownError: If Elasticsearch is unreachable.
         """
         if not self.is_available:
-            return
+            return []
         self._healthcheck()
-        self.log.debug(f"minutes_back_to_lookup: {minutes_back_to_lookup}")
-        window_start, window_end = get_time_window(datetime.now(), minutes_back_to_lookup)
-        chunk_start = window_start
-        while chunk_start < window_end:
-            self.log.debug("querying elastic")
-            chunk_end = min(chunk_start + timedelta(minutes=EXTRACTION_INTERVAL), window_end)
-            self.log.debug(f"time window: {chunk_start} - {chunk_end}")
-            search = Search(using=self.elastic_client, index="logstash-*")
-            q = Q("range", **{"@timestamp": {"gte": chunk_start, "lt": chunk_end}})
-            search = search.query(q)
-            search = search.source([*FIELDS_TO_EXTRACT])
+        self.log.debug(f"querying elastic, time window: {window_start} - {window_end}")
+        search = Search(using=self.elastic_client, index="logstash-*")
+        q = Q("range", **{"@timestamp": {"gte": window_start, "lt": window_end}})
+        search = search.query(q)
+        search = search.source([*FIELDS_TO_EXTRACT])
+        try:
             result = list(search.scan())
-            self.log.debug(f"found {len(result)} hits")
-            result.sort(key=lambda hit: hit["@timestamp"])
-            yield result
-            chunk_start = chunk_end
+        except (ElasticConnectionError, ElasticConnectionTimeout) as exc:
+            raise ElasticServerDownError("lost connection to elastic server during search") from exc
+        self.log.debug(f"found {len(result)} hits")
+        result.sort(key=lambda hit: hit["@timestamp"])
+        return result
 
     def _healthcheck(self):
         """
@@ -102,5 +97,5 @@ class ElasticRepository:
         """
         self.log.debug("performing healthcheck")
         if not self.elastic_client.ping():
-            raise self.ElasticServerDownError("elastic server is not reachable, could be down")
+            raise ElasticServerDownError("elastic server is not reachable, could be down")
         self.log.debug("elastic server is reachable")
