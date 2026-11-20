@@ -55,8 +55,9 @@ class PayloadExtractionJob(Cronjob):
        and attacker IOCs that already transferred a file with the same SHA256.
 
     Payload servers are processed independently: one that is unreachable or
-    fails is logged and skipped, without affecting the others. The run only
-    fails when every server failed.
+    fails is logged and skipped, without affecting the others. When every
+    server failed, this is logged as an error too, but the run never fails
+    because of a payload server.
     """
 
     # Timeout for the metadata listing request (seconds).
@@ -88,10 +89,11 @@ class PayloadExtractionJob(Cronjob):
                 except Exception:
                     self.log.exception(f"Payload extraction from {source} failed, continuing with the remaining payload servers.")
                     failed += 1
-        # One broken server is already reported in the error log and must not fail
-        # the run for the others. Only when none of them worked did the run fail.
+        # Payload collection is optional, so even when every server failed this is
+        # only logged: raising would fail extract_all, and Django Q would retry the
+        # whole extraction over and over while the servers stay down.
         if failed == len(sources):
-            raise RuntimeError(f"Payload extraction failed for all {failed} payload server(s).")
+            self.log.error(f"Payload extraction failed for all {failed} payload server(s).")
 
     def _get_sources(self) -> list[PayloadSource]:
         """

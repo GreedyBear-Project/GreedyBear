@@ -488,16 +488,18 @@ class TestPayloadExtractionJob(CustomTestCase):
         TPOT_PAYLOAD_SERVER_API_KEY="",
     )
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_network_error_on_metadata_fetch_fails_the_run(self, mock_http_class):
-        """An unreachable server is a failure, not an empty listing, so the run fails."""
+    def test_network_error_on_metadata_fetch_is_logged_as_failure(self, mock_http_class):
+        """An unreachable server is a failure, not an empty listing, but it does not fail the run."""
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
         mock_http_class.return_value.__exit__ = Mock(return_value=False)
 
         mock_client.get.side_effect = requests.ConnectionError("connection refused")
 
-        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 1 payload server(s)."):
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
             self.job.run()
+
+        self.assertIn("Payload extraction failed for all 1 payload server(s).", "\n".join(logs.output))
 
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
@@ -506,8 +508,8 @@ class TestPayloadExtractionJob(CustomTestCase):
         TPOT_PAYLOAD_SERVER_API_KEY="",
     )
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_invalid_json_response_fails_the_run(self, mock_http_class):
-        """Malformed JSON from the only server fails the run."""
+    def test_invalid_json_response_is_logged_as_failure(self, mock_http_class):
+        """Malformed JSON from the only server is logged as a failure without failing the run."""
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
         mock_http_class.return_value.__exit__ = Mock(return_value=False)
@@ -516,8 +518,10 @@ class TestPayloadExtractionJob(CustomTestCase):
         mock_response.json.side_effect = ValueError("No JSON object could be decoded")
         mock_client.get.return_value = mock_response
 
-        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 1 payload server(s)."):
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
             self.job.run()
+
+        self.assertIn("Payload extraction failed for all 1 payload server(s).", "\n".join(logs.output))
 
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
@@ -1068,57 +1072,81 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.assertEqual(self._sensors(SHARED), [SENSOR_A])
         self.assertIn(f"Payload extraction from {SERVER_B} (sensor {SENSOR_B}) failed, continuing", "\n".join(logs.output))
 
-    def test_run_fails_when_every_source_fails(self):
+    def _assert_all_failed_logged(self, logs, count: int):
+        self.assertIn(f"Payload extraction failed for all {count} payload server(s).", "\n".join(logs.output))
+
+    def test_every_source_failing_is_logged(self):
         self.server_a.recent_body = [42]
         self.server_b.recent_body = [None]
 
-        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 2 payload server(s)."):
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
             self._run()
 
+        self._assert_all_failed_logged(logs, 2)
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
-    def test_legacy_source_failing_fails_the_run(self):
-        # With a single server nothing worked, so the run fails like it always did.
+    def test_legacy_source_failing_is_logged(self):
         self.server_a.recent_body = [42]
 
         with (
             override_settings(TPOT_PAYLOAD_SERVERS=[], TPOT_PAYLOAD_SERVER_URL=SERVER_A, TPOT_PAYLOAD_SERVER_API_KEY="key-a", MAX_QUARANTINE_SIZE_GB=5),
-            self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 1 payload server(s)."),
+            self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs,
         ):
             PayloadExtractionJob().run()
 
-    def test_run_fails_when_every_source_is_unreachable(self):
+        self._assert_all_failed_logged(logs, 1)
+
+    def test_every_source_unreachable_is_logged(self):
         self.server_a.recent_error = requests.ConnectionError("connection refused")
         self.server_b.recent_error = requests.Timeout("read timed out")
 
-        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 2 payload server(s)."):
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
             self._run()
 
+        self._assert_all_failed_logged(logs, 2)
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
-    def test_run_fails_when_every_source_rejects_the_api_key(self):
+    def test_every_source_rejecting_the_api_key_is_logged(self):
         self.server_a.api_key = "rotated-key-a"
         self.server_b.api_key = "rotated-key-b"
 
-        with self.assertRaisesMessage(RuntimeError, "Payload extraction failed for all 2 payload server(s)."):
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
             self._run()
 
-    def test_sources_without_new_payloads_do_not_fail_the_run(self):
+        self._assert_all_failed_logged(logs, 2)
+
+    def test_every_source_failing_does_not_fail_the_job(self):
+        # extract_all runs the job through execute(), which re-raises any error and
+        # would make Django Q retry the whole extraction.
+        self.server_a.recent_error = requests.ConnectionError("connection refused")
+        self.server_b.recent_error = requests.Timeout("read timed out")
+
+        with override_settings(TPOT_PAYLOAD_SERVERS=self._config(), TPOT_PAYLOAD_SERVER_URL="", MAX_QUARANTINE_SIZE_GB=5):
+            job = PayloadExtractionJob()
+            job.execute()
+
+        self.assertTrue(job.success)
+
+    def test_sources_without_new_payloads_are_not_a_failure(self):
         # An empty listing means nothing new was captured, which is not a failure.
         self.server_a.files = {}
         self.server_b.files = {}
 
-        self._run()
+        with self.assertNoLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR"):
+            self._run()
 
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
-    def test_one_unreachable_source_and_one_without_new_payloads_do_not_fail_the_run(self):
+    def test_one_unreachable_source_and_one_without_new_payloads_are_not_all_failed(self):
         self.server_a.recent_error = requests.ConnectionError("connection refused")
         self.server_b.files = {}
 
-        self._run()
+        with self.assertLogs("greedybear.cronjobs.base.PayloadExtractionJob", level="ERROR") as logs:
+            self._run()
 
-        self.assertEqual(HoneypotPayload.objects.count(), 0)
+        output = "\n".join(logs.output)
+        self.assertIn(f"Payload extraction from {SERVER_A} (sensor {SENSOR_A}) failed", output)
+        self.assertNotIn("failed for all", output)
 
     def test_hash_case_differs_between_sources(self):
         self.server_a.recent_body = [{**entry, "sha256": entry["sha256"].upper()} for entry in self.server_a.listing()]
@@ -1231,7 +1259,7 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.server_a.recent_error = requests.ConnectionError("connection refused")
         self.server_b.api_key = "rotated-key"
 
-        with self.assertLogs(level="DEBUG") as logs, self.assertRaises(RuntimeError):
+        with self.assertLogs(level="DEBUG") as logs:
             self._run()
 
         output = "\n".join(logs.output)
