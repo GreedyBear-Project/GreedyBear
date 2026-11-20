@@ -21,6 +21,7 @@ from greedybear.models import (
     Honeypot,
     HoneypotPayload,
     MassScanner,
+    PayloadObservation,
     RawEvent,
     Sensor,
     Statistics,
@@ -431,6 +432,20 @@ class RawEventAdmin(GreedyBearModelAdmin):
         )
 
 
+class PayloadObservationInline(admin.TabularInline):
+    model = PayloadObservation
+    fields = ["sensor", "locator", "mtime"]
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
 @admin.register(HoneypotPayload)
 class HoneypotPayloadAdmin(GreedyBearModelAdmin):
     list_display = [
@@ -443,6 +458,7 @@ class HoneypotPayloadAdmin(GreedyBearModelAdmin):
     list_filter = ["source_honeypots", "mime_type"]
     readonly_fields = ["payload_file"]
     raw_id_fields = ["iocs", "cowrie_sessions"]
+    inlines = [PayloadObservationInline]
 
     @admin.display(description="Source Honeypots")
     def get_source_honeypots(self, obj):

@@ -124,6 +124,11 @@ TPOT_PAYLOAD_SERVER_URL=
 # When empty, authentication is disabled on both sides.
 TPOT_PAYLOAD_SERVER_API_KEY=
 
+# Payload servers of several T-Pot sensors, as a single-line JSON list (see the wiki for an example):
+# [{"url": ..., "api_key": ..., "sensor": <IP address of the T-Pot>}], "api_key" is optional.
+# When set, TPOT_PAYLOAD_SERVER_URL and TPOT_PAYLOAD_SERVER_API_KEY are ignored.
+TPOT_PAYLOAD_SERVERS=
+
 # Maximum disk usage (in GB) for the quarantine directory.
 # Payload downloads are paused when this limit is reached.
 MAX_QUARANTINE_SIZE_GB=5
