@@ -35,6 +35,7 @@ def setup_schedules():
             "name": "extract_all",
             "func": "greedybear.tasks.extract_all",
             "cron": f"*/{extraction_interval} * * * *",
+            "kwargs": "{'q_options': {'ack_failure': True}}",
         },
         # Monitor Honeypots: Hourly at :07
         {
@@ -149,6 +150,7 @@ def setup_schedules():
                 "schedule_type": Schedule.CRON,
                 "cron": job["cron"],
                 "repeats": -1,
+                "kwargs": job.get("kwargs"),
             },
         )
 
