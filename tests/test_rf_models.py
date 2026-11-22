@@ -315,6 +315,24 @@ class TestRFClassifierInsufficientClasses(CustomTestCase):
     def test_training_skipped_for_single_positive_target(self):
         self.assert_training_skipped([0] * 9 + [1])
 
+    def test_training_succeeds_with_two_samples_per_class(self):
+        classifier = self.RealRFClassifier()
+        training_df = pd.DataFrame(
+            {
+                "feature1": range(4),
+                "honeypots": [["cowrie"]] * 4,
+                "interactions_on_eval_day": [0, 0, 1, 1],
+            }
+        )
+        previous_model = Mock()
+        classifier.model = previous_model
+        classifier.save = Mock()
+
+        classifier.train(training_df)
+
+        self.assertIsNot(classifier.model, previous_model)
+        classifier.save.assert_called_once()
+
 
 class TestTrainModelsSaveOnFailure(CustomTestCase):
     """Test that TrainModels.run() always calls save_training_data() even on training failure."""
