@@ -101,6 +101,17 @@ def is_sha256hash(string: str) -> bool:
     return bool(re.fullmatch(r"^[A-Fa-f0-9]{64}$", string))
 
 
+def normalize_sha256(value: object) -> str:
+    """Return a lowercase SHA256 or reject an invalid value."""
+    if not isinstance(value, str):
+        raise TypeError(f"SHA256 must be a string, got: {value!r}")
+
+    normalized = value.strip().lower()
+    if not is_sha256hash(normalized):
+        raise ValueError(f"Invalid SHA256: {value!r}")
+    return normalized
+
+
 def parse_timestamp(timestamp: str) -> datetime:
     """
     Parse an ISO-format timestamp string into a naive datetime.

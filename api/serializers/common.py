@@ -38,7 +38,7 @@ class IOCSerializer(serializers.ModelSerializer):
     honeypots = HoneypotRelatedField(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     sensors = SensorSerializer(many=True, read_only=True)
-    payload_hashes = serializers.SerializerMethodField(help_text="Lowercase SHA256 hashes of the payloads observed from this IOC.")
+    payload_hashes = serializers.SerializerMethodField(help_text="SHA256 hashes of the payloads reported from this IOC.")
 
     class Meta:
         model = IOC
@@ -47,8 +47,8 @@ class IOCSerializer(serializers.ModelSerializer):
         ]
 
     def get_payload_hashes(self, obj) -> list[str]:
-        # iterate over .all() so a prefetched `payloads` relation is reused
-        return sorted(payload.sha256.lower() for payload in obj.payloads.all())
+        # iterate over .all() so a prefetched `payloads` relation is reused.
+        return sorted(payload.sha256 for payload in obj.payloads.all())
 
 
 class EnrichmentRequestSerializer(serializers.Serializer):

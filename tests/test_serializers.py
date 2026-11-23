@@ -3,6 +3,7 @@ from itertools import product
 
 from django.contrib.postgres.fields import ArrayField
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.serializers import ValidationError
 
 from api.serializers import (
@@ -14,8 +15,9 @@ from api.serializers import (
     feed_type_as_list,
 )
 from greedybear.consts import PAYLOAD_REQUEST, SCANNER
+from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.enums import IpReputation
-from greedybear.models import IOC, Honeypot, HoneypotPayload, Sensor
+from greedybear.models import IOC, CowrieFileTransfer, Honeypot, HoneypotPayload, Sensor
 from tests import CustomTestCase
 
 
@@ -418,8 +420,7 @@ class HoneypotPayloadSerializerTestCase(CustomTestCase):
     def test_empty_relations_serialize_as_empty_lists(self):
         payload = HoneypotPayload.objects.create(sha256="a" * 64)
 
-        serializer = HoneypotPayloadSerializer(payload)
-        data = serializer.data
+        data = HoneypotPayloadSerializer(payload).data
 
         self.assertEqual(data["iocs"], [])
         self.assertEqual(data["cowrie_sessions"], [])
@@ -428,21 +429,47 @@ class HoneypotPayloadSerializerTestCase(CustomTestCase):
         payload = HoneypotPayload.objects.create(sha256="b" * 64)
         payload.iocs.add(self.ioc, self.ioc_2)
 
-        serializer = HoneypotPayloadSerializer(payload)
-        data = serializer.data
+        data = HoneypotPayloadSerializer(payload).data
 
         self.assertEqual(sorted(data["iocs"]), sorted([self.ioc.name, self.ioc_2.name]))
         self.assertEqual(data["cowrie_sessions"], [])
 
-    def test_serializes_cowrie_sessions_as_hex_ids(self):
+    def test_serializes_cowrie_sessions_from_file_transfers(self):
         payload = HoneypotPayload.objects.create(sha256="c" * 64)
-        payload.cowrie_sessions.add(self.cowrie_session, self.cowrie_session_2)
-
-        serializer = HoneypotPayloadSerializer(payload)
-        data = serializer.data
-
-        self.assertEqual(
-            sorted(data["cowrie_sessions"]),
-            sorted([f"{self.cowrie_session.session_id:x}", f"{self.cowrie_session_2.session_id:x}"]),
+        CowrieFileTransfer.objects.create(
+            session=self.cowrie_session,
+            payload=payload,
+            url="",
+            outfile="",
+            timestamp=timezone.now(),
         )
+        CowrieFileTransfer.objects.create(
+            session=self.cowrie_session_2,
+            payload=payload,
+            url="",
+            outfile="",
+            timestamp=timezone.now(),
+        )
+
+        data = HoneypotPayloadSerializer(payload).data
+        expected_sessions = sorted([f"{self.cowrie_session.session_id:x}", f"{self.cowrie_session_2.session_id:x}"])
+
+        self.assertEqual(data["cowrie_sessions"], expected_sessions)
         self.assertEqual(data["iocs"], [])
+
+    def test_cowrie_sessions_use_prefetched_transfers(self):
+        payload = HoneypotPayload.objects.create(sha256="d" * 64)
+        CowrieFileTransfer.objects.create(
+            session=self.cowrie_session,
+            payload=payload,
+            url="",
+            outfile="",
+            timestamp=timezone.now(),
+        )
+
+        payload = PayloadRepository().list_payloads().get(pk=payload.pk)
+
+        with self.assertNumQueries(0):
+            data = HoneypotPayloadSerializer(payload).data
+
+        self.assertEqual(data["cowrie_sessions"], [f"{self.cowrie_session.session_id:x}"])

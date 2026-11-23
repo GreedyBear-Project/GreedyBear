@@ -1,7 +1,8 @@
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 
 from greedybear.enums import IpReputation
-from greedybear.models import Credential, HoneypotPayload, IocType, Sensor, Statistics, Tag, ViewType
+from greedybear.models import CowrieFileTransfer, Credential, HoneypotPayload, IocType, Sensor, Statistics, Tag, ViewType
 
 from . import CustomTestCase
 
@@ -115,23 +116,78 @@ class ModelsTestCase(CustomTestCase):
         self.assertEqual(Credential.objects.filter(username="proto_user", password="proto_pass").count(), 3)
 
     def test_honeypot_payload_model(self):
-        payload = HoneypotPayload.objects.create(sha256="1234567890abcdef", mime_type="application/x-executable", size=9000)
+        sha256 = "a" * 64
+        payload = HoneypotPayload.objects.create(sha256=sha256, mime_type="application/x-executable", size=9000)
         payload.source_honeypots.add(self.heralding)
         payload.iocs.add(self.ioc)
 
-        self.assertEqual(payload.sha256, "1234567890abcdef")
-        self.assertEqual(payload.source_honeypots.first().name, "Heralding")
-        self.assertEqual(str(payload), "Payload 1234567890abcdef")
+        self.assertEqual(payload.sha256, sha256)
+        self.assertEqual(payload.source_honeypots.get(), self.heralding)
+        self.assertEqual(payload.iocs.get(), self.ioc)
+        self.assertEqual(str(payload), f"Payload {sha256}")
 
-    def test_honeypot_payload_model_unique_constraint(self):
-        HoneypotPayload.objects.create(sha256="unique_test_hash", mime_type="text/plain", size=123)
-        with self.assertRaises(IntegrityError):
-            HoneypotPayload.objects.create(sha256="unique_test_hash", mime_type="text/html", size=456)
+    def test_honeypot_payload_sha256_format_constraint(self):
+        for sha256 in ("A" * 64, "g" * 64, "a" * 63):
+            with self.subTest(sha256=sha256), self.assertRaises(IntegrityError), transaction.atomic():
+                HoneypotPayload.objects.create(sha256=sha256)
 
-    def test_honeypot_payload_model_multiple_relations(self):
-        payload = HoneypotPayload.objects.create(sha256="multiple_relations_hash", mime_type="application/x-executable", size=9000)
+    def test_honeypot_payload_sha256_unique_constraint(self):
+        sha256 = "b" * 64
+        HoneypotPayload.objects.create(sha256=sha256, mime_type="text/plain", size=123)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            HoneypotPayload.objects.create(sha256=sha256, mime_type="text/html", size=456)
+
+    def test_honeypot_payload_multiple_relations(self):
+        payload = HoneypotPayload.objects.create(sha256="c" * 64, mime_type="application/x-executable", size=9000)
         payload.iocs.add(self.ioc, self.ioc_2)
         payload.source_honeypots.add(self.heralding, self.cowrie_hp)
 
-        self.assertEqual(payload.iocs.count(), 2)
-        self.assertEqual(payload.source_honeypots.count(), 2)
+        self.assertCountEqual(payload.iocs.all(), [self.ioc, self.ioc_2])
+        self.assertCountEqual(payload.source_honeypots.all(), [self.heralding, self.cowrie_hp])
+
+    def test_cowrie_file_transfer_model(self):
+        payload = HoneypotPayload.objects.create(sha256="d" * 64)
+        transfer = CowrieFileTransfer.objects.create(
+            session=self.cowrie_session, payload=payload, url="http://example.test/payload", outfile="/tmp/payload", timestamp=self.current_time
+        )
+
+        self.assertEqual(transfer.session, self.cowrie_session)
+        self.assertEqual(transfer.payload, payload)
+        self.assertEqual(transfer.url, "http://example.test/payload")
+        self.assertEqual(transfer.outfile, "/tmp/payload")
+        self.assertEqual(transfer.timestamp, self.current_time)
+        self.assertEqual(payload.cowrie_file_transfers.get(), transfer)
+        self.assertEqual(self.cowrie_session.file_transfers.get(), transfer)
+        self.assertEqual(str(transfer), f"File transfer {transfer.pk} from session {self.cowrie_session.session_id}")
+
+    def test_cowrie_file_transfer_unique_payload_and_session(self):
+        payload = HoneypotPayload.objects.create(sha256="e" * 64)
+        CowrieFileTransfer.objects.create(session=self.cowrie_session, payload=payload, url="", outfile="", timestamp=self.current_time)
+        CowrieFileTransfer.objects.create(session=self.cowrie_session_2, payload=payload, url="", outfile="", timestamp=self.current_time)
+
+        self.assertEqual(CowrieFileTransfer.objects.filter(payload=payload).count(), 2)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            CowrieFileTransfer.objects.create(session=self.cowrie_session, payload=payload, url="", outfile="", timestamp=self.current_time)
+
+    def test_payload_with_cowrie_file_transfer_cannot_be_deleted(self):
+        payload = HoneypotPayload.objects.create(sha256="f" * 64)
+        transfer = CowrieFileTransfer.objects.create(session=self.cowrie_session, payload=payload, url="", outfile="", timestamp=self.current_time)
+
+        with self.assertRaises(ProtectedError):
+            payload.delete()
+
+        self.assertTrue(HoneypotPayload.objects.filter(pk=payload.pk).exists())
+        self.assertTrue(CowrieFileTransfer.objects.filter(pk=transfer.pk).exists())
+
+    def test_deleting_cowrie_session_deletes_transfer_but_preserves_payload(self):
+        payload = HoneypotPayload.objects.create(sha256="0" * 64)
+        transfer = CowrieFileTransfer.objects.create(session=self.cowrie_session, payload=payload, url="", outfile="", timestamp=self.current_time)
+        payload_id = payload.pk
+        transfer_id = transfer.pk
+
+        self.cowrie_session.delete()
+
+        self.assertFalse(CowrieFileTransfer.objects.filter(pk=transfer_id).exists())
+        self.assertTrue(HoneypotPayload.objects.filter(pk=payload_id).exists())

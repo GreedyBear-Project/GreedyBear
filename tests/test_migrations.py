@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import tag
 
 from . import MigrationTestCase
@@ -698,3 +698,123 @@ class TestMoveSpamhausDropTags(MigrationTestCase):
             sorted(Tag.objects.values_list("value", "source")),
             [("dshield", "firehol"), ("mirai", "threatfox")],
         )
+
+
+@tag("migration")
+class TestLinkCowrieFileTransferToPayload(MigrationTestCase):
+    migrate_from = "0075_move_spamhaus_drop_tags"
+    migrate_to = "0077_finalize_payload_transfer_relationship"
+
+    def test_existing_payload_is_normalized_and_linked(self):
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        CowrieSession = self.old_state.apps.get_model(self.app_name, "CowrieSession")
+        CowrieFileTransfer = self.old_state.apps.get_model(self.app_name, "CowrieFileTransfer")
+        HoneypotPayload = self.old_state.apps.get_model(self.app_name, "HoneypotPayload")
+
+        ioc = IOC.objects.create(name="198.51.100.10", type="ip")
+        session = CowrieSession.objects.create(session_id=0x1234, source=ioc)
+        payload = HoneypotPayload.objects.create(sha256="A" * 64)
+        transfer = CowrieFileTransfer.objects.create(
+            session=session,
+            shasum="a" * 64,
+            url="http://example.test/payload",
+            outfile="/tmp/payload",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+        )
+
+        new_state = self.apply_tested_migration()
+        payload_model = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+        transfer_model = new_state.apps.get_model(self.app_name, "CowrieFileTransfer")
+
+        migrated_payload = payload_model.objects.get(pk=payload.pk)
+        migrated_transfer = transfer_model.objects.get(pk=transfer.pk)
+
+        self.assertEqual(migrated_payload.sha256, "a" * 64)
+        self.assertEqual(migrated_transfer.payload_id, migrated_payload.pk)
+        self.assertTrue(migrated_payload.iocs.filter(pk=ioc.pk).exists())
+        self.assertTrue(migrated_payload.source_honeypots.filter(name="Cowrie").exists())
+
+    def test_missing_payload_is_created_from_transfer(self):
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        CowrieSession = self.old_state.apps.get_model(self.app_name, "CowrieSession")
+        CowrieFileTransfer = self.old_state.apps.get_model(self.app_name, "CowrieFileTransfer")
+
+        ioc = IOC.objects.create(name="198.51.100.11", type="ip")
+        session = CowrieSession.objects.create(session_id=0x2345, source=ioc)
+        CowrieFileTransfer.objects.create(
+            session=session,
+            shasum="B" * 64,
+            url="",
+            outfile="",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+        )
+
+        new_state = self.apply_tested_migration()
+        payload_model = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+        transfer_model = new_state.apps.get_model(self.app_name, "CowrieFileTransfer")
+
+        payload = payload_model.objects.get(sha256="b" * 64)
+        transfer = transfer_model.objects.get(session_id=session.pk)
+
+        self.assertEqual(transfer.payload_id, payload.pk)
+        self.assertTrue(payload.iocs.filter(pk=ioc.pk).exists())
+        self.assertTrue(payload.source_honeypots.filter(name="Cowrie").exists())
+
+    def test_case_variant_duplicate_transfers_are_merged(self):
+        IOC = self.old_state.apps.get_model(self.app_name, "IOC")
+        CowrieSession = self.old_state.apps.get_model(self.app_name, "CowrieSession")
+        CowrieFileTransfer = self.old_state.apps.get_model(self.app_name, "CowrieFileTransfer")
+
+        ioc = IOC.objects.create(name="198.51.100.12", type="ip")
+        session = CowrieSession.objects.create(session_id=0x3456, source=ioc)
+        CowrieFileTransfer.objects.create(
+            session=session,
+            shasum="C" * 64,
+            url="http://example.test/payload",
+            outfile="",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+        )
+        CowrieFileTransfer.objects.create(
+            session=session,
+            shasum="c" * 64,
+            url="",
+            outfile="/tmp/payload",
+            timestamp=datetime(2026, 1, 1, 13, 0, 0),
+        )
+
+        new_state = self.apply_tested_migration()
+        payload_model = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+        transfer_model = new_state.apps.get_model(self.app_name, "CowrieFileTransfer")
+
+        payload = payload_model.objects.get(sha256="c" * 64)
+        transfers = transfer_model.objects.filter(session_id=session.pk, payload_id=payload.pk)
+
+        self.assertEqual(transfers.count(), 1)
+
+        transfer = transfers.get()
+        self.assertEqual(transfer.url, "http://example.test/payload")
+        self.assertEqual(transfer.outfile, "/tmp/payload")
+        self.assertEqual(transfer.timestamp, datetime(2026, 1, 1, 13, 0, 0))
+
+    def test_sha256_format_and_unique_constraints_are_enforced(self):
+        new_state = self.apply_tested_migration()
+        payload_model = new_state.apps.get_model(self.app_name, "HoneypotPayload")
+
+        payload_model.objects.create(sha256="a" * 64)
+
+        for invalid_sha256 in ("B" * 64, "g" * 64, "a" * 63):
+            with self.subTest(sha256=invalid_sha256), self.assertRaises(IntegrityError), transaction.atomic():
+                payload_model.objects.create(sha256=invalid_sha256)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            payload_model.objects.create(sha256="a" * 64)
+
+    def test_invalid_legacy_sha256_fails_with_the_row_id(self):
+        HoneypotPayload = self.old_state.apps.get_model(self.app_name, "HoneypotPayload")
+        payload = HoneypotPayload.objects.create(sha256=" " + "a" * 63)
+
+        try:
+            with self.assertRaisesRegex(RuntimeError, rf"HoneypotPayload {payload.pk} has an invalid SHA256"):
+                self.apply_tested_migration()
+        finally:
+            HoneypotPayload.objects.filter(pk=payload.pk).delete()

@@ -3,10 +3,9 @@ from unittest.mock import MagicMock, Mock, patch
 
 import requests
 from django.test import override_settings
-from django.utils import timezone
 
 from greedybear.cronjobs.payload_extraction import PayloadExtractionJob
-from greedybear.models import CowrieFileTransfer, HoneypotPayload
+from greedybear.models import HoneypotPayload
 
 from . import CustomTestCase
 
@@ -110,68 +109,6 @@ class TestPayloadExtractionJob(CustomTestCase):
         # Verify download hit the /download/ endpoint.
         download_call = mock_client.get.call_args_list[1]
         self.assertIn("/api/v1/payloads/download/cowrie/aaa", download_call[0][0])
-
-    @override_settings(
-        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
-        TPOT_PAYLOAD_SERVER_API_KEY="test-key",
-        MAX_QUARANTINE_SIZE_GB=5,
-    )
-    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
-    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_download_without_matching_session(self, mock_http_class, mock_usage):
-        """Job should not link a downloaded payload to any session when no matching transfer exists."""
-        mock_client = MagicMock()
-        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
-        mock_http_class.return_value.__exit__ = Mock(return_value=False)
-
-        mock_metadata_resp = Mock()
-        mock_metadata_resp.json.return_value = [{"sha256": "a" * 64, "locator": "cowrie/aaa"}]
-        mock_download_resp = Mock()
-        mock_download_resp.content = b"\x00" * 256
-        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
-        mock_usage.return_value = 0
-
-        self.job.run()
-
-        # No CowrieFileTransfer was ever created for this hash, so nothing should link.
-        obj = HoneypotPayload.objects.get(sha256="a" * 64)
-        self.assertEqual(obj.cowrie_sessions.count(), 0)
-
-    @override_settings(
-        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
-        TPOT_PAYLOAD_SERVER_API_KEY="test-key",
-        MAX_QUARANTINE_SIZE_GB=5,
-    )
-    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
-    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_download_links_cowrie_session(self, mock_http_class, mock_usage):
-        """Job should link a downloaded payload to a Cowrie session that already transferred the same file."""
-        # Same hash as the payload metadata below - simulates Cowrie's extraction already
-        # having recorded this transfer before the payload download runs.
-        CowrieFileTransfer.objects.create(
-            session=self.cowrie_session,
-            shasum="a" * 64,
-            url="",
-            outfile="",
-            timestamp=timezone.now(),
-        )
-
-        mock_client = MagicMock()
-        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
-        mock_http_class.return_value.__exit__ = Mock(return_value=False)
-
-        mock_metadata_resp = Mock()
-        mock_metadata_resp.json.return_value = [{"sha256": "a" * 64, "locator": "cowrie/aaa"}]
-        mock_download_resp = Mock()
-        mock_download_resp.content = b"\x00" * 256
-        mock_client.get.side_effect = [mock_metadata_resp, mock_download_resp]
-        mock_usage.return_value = 0
-
-        self.job.run()
-
-        obj = HoneypotPayload.objects.get(sha256="a" * 64)
-        self.assertIn(self.cowrie_session, obj.cowrie_sessions.all())
-        self.assertIn(self.cowrie_session.source, obj.iocs.all())
 
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
@@ -312,42 +249,6 @@ class TestPayloadExtractionJob(CustomTestCase):
 
         self.assertEqual(stored, 0)
         self.assertEqual(HoneypotPayload.objects.count(), 0)
-
-    def test_metadata_only_links_cowrie_session(self):
-        """A payload recorded without its file still gets its session and IOC links."""
-        CowrieFileTransfer.objects.create(
-            session=self.cowrie_session,
-            shasum="c" * 64,
-            url="",
-            outfile="",
-            timestamp=timezone.now(),
-        )
-
-        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}])
-
-        self.assertEqual(stored, 1)
-        obj = HoneypotPayload.objects.get(sha256="c" * 64)
-        self.assertFalse(obj.payload_file)
-        self.assertIn(self.cowrie_session, obj.cowrie_sessions.all())
-        self.assertIn(self.cowrie_session.source, obj.iocs.all())
-
-    def test_metadata_only_links_existing_stub_to_session(self):
-        """An existing hash-only stub picked up here is linked as well, not just new rows."""
-        HoneypotPayload.objects.create(sha256="c" * 64)
-        CowrieFileTransfer.objects.create(
-            session=self.cowrie_session,
-            shasum="c" * 64,
-            url="",
-            outfile="",
-            timestamp=timezone.now(),
-        )
-
-        stored = self.job._store_metadata_only([{"sha256": "c" * 64, "locator": "cowrie/ccc"}])
-
-        self.assertEqual(stored, 1)
-        obj = HoneypotPayload.objects.get(sha256="c" * 64)
-        self.assertIn(self.cowrie_session, obj.cowrie_sessions.all())
-        self.assertIn(self.cowrie_session.source, obj.iocs.all())
 
     def test_metadata_only_is_idempotent(self):
         """Recording the same payload twice should not create a duplicate row."""
@@ -543,12 +444,6 @@ class TestPayloadExtractionJob(CustomTestCase):
         result = self.job._quarantine_usage_bytes()
         self.assertEqual(result, 0)
 
-    # SHA256 case normalization (see issue #1556).
-    # HoneypotPayload is unique on Lower("sha256"), so a hash that differs only
-    # in case must be treated as a duplicate. Before the fix, the case-sensitive
-    # lookup missed it, the insert went ahead and the unique constraint aborted
-    # the whole run.
-
     @override_settings(
         TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
         TPOT_PAYLOAD_SERVER_API_KEY="",
@@ -574,33 +469,6 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.job.run()
 
         # Recognised as a duplicate: nothing inserted, no download attempted.
-        self.assertEqual(HoneypotPayload.objects.count(), 1)
-        self.assertEqual(mock_client.get.call_count, 1)
-
-    @override_settings(
-        TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000",
-        TPOT_PAYLOAD_SERVER_API_KEY="",
-        MAX_QUARANTINE_SIZE_GB=5,
-    )
-    @patch("greedybear.cronjobs.payload_extraction.PayloadExtractionJob._quarantine_usage_bytes")
-    @patch("greedybear.cronjobs.payload_extraction.HttpClient")
-    def test_lowercase_hash_matches_existing_uppercase_row(self, mock_http_class, mock_usage):
-        """Rows stored in upper case before the fix must still be matched."""
-        HoneypotPayload.objects.create(sha256="B" * 64, payload_file="existing.vir")
-
-        mock_client = MagicMock()
-        mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
-        mock_http_class.return_value.__exit__ = Mock(return_value=False)
-
-        mock_metadata_resp = Mock()
-        mock_metadata_resp.json.return_value = [
-            {"sha256": "b" * 64, "locator": "cowrie/bbb"},
-        ]
-        mock_client.get.return_value = mock_metadata_resp
-        mock_usage.return_value = 0
-
-        self.job.run()
-
         self.assertEqual(HoneypotPayload.objects.count(), 1)
         self.assertEqual(mock_client.get.call_count, 1)
 
@@ -662,6 +530,20 @@ class TestPayloadExtractionJob(CustomTestCase):
         self.assertEqual(HoneypotPayload.objects.get().sha256, "d" * 64)
         # One metadata request plus exactly one download.
         self.assertEqual(mock_client.get.call_count, 2)
+
+    def test_deduplicate_normalizes_and_rejects_invalid_sha256(self):
+        payloads = self.job._deduplicate(
+            [
+                {"sha256": f"  {'A' * 64}  ", "locator": "cowrie/aaa"},
+                {"sha256": "g" * 64, "locator": "cowrie/non-hex"},
+                {"sha256": "a" * 63, "locator": "cowrie/short"},
+            ]
+        )
+
+        self.assertEqual(
+            payloads,
+            [{"sha256": "a" * 64, "locator": "cowrie/aaa"}],
+        )
 
     # Stub-aware deduplication (see issue #1530).
     # A HoneypotPayload row can exist without a file - a metadata-only stub
@@ -746,7 +628,8 @@ class TestPayloadExtractionJob(CustomTestCase):
     @patch("greedybear.cronjobs.payload_extraction.HttpClient")
     def test_upgrading_a_stub_keeps_fields_missing_from_the_response(self, mock_http_class, mock_usage):
         """A field already on the stub must survive an upgrade where the response omits it."""
-        stub = HoneypotPayload.objects.create(sha256="h" * 64, md5="c" * 32)
+        sha256 = "ab" * 32
+        stub = HoneypotPayload.objects.create(sha256=sha256, md5="c" * 32)
 
         mock_client = MagicMock()
         mock_http_class.return_value.__enter__ = Mock(return_value=mock_client)
@@ -754,7 +637,7 @@ class TestPayloadExtractionJob(CustomTestCase):
 
         mock_metadata_resp = Mock()
         mock_metadata_resp.json.return_value = [
-            {"sha256": "h" * 64, "locator": "cowrie/hhh"},  # no md5 this time
+            {"sha256": sha256, "locator": "cowrie/hhh"},  # no md5 this time
         ]
         mock_download_resp = Mock()
         mock_download_resp.content = b"\x01\x02\x03"

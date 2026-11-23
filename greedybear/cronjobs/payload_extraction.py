@@ -12,7 +12,7 @@ from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.cronjobs.repositories import PayloadRepository
 from greedybear.models import HoneypotPayload
-from greedybear.utils import get_time_window
+from greedybear.utils import get_time_window, normalize_sha256
 
 
 class PayloadExtractionJob(Cronjob):
@@ -29,8 +29,8 @@ class PayloadExtractionJob(Cronjob):
        and saves them via QuarantineStorage.
     5. Records metadata-only rows for any payload left undownloaded once the
        quota is reached, so it is not lost with the extraction window.
-    6. Links every payload it records, downloaded or not, to the Cowrie sessions
-       and attacker IOCs that already transferred a file with the same SHA256.
+    6. Leaves IOC, honeypot, and Cowrie session relationships to event
+       processing.
     """
 
     # Timeout for the metadata listing request (seconds).
@@ -149,11 +149,18 @@ class PayloadExtractionJob(Cronjob):
         Returns:
             list[dict]: Only the unique payloads not yet stored locally.
         """
-        # HoneypotPayload is unique on Lower("sha256"), so compare case-insensitively
-        # on both sides. Rows written before this normalization existed may still hold
-        # a mixed-case hash; a case-sensitive lookup would miss them and let the insert
-        # through to fail on the constraint instead.
-        incoming_hashes = {p["sha256"].lower() for p in payloads if "sha256" in p}
+        normalized_payloads = []
+        for payload in payloads:
+            raw_sha256 = payload.get("sha256")
+            try:
+                sha256 = normalize_sha256(raw_sha256)
+            except (TypeError, ValueError):
+                self.log.warning(f"Payload metadata has invalid SHA256 {raw_sha256!r}, skipping.")
+                continue
+
+            normalized_payloads.append({**payload, "sha256": sha256})
+
+        incoming_hashes = {payload["sha256"] for payload in normalized_payloads}
         existing_hashes = self.payload_repo.get_downloaded_hashes(incoming_hashes)
         new_hashes = incoming_hashes - existing_hashes
         self.log.debug(f"Deduplication: {len(incoming_hashes)} incoming, {len(existing_hashes)} existing, {len(new_hashes)} new.")
@@ -162,9 +169,8 @@ class PayloadExtractionJob(Cronjob):
         # collapse into one instead of colliding on the constraint.
         seen = set()
         unique = []
-        for p in payloads:
-            raw_sha = p.get("sha256")
-            sha = raw_sha.lower() if raw_sha else None
+        for p in normalized_payloads:
+            sha = p["sha256"]
             if sha in new_hashes and sha not in seen:
                 seen.add(sha)
                 unique.append(p)
@@ -186,11 +192,6 @@ class PayloadExtractionJob(Cronjob):
         Called when the quarantine quota is exhausted mid-batch. The row keeps the
         locator, which is the only handle the file can be fetched with later, and
         leaves ``payload_file`` empty to mark the payload as not yet downloaded.
-
-        Each row is linked to the Cowrie sessions and attacker IOCs that already
-        transferred the same file, exactly as a downloaded payload would be. The
-        hash is what the join runs on, so a row without a file still carries the
-        attribution; the file only fills in later.
 
         Args:
             payloads: List of payload metadata dicts that were not downloaded.
@@ -219,11 +220,7 @@ class PayloadExtractionJob(Cronjob):
                 locator=locator,
                 mtime=payload_meta.get("mtime"),
             )
-            payload_obj, _ = self.payload_repo.upsert_metadata_only_payload(payload)
-
-            linked = self.payload_repo.link_sessions_to_payload(payload_obj)
-            if linked:
-                self.log.info(f"Linked payload {sha256[:12]}… to {linked} cowrie session(s).")
+            self.payload_repo.upsert_metadata_only_payload(payload)
             stored += 1
 
         if stored:
@@ -232,9 +229,8 @@ class PayloadExtractionJob(Cronjob):
 
     def _download_and_store(self, client: HttpClient, server_url: str, payload_meta: dict) -> bool:
         """
-        Download a single payload file, create its database record (or upgrade
-        an existing hash-only stub with the real file), and link it to any
-        Cowrie sessions that already transferred the same file.
+        Download a single payload file and create its database record, or
+        upgrade an existing hash-only row with the real file.
 
         Args:
             client: HttpClient instance.
@@ -287,7 +283,4 @@ class PayloadExtractionJob(Cronjob):
         else:
             self.log.info(f"Upgraded hash-only stub {sha256[:12]}… with the downloaded file ({len(file_content)} bytes).")
 
-        linked = self.payload_repo.link_sessions_to_payload(payload_obj)
-        if linked:
-            self.log.info(f"Linked payload {sha256[:12]}… to {linked} cowrie session(s).")
         return True
