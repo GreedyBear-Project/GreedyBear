@@ -34,7 +34,9 @@ class RFModel(MLModel):
         """
         Preprocesses features, splits data into train/test sets, and
         trains a Random Forest with optimized hyperparameters.
-        Logs model performance using recall AUC score.
+        Logs model performance using recall AUC score. Classifiers are not
+        retrained when any class has fewer than two samples, preserving the
+        previously saved model.
 
         Args:
             df: Training data containing features and
@@ -44,6 +46,12 @@ class RFModel(MLModel):
 
         x = df[self.features].copy()
         y = self.training_target(df).copy()
+
+        if isinstance(self, Classifier):
+            class_counts = y.value_counts()
+            if len(class_counts) < 2 or class_counts.min() < 2:
+                self.log.warning(f"skipping training {self.name}: each class must have at least two samples")
+                return
 
         for feature in MULTI_VAL_FEATURES:
             x = multi_label_encode(x, feature)
