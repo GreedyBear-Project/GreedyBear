@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 
 from greedybear.cronjobs.scoring.ml_model import Classifier, Regressor
 from greedybear.cronjobs.scoring.random_forest import RFModel
@@ -319,17 +320,19 @@ class TestRFClassifierInsufficientClasses(CustomTestCase):
         classifier = self.RealRFClassifier()
         training_df = pd.DataFrame(
             {
-                "feature1": range(4),
-                "honeypots": [["cowrie"]] * 4,
-                "interactions_on_eval_day": [0, 0, 1, 1],
+                "feature1": range(10),
+                "honeypots": [["cowrie"]] * 10,
+                "interactions_on_eval_day": [0] * 8 + [1] * 2,
             }
         )
         previous_model = Mock()
         classifier.model = previous_model
         classifier.save = Mock()
 
-        classifier.train(training_df)
+        with patch("greedybear.cronjobs.scoring.ml_model.train_test_split", wraps=train_test_split) as split:
+            classifier.train(training_df)
 
+        self.assertIn("stratify", split.call_args.kwargs)
         self.assertIsNot(classifier.model, previous_model)
         classifier.save.assert_called_once()
 
