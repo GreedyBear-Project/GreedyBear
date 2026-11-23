@@ -162,6 +162,31 @@ class FeedsTrendingViewTestCase(CustomTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual({entry["attacker_ip"] for entry in response.json()["attackers"]}, {"7.7.7.7"})
 
+    def test_trending_all_ignores_disabled_honeypots(self):
+        # Ddospot is disabled in the test fixtures
+        AttackerActivityBucket.objects.bulk_create(
+            [
+                AttackerActivityBucket(
+                    attacker_ip="8.8.8.8",
+                    feed_type="ddospot",
+                    bucket_start=datetime(2026, 3, 20, 9, 0),
+                    interaction_count=500,
+                ),
+                AttackerActivityBucket(
+                    attacker_ip="1.1.1.1",
+                    feed_type="cowrie",
+                    bucket_start=datetime(2026, 3, 20, 9, 0),
+                    interaction_count=5,
+                ),
+            ]
+        )
+
+        with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            response = self.client.get(f"{self.url}?feed_type=all&window_minutes=60&limit=10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([entry["attacker_ip"] for entry in response.json()["attackers"]], ["1.1.1.1"])
+
     def test_trending_endpoint_uses_feeds_throttle(self):
         cache.clear()
         try:
