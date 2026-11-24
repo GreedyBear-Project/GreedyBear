@@ -72,6 +72,7 @@ IOC_RETENTION = 3650
 
 # Days to keep Cowrie honeypot sessions with login attempts before deletion
 # Sessions without login attempts are deleted after 30 days regardless of this setting
+# Sessions with login attempts that still reference a command sequence are kept until that sequence expires or its source IOC is deleted
 COWRIE_SESSION_RETENTION = 365
 
 # Days to keep unseen command sequences before deletion
@@ -126,6 +127,11 @@ TPOT_PAYLOAD_SERVER_URL=
 # Optional API key for authenticating with the T-Pot Payload Server.
 # When empty, authentication is disabled on both sides.
 TPOT_PAYLOAD_SERVER_API_KEY=
+
+# Payload servers of several T-Pot sensors, as a single-line JSON list (see the wiki for an example):
+# [{"url": ..., "api_key": ..., "sensor": <IP address of the T-Pot>}], "api_key" is optional.
+# When set, TPOT_PAYLOAD_SERVER_URL and TPOT_PAYLOAD_SERVER_API_KEY are ignored.
+TPOT_PAYLOAD_SERVERS=
 
 # Maximum disk usage (in GB) for the quarantine directory.
 # Payload downloads are paused when this limit is reached.

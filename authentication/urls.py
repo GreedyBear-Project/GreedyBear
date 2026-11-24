@@ -9,6 +9,7 @@ from .views import (
     ChangePasswordView,
     EmailVerificationView,
     LoginView,
+    LogoutView,
     PasswordResetRequestView,
     PasswordResetView,
     RegistrationView,
@@ -45,6 +46,7 @@ urlpatterns = [
     ),
     path("reset-password", PasswordResetView.as_view(), name="auth_reset-password"),
     path("login", LoginView.as_view(), name="auth_login"),
+    path("logout", LogoutView.as_view(), name="auth_logout"),
     path("change-password", ChangePasswordView.as_view(), name="auth_change-password"),
     path("configuration", check_configuration),
     # auth

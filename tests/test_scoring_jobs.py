@@ -42,6 +42,40 @@ class TrainModelsEmptyDataTestCase(CustomTestCase):
         mock_save.assert_called_once()
 
 
+class TrainModelsQuietDayTestCase(CustomTestCase):
+    @patch(PATCH_GET_CURRENT_DATA)
+    def test_skips_cleanly_on_equal_dates_and_saves_snapshot(self, mock_data):
+        quiet = [{"value": "1.2.3.4", "last_seen": "2026-09-01", "interaction_count": 3, "feed_type": ["cowrie"]}]
+        mock_data.return_value = quiet
+        trainer = TrainModels()
+        with (
+            patch.object(TrainModels, "load_training_data", return_value=quiet),
+            patch.object(TrainModels, "save_training_data") as mock_save,
+            patch(PATCH_GET_FEATURES) as mock_features,
+        ):
+            trainer.run()
+            trainer.run()
+        self.assertEqual(mock_save.call_count, 2)
+        mock_features.assert_not_called()
+
+    @patch(PATCH_GET_CURRENT_DATA)
+    def test_skips_cleanly_when_snapshot_is_newer_than_current_data(self, mock_data):
+        mock_data.return_value = [{"value": "1.2.3.4", "last_seen": "2026-09-01", "interaction_count": 3, "feed_type": ["cowrie"]}]
+        trainer = TrainModels()
+        with (
+            patch.object(
+                TrainModels,
+                "load_training_data",
+                return_value=[{"value": "1.2.3.4", "last_seen": "2026-09-02", "interaction_count": 3, "feed_type": ["cowrie"]}],
+            ),
+            patch.object(TrainModels, "save_training_data") as mock_save,
+            patch(PATCH_GET_FEATURES) as mock_features,
+        ):
+            trainer.run()
+        mock_save.assert_called_once()
+        mock_features.assert_not_called()
+
+
 class UpdateScoresEmptyDataTestCase(CustomTestCase):
     def test_skips_cleanly_on_empty_data(self):
         updater = UpdateScores()

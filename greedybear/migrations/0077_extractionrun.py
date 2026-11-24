@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('greedybear', '0075_move_spamhaus_drop_tags'),
+        ('greedybear', '0076_payloadobservation'),
     ]
 
     operations = [

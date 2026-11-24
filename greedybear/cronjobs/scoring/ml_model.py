@@ -250,8 +250,8 @@ class Classifier(MLModel):
         """
         Split data into training and test sets while preserving class distribution.
 
-        Falls back to non-stratified split when the target has fewer than 2
-        distinct classes, which makes stratification impossible.
+        Falls back to non-stratified split when the target is too small to
+        stratify, such as when a split would leave a class out of either set.
 
         Args:
             x: Feature matrix
@@ -260,8 +260,12 @@ class Classifier(MLModel):
         Returns:
             list: (x_train, x_test, y_train, y_test) split datasets
         """
-        if y.nunique() < 2:
-            self.log.warning("only one class present in target — falling back to non-stratified split")
+        class_count = y.nunique()
+        test_count = int(np.ceil(len(y) * 0.2))
+        train_count = len(y) - test_count
+        class_counts = y.value_counts()
+        if class_count < 2 or class_counts.min() < 2 or test_count < class_count or train_count < class_count:
+            self.log.warning("target too small for stratified split — falling back to non-stratified split")
             return train_test_split(x, y, test_size=0.2)
         return train_test_split(x, y, test_size=0.2, stratify=y)
 
