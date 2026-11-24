@@ -40,8 +40,13 @@ vi.mock("recharts", async (importOriginal) => {
         })}
       </div>
     ),
-    ComposedChart: ({ children }) => (
-      <div data-testid="composed-chart">{children}</div>
+    ComposedChart: ({ children, reverseStackOrder }) => (
+      <div
+        data-testid="composed-chart"
+        data-reverse-stack-order={String(Boolean(reverseStackOrder))}
+      >
+        {children}
+      </div>
     ),
     BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
     Bar: ({ dataKey, name }) => <div data-testid={`bar-${name ?? dataKey}`} />,
@@ -137,6 +142,28 @@ describe("Charts Components", () => {
     );
   });
 
+  test("FeedsTypesChart reverses stack order so the bar matches the tooltip order", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_TYPES });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composed-chart")).toHaveAttribute(
+        "data-reverse-stack-order",
+        "true",
+      ),
+    );
+  });
+
+  test("FeedsSourcesChart does not reverse stack order", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
+    render(<FeedsSourcesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composed-chart")).toHaveAttribute(
+        "data-reverse-stack-order",
+        "false",
+      ),
+    );
+  });
+
   test("FeedsSourcesChart renders an Area for each colorMap key in its slice", async () => {
     axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
     render(<FeedsSourcesChart />);
@@ -172,6 +199,22 @@ describe("Charts Components", () => {
       expect(screen.getByTestId("bar-cowrie")).toBeInTheDocument();
       expect(screen.getByTestId("bar-honeytrap")).toBeInTheDocument();
     });
+  });
+
+  test("FeedsTypesChart renders bars alphabetically by name", async () => {
+    axios.get.mockResolvedValue({
+      data: [
+        { date: "2024-01-01", counts: { tanner: 1, cowrie: 2, ciscoasa: 3 } },
+      ],
+    });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId(/^bar-/)
+          .map((bar) => bar.getAttribute("data-testid")),
+      ).toEqual(["bar-ciscoasa", "bar-cowrie", "bar-tanner"]),
+    );
   });
 
   test("FeedsTypesChart renders a chart after data loads", async () => {
