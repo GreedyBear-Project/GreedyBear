@@ -3,7 +3,7 @@
 from certego_saas.apps.user.serializers import UserAccessSerializer
 from rest_framework import serializers as rfs
 
-from api.permissions import THREAT_RESEARCHER_GROUP
+from api.permissions import can_access_payloads
 
 
 class GreedyBearUserAccessSerializer(UserAccessSerializer):
@@ -15,4 +15,4 @@ class GreedyBearUserAccessSerializer(UserAccessSerializer):
     can_download_payloads = rfs.SerializerMethodField()
 
     def get_can_download_payloads(self, obj) -> bool:
-        return bool(obj.is_staff or obj.groups.filter(name=THREAT_RESEARCHER_GROUP).exists())
+        return can_access_payloads(obj)

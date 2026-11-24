@@ -5,12 +5,17 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 THREAT_RESEARCHER_GROUP = "threat_researcher"
 
 
+def can_access_payloads(user) -> bool:
+    """Return True for staff users or members of the ``threat_researcher`` group."""
+    return bool(user.is_staff or user.groups.filter(name=THREAT_RESEARCHER_GROUP).exists())
+
+
 class IsThreatResearcherOrAdmin(BasePermission):
     """Allow access only to staff users or members of the ``threat_researcher`` group."""
 
     def has_permission(self, request, view):
         user = request.user
-        return user and user.is_authenticated and (user.is_staff or user.groups.filter(name=THREAT_RESEARCHER_GROUP).exists())
+        return user and user.is_authenticated and can_access_payloads(user)
 
 
 class IsSuperuserOrReadOnly(BasePermission):
