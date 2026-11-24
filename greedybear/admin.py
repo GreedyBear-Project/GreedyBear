@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.utils.html import format_html
 from django.utils.translation import ngettext
 
-from greedybear.cache import invalidate_ioc_cache
+from greedybear.cache import invalidate_ioc_cache, invalidate_trending_cache
 from greedybear.models import (
     IOC,
     APISource,
@@ -35,10 +35,16 @@ MAX_LISTED_ITEMS = 6
 TITLE_MAX_CHARS = 2000
 
 
+def invalidate_api_caches() -> None:
+    """Invalidate the cached feeds, statistics and trending responses."""
+    invalidate_ioc_cache()
+    invalidate_trending_cache()
+
+
 class GreedyBearModelAdmin(admin.ModelAdmin):
     """Base admin class for all GreedyBear models.
 
-    Every admin write invalidates the IOC cache, so feeds and statistics
+    Every admin write invalidates the IOC and trending caches, so feeds and statistics
     reflect the change on the next request.
     """
 
@@ -47,15 +53,15 @@ class GreedyBearModelAdmin(admin.ModelAdmin):
     def save_related(self, request, form, formsets, change):
         # runs after save_model, once M2M fields and inlines are saved too
         super().save_related(request, form, formsets, change)
-        invalidate_ioc_cache()
+        invalidate_api_caches()
 
     def delete_model(self, request, obj):
         super().delete_model(request, obj)
-        invalidate_ioc_cache()
+        invalidate_api_caches()
 
     def delete_queryset(self, request, queryset):
         super().delete_queryset(request, queryset)
-        invalidate_ioc_cache()
+        invalidate_api_caches()
 
 
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
@@ -295,7 +301,7 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         number_updated = honeypots.update(active=False)
         # update() bypasses save_related, so invalidate explicitly
         if number_updated:
-            invalidate_ioc_cache()
+            invalidate_api_caches()
         self.message_user(
             request,
             ngettext(
@@ -313,7 +319,7 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         honeypots = queryset.filter(enableable).all()
         number_updated = honeypots.update(active=True)
         if number_updated:
-            invalidate_ioc_cache()
+            invalidate_api_caches()
         self.message_user(
             request,
             ngettext(
