@@ -201,6 +201,22 @@ describe("Charts Components", () => {
     });
   });
 
+  test("FeedsTypesChart renders bars alphabetically by name", async () => {
+    axios.get.mockResolvedValue({
+      data: [
+        { date: "2024-01-01", counts: { tanner: 1, cowrie: 2, ciscoasa: 3 } },
+      ],
+    });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId(/^bar-/)
+          .map((bar) => bar.getAttribute("data-testid")),
+      ).toEqual(["bar-ciscoasa", "bar-cowrie", "bar-tanner"]),
+    );
+  });
+
   test("FeedsTypesChart renders a chart after data loads", async () => {
     axios.get.mockResolvedValue({ data: ONE_DAY_TYPES });
     render(<FeedsTypesChart />);

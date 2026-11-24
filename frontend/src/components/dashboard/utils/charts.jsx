@@ -193,7 +193,7 @@ export const FeedsTypesChart = React.memo(() => {
     if (!data || data.length === 0) return null;
     // Honeypot names live under counts so a name such as "date" cannot
     // overwrite the top-level time-bucket value used by the chart.
-    const feedsTypes = Object.keys(data[0].counts ?? {});
+    const feedsTypes = Object.keys(data[0].counts ?? {}).sort();
     return feedsTypes.map((dKey, i) => (
       <Bar
         stackId="feedtype"
@@ -205,9 +205,8 @@ export const FeedsTypesChart = React.memo(() => {
     ));
   }, [data]);
 
-  // The API returns honeypots alphabetically and the tooltip also sorts
-  // alphabetically (top to bottom), so reverse the stack to make the bar
-  // read the same way (top to bottom).
+  // Bars and tooltip rows are sorted by name; reverse the stack so the bar
+  // reads in tooltip order (top to bottom).
   return (
     <ChartSkeleton
       data={data}
