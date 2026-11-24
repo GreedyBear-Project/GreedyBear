@@ -475,12 +475,15 @@ class ExtractionRun(models.Model):
     One run of a windowed extraction job.
 
     window_end only ever moves past chunks that were fully processed (or failed
-    permanently and were skipped), so the latest window_end of a job is its
-    watermark: the point the next run resumes from. For payload extraction,
+    permanently and were skipped), so the latest window_end of a job and source
+    is its watermark: the point the next run resumes from. For payload extraction,
     ioc_count holds the number of payloads stored.
     """
 
     job_name = models.CharField(max_length=32, choices=ExtractionJobName.choices)
+    # What the job reads from, for a job with several sources that each keep their
+    # own watermark, like the URL of a payload server. Empty for a single source.
+    source = models.CharField(max_length=512, blank=True, default="")
     window_start = models.DateTimeField()
     window_end = models.DateTimeField()
     status = models.CharField(
@@ -496,11 +499,12 @@ class ExtractionRun(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["job_name", "window_end"]),
+            models.Index(fields=["job_name", "source", "window_end"]),
         ]
 
     def __str__(self):
-        return f"{self.job_name} {self.window_start} - {self.window_end} ({self.status})"
+        source = f" {self.source}" if self.source else ""
+        return f"{self.job_name}{source} {self.window_start} - {self.window_end} ({self.status})"
 
 
 class RawEvent(models.Model):

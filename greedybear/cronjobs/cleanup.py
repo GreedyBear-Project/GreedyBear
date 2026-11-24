@@ -66,7 +66,7 @@ class CleanUp(Cronjob):
         8. Resets APISource invalid_event_count daily for retention enforcement
         9. Deletes all RawEvents older than RAW_EVENT_RETENTION days
         10. Deletes all EventStatus older than EVENT_STATUS_RETENTION days
-        11. Deletes all ExtractionRuns older than EXTRACTION_RUN_RETENTION days, except the latest run of each job
+        11. Deletes all ExtractionRuns older than EXTRACTION_RUN_RETENTION days, except the latest run of each job and source
 
         Each deletion operation is logged with the number of affected records.
         """
@@ -116,6 +116,6 @@ class CleanUp(Cronjob):
         n = self.event_repo.delete_old_event_statuses(event_status_expiration_date)
         self.log.info(f"{n} objects deleted")
 
-        self.log.info(f"deleting all ExtractionRuns older then {EXTRACTION_RUN_RETENTION} days, except the latest run of each job")
+        self.log.info(f"deleting all ExtractionRuns older then {EXTRACTION_RUN_RETENTION} days, except the latest run of each job and source")
         n = self.extraction_run_repo.delete_old_runs(extraction_run_expiration_date)
         self.log.info(f"{n} objects deleted")

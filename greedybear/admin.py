@@ -375,6 +375,7 @@ class ExtractionRunAdmin(GreedyBearModelAdmin):
     list_display = [
         "id",
         "job_name",
+        "source",
         "window_start",
         "window_end",
         "status",
@@ -386,6 +387,7 @@ class ExtractionRunAdmin(GreedyBearModelAdmin):
     list_filter = ["job_name", "status"]
     readonly_fields = [
         "job_name",
+        "source",
         "window_start",
         "window_end",
         "status",

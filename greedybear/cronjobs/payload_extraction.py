@@ -10,10 +10,11 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 
 from greedybear.cronjobs.base import Cronjob
+from greedybear.cronjobs.exceptions import PayloadServerError, RecoverableError
 from greedybear.cronjobs.http_client import HttpClient
-from greedybear.cronjobs.repositories import PayloadRepository, SensorRepository
-from greedybear.models import HoneypotPayload, PayloadObservation, Sensor
-from greedybear.utils import get_time_window
+from greedybear.cronjobs.repositories import ExtractionRunRepository, PayloadRepository, SensorRepository
+from greedybear.models import ExtractionJobName, ExtractionRunStatus, HoneypotPayload, PayloadObservation, Sensor
+from greedybear.utils import get_catch_up_window, split_time_window
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,11 @@ class PayloadSource:
     def __str__(self) -> str:
         return f"{self.url} (sensor {self.sensor.address})" if self.sensor else self.url
 
+    @property
+    def key(self) -> str:
+        """Identifies the server in the run history, so that every server keeps its own watermark."""
+        return self.url.rstrip("/")
+
 
 class PayloadExtractionJob(Cronjob):
     """
@@ -41,7 +47,8 @@ class PayloadExtractionJob(Cronjob):
 
     For every configured payload server, this job:
     1. Queries the payload server's ``/api/v1/payloads/recent`` endpoint for
-       metadata of files modified within the last extraction interval.
+       metadata of files modified since the last run for this server, one
+       extraction interval at a time.
     2. Records an observation for every listed payload, which keeps the
        server's sensor and locator. A binary reported by several sensors is
        stored once but observed by each of them.
@@ -54,10 +61,13 @@ class PayloadExtractionJob(Cronjob):
     7. Links every payload it records, downloaded or not, to the Cowrie sessions
        and attacker IOCs that already transferred a file with the same SHA256.
 
-    Payload servers are processed independently: one that is unreachable or
-    fails is logged and skipped, without affecting the others. When every
-    server failed, this is logged as an error too, but the run never fails
-    because of a payload server.
+    Payload servers are processed independently, and every server keeps its
+    own watermark in the run history (ExtractionRun). A server that cannot be
+    reached keeps its watermark, so the next run fetches the same interval
+    again, while the others move on. An interval that fails for any other
+    reason, like a malformed response, is recorded and skipped. Every failure
+    is logged as an error, and so is every server failing, but the run never
+    fails because of a payload server.
     """
 
     # Timeout for the metadata listing request (seconds).
@@ -65,9 +75,10 @@ class PayloadExtractionJob(Cronjob):
     # Timeout for individual file download requests (seconds).
     DOWNLOAD_TIMEOUT = 120
 
-    def __init__(self, payload_repo: PayloadRepository | None = None):
+    def __init__(self, payload_repo: PayloadRepository | None = None, run_repo: ExtractionRunRepository | None = None):
         super().__init__()
         self.payload_repo = payload_repo if payload_repo is not None else PayloadRepository()
+        self.run_repo = run_repo if run_repo is not None else ExtractionRunRepository()
 
     def run(self) -> None:
         sources = self._get_sources()
@@ -75,9 +86,9 @@ class PayloadExtractionJob(Cronjob):
             self.log.info("No payload server configured, skipping payload extraction.")
             return
 
-        # Computed once, so every server is asked for the same window even if
-        # the run crosses an interval boundary while working through them.
-        window = self._extraction_window()
+        # Read once, so the window of every server ends at the same interval
+        # boundary, even if the run crosses one while working through them.
+        now = datetime.now()
 
         failed = 0
         with HttpClient(default_timeout=self.METADATA_TIMEOUT) as client:
@@ -85,7 +96,8 @@ class PayloadExtractionJob(Cronjob):
                 # Every write is committed as it happens, so a failure here never
                 # rolls back what was stored from this or any earlier server.
                 try:
-                    self._extract_from_source(client, source, window)
+                    if not self._extract_from_source(client, source, now):
+                        failed += 1
                 except Exception:
                     self.log.exception(f"Payload extraction from {source} failed, continuing with the remaining payload servers.")
                     failed += 1
@@ -122,17 +134,70 @@ class PayloadExtractionJob(Cronjob):
             sources.append(PayloadSource(url=server["url"], api_key=server.get("api_key", ""), sensor=sensor))
         return sources
 
-    def _extraction_window(self) -> tuple[datetime, datetime]:
+    def _extraction_window(self, source: PayloadSource, now: datetime) -> tuple[datetime, datetime]:
         """
-        Return the time window of the last completed extraction interval.
+        Calculate the time window for this run of a payload server.
+
+        The window continues from where the last run for this server stopped, but
+        reaches back at most INITIAL_EXTRACTION_TIMESPAN minutes. Without a previous
+        run it covers the last extraction interval only, as before runs were recorded.
+
+        Args:
+            source: Payload server to fetch from.
+            now: Current point in time.
+
+        Returns:
+            The start and end of the time window. The window is empty if start >= end.
         """
-        return get_time_window(
-            reference_time=datetime.now(),
-            lookback_minutes=settings.EXTRACTION_INTERVAL,
+        watermark = self.run_repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION, source.key)
+        max_lookback = settings.INITIAL_EXTRACTION_TIMESPAN if watermark is not None else settings.EXTRACTION_INTERVAL
+        return get_catch_up_window(
+            reference_time=now,
+            watermark=watermark,
+            max_lookback_minutes=max_lookback,
             extraction_interval=settings.EXTRACTION_INTERVAL,
         )
 
-    def _extract_from_source(self, client: HttpClient, source: PayloadSource, window: tuple[datetime, datetime]) -> None:
+    def _extract_from_source(self, client: HttpClient, source: PayloadSource, now: datetime) -> bool:
+        """
+        Extract the payloads of one payload server, from its watermark up to now.
+
+        The window is processed one extraction interval at a time, and the
+        watermark moves past every interval that is done. If the server cannot
+        be reached, the run stops there and the next run fetches that interval
+        again. An interval that fails for any other reason is recorded and skipped.
+
+        Args:
+            client: HttpClient instance.
+            source: Payload server to fetch from.
+            now: Current point in time.
+
+        Returns:
+            bool: True if every interval was extracted, False if the server could
+                not be reached or an interval was skipped.
+        """
+        window_start, window_end = self._extraction_window(source, now)
+        if window_start >= window_end:
+            self.log.info(f"Nothing to extract from {source}, payloads up to {window_start} were already extracted.")
+            return True
+
+        run = self.run_repo.start_run(ExtractionJobName.PAYLOAD_EXTRACTION, window_start, source.key)
+        for chunk_start, chunk_end in split_time_window(window_start, window_end, settings.EXTRACTION_INTERVAL):
+            try:
+                stored = self._extract_window(client, source, (chunk_start, chunk_end))
+            except RecoverableError as exc:
+                self.log.exception(f"Payload extraction from {source} failed for {chunk_start} - {chunk_end}, the next run will retry it.")
+                self.run_repo.finish(run, error=str(exc), retryable=True)
+                return False
+            except Exception as exc:
+                self.log.exception(f"Payload extraction from {source} failed for {chunk_start} - {chunk_end}, skipping it.")
+                self.run_repo.skip(run, chunk_end, str(exc))
+                continue
+            self.run_repo.advance(run, chunk_end, stored)
+        self.run_repo.finish(run)
+        return run.status == ExtractionRunStatus.SUCCESS
+
+    def _extract_window(self, client: HttpClient, source: PayloadSource, window: tuple[datetime, datetime]) -> int:
         """
         Fetch, record and download the payloads one payload server listed in the window.
 
@@ -140,6 +205,12 @@ class PayloadExtractionJob(Cronjob):
             client: HttpClient instance.
             source: Payload server to fetch from.
             window: Start and end of the extraction window.
+
+        Returns:
+            int: Number of new payloads stored, downloaded or as metadata only.
+
+        Raises:
+            PayloadServerError: If the server cannot be reached or rejects the request.
         """
         max_size_bytes = settings.MAX_QUARANTINE_SIZE_GB * (1024**3)
 
@@ -147,7 +218,7 @@ class PayloadExtractionJob(Cronjob):
         payloads = self._fetch_metadata(client, source, window)
         if not payloads:
             self.log.info(f"No payloads returned from {source}.")
-            return
+            return 0
 
         # Step 2: Separate payloads whose file is already stored, possibly
         # downloaded from another server, from new ones by SHA256. A row without
@@ -168,7 +239,7 @@ class PayloadExtractionJob(Cronjob):
 
         if not new_payloads:
             self.log.info(f"All payloads from {source} already exist in the database.")
-            return
+            return 0
 
         self.log.info(f"Found {len(new_payloads)} new payload(s) to download from {source}.")
 
@@ -195,6 +266,7 @@ class PayloadExtractionJob(Cronjob):
             f"Payload extraction from {source} complete: {downloaded} downloaded, {skipped_count} skipped/failed, "
             f"{deferred_count} stored as metadata only, {len(payloads) - len(new_payloads)} already stored."
         )
+        return downloaded + deferred_count
 
     def _build_auth_headers(self, source: PayloadSource) -> dict:
         """
@@ -225,7 +297,7 @@ class PayloadExtractionJob(Cronjob):
             list[dict]: List of payload metadata dicts, empty if the server has no new payloads.
 
         Raises:
-            requests.RequestException: If the server cannot be reached or rejects the request.
+            PayloadServerError: If the server cannot be reached or rejects the request.
             ValueError: If the response is not JSON.
             TypeError: If the response is not a JSON list.
         """
@@ -234,7 +306,10 @@ class PayloadExtractionJob(Cronjob):
         params = {"start_ts": window_start.timestamp(), "end_ts": window_end.timestamp()}
         headers = self._build_auth_headers(source)
 
-        response = client.get(url, params=params, headers=headers, verify=False)
+        try:
+            response = client.get(url, params=params, headers=headers, verify=False)
+        except requests.RequestException as exc:
+            raise PayloadServerError(f"failed to fetch payload metadata from {source}: {exc}") from exc
         data = response.json()
         if not isinstance(data, list):
             raise TypeError(f"Payload metadata response from {source} is not a list.")

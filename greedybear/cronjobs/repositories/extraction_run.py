@@ -11,37 +11,42 @@ class ExtractionRunRepository:
     Repository for the run history of windowed extraction jobs.
 
     The latest window_end of a job is its watermark, the point from which
-    the next run of that job continues.
+    the next run of that job continues. A job with several sources, like the
+    payload extraction with one run per payload server, keeps a watermark
+    for every source.
     """
 
     def __init__(self):
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def get_watermark(self, job_name: str) -> datetime | None:
+    def get_watermark(self, job_name: str, source: str = "") -> datetime | None:
         """
-        Return the point up to which a job has covered its data.
+        Return the point up to which a job has covered the data of a source.
 
         Args:
             job_name: Name of the job.
+            source: The source the job reads from, empty for a job with a single source.
 
         Returns:
-            The latest window_end recorded for this job, or None if it never ran.
+            The latest window_end recorded for this job and source, or None if it never ran.
         """
-        return ExtractionRun.objects.filter(job_name=job_name).aggregate(watermark=Max("window_end"))["watermark"]
+        return ExtractionRun.objects.filter(job_name=job_name, source=source).aggregate(watermark=Max("window_end"))["watermark"]
 
-    def start_run(self, job_name: str, window_start: datetime) -> ExtractionRun:
+    def start_run(self, job_name: str, window_start: datetime, source: str = "") -> ExtractionRun:
         """
         Record the start of a run that has not covered any data yet.
 
         Args:
             job_name: Name of the job.
             window_start: Start of the time window the run is about to process.
+            source: The source the job reads from, empty for a job with a single source.
 
         Returns:
             The new ExtractionRun.
         """
         return ExtractionRun.objects.create(
             job_name=job_name,
+            source=source,
             window_start=window_start,
             window_end=window_start,
         )
@@ -97,7 +102,7 @@ class ExtractionRunRepository:
         """
         Delete runs created before the given date.
 
-        The latest run of every job is always kept, since it holds that job's watermark.
+        The latest run of every job and source is always kept, since it holds their watermark.
 
         Args:
             expiration_date: Runs created before this date are deleted.
@@ -106,7 +111,7 @@ class ExtractionRunRepository:
             Number of deleted runs.
         """
         # order_by() clears the default ordering, which would otherwise break distinct()
-        job_names = ExtractionRun.objects.order_by().values_list("job_name", flat=True).distinct()
-        latest_run_ids = [ExtractionRun.objects.filter(job_name=job_name).latest("window_end").pk for job_name in job_names]
+        watermarks = ExtractionRun.objects.order_by().values_list("job_name", "source").distinct()
+        latest_run_ids = [ExtractionRun.objects.filter(job_name=job_name, source=source).latest("window_end").pk for job_name, source in watermarks]
         deleted_count, _ = ExtractionRun.objects.filter(created_at__lt=expiration_date).exclude(pk__in=latest_run_ids).delete()
         return deleted_count

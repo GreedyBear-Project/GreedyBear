@@ -10,8 +10,8 @@ class TestExtractionRunRepository(CustomTestCase):
     def setUp(self):
         self.repo = ExtractionRunRepository()
 
-    def _create_run(self, window_end, job_name=ExtractionJobName.EXTRACTION, created_at=None):
-        run = ExtractionRun.objects.create(job_name=job_name, window_start=window_end - timedelta(minutes=10), window_end=window_end)
+    def _create_run(self, window_end, job_name=ExtractionJobName.EXTRACTION, created_at=None, source=""):
+        run = ExtractionRun.objects.create(job_name=job_name, source=source, window_start=window_end - timedelta(minutes=10), window_end=window_end)
         if created_at is not None:
             # created_at is auto_now_add, so it can only be set after creation
             ExtractionRun.objects.filter(pk=run.pk).update(created_at=created_at)
@@ -28,6 +28,23 @@ class TestExtractionRunRepository(CustomTestCase):
 
         self.assertEqual(self.repo.get_watermark(ExtractionJobName.EXTRACTION), datetime(2025, 1, 1, 12, 0))
         self.assertEqual(self.repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION), datetime(2025, 1, 1, 13, 0))
+
+    def test_get_watermark_is_kept_per_source(self):
+        self._create_run(datetime(2025, 1, 1, 10, 0), job_name=ExtractionJobName.PAYLOAD_EXTRACTION, source="https://tpot-a:64445")
+        self._create_run(datetime(2025, 1, 1, 12, 0), job_name=ExtractionJobName.PAYLOAD_EXTRACTION, source="https://tpot-b:64445")
+        self._create_run(datetime(2025, 1, 1, 11, 0))
+
+        self.assertEqual(self.repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION, "https://tpot-a:64445"), datetime(2025, 1, 1, 10, 0))
+        self.assertEqual(self.repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION, "https://tpot-b:64445"), datetime(2025, 1, 1, 12, 0))
+        self.assertIsNone(self.repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION))
+        self.assertEqual(self.repo.get_watermark(ExtractionJobName.EXTRACTION), datetime(2025, 1, 1, 11, 0))
+
+    def test_start_run_records_the_source(self):
+        run = self.repo.start_run(ExtractionJobName.PAYLOAD_EXTRACTION, datetime(2025, 1, 1, 10, 0), "https://tpot-a:64445")
+
+        run.refresh_from_db()
+        self.assertEqual(run.source, "https://tpot-a:64445")
+        self.assertEqual(self.repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION, "https://tpot-a:64445"), datetime(2025, 1, 1, 10, 0))
 
     def test_start_run_covers_nothing_yet(self):
         run = self.repo.start_run(ExtractionJobName.EXTRACTION, datetime(2025, 1, 1, 10, 0))
@@ -104,6 +121,18 @@ class TestExtractionRunRepository(CustomTestCase):
         self.assertEqual(set(ExtractionRun.objects.values_list("pk", flat=True)), {latest_extraction.pk, latest_payloads.pk})
         self.assertEqual(self.repo.get_watermark(ExtractionJobName.EXTRACTION), datetime(2025, 1, 1, 11, 0))
         self.assertEqual(self.repo.get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION), datetime(2025, 1, 1, 9, 0))
+
+    def test_delete_old_runs_keeps_watermark_of_every_source(self):
+        """Every payload server keeps its own watermark, so the latest run of each one must survive."""
+        now = datetime.now()
+        self._create_run(datetime(2025, 1, 1, 8, 0), job_name=ExtractionJobName.PAYLOAD_EXTRACTION, source="a", created_at=now - timedelta(days=50))
+        latest_a = self._create_run(datetime(2025, 1, 1, 9, 0), job_name=ExtractionJobName.PAYLOAD_EXTRACTION, source="a", created_at=now - timedelta(days=40))
+        latest_b = self._create_run(datetime(2025, 1, 1, 7, 0), job_name=ExtractionJobName.PAYLOAD_EXTRACTION, source="b", created_at=now - timedelta(days=40))
+
+        deleted = self.repo.delete_old_runs(now - timedelta(days=30))
+
+        self.assertEqual(deleted, 1)
+        self.assertEqual(set(ExtractionRun.objects.values_list("pk", flat=True)), {latest_a.pk, latest_b.pk})
 
     def test_delete_old_runs_without_runs(self):
         self.assertEqual(self.repo.delete_old_runs(datetime.now()), 0)

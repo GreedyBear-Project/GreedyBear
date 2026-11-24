@@ -27,4 +27,4 @@ class ElasticSearchError(RecoverableError):
 
 
 class PayloadServerError(RecoverableError):
-    """Raised when the tpot-payload-server cannot be reached."""
+    """Raised when a tpot-payload-server cannot be reached or rejects the request."""
