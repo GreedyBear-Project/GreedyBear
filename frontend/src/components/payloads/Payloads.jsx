@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Container,
   Button,
@@ -44,7 +44,7 @@ const buildParams = (values) => {
 };
 
 // child component so useDataTable hooks live here; changing `key` remounts it.
-function PayloadsTable({ tableParams, canDownload, onDataLoad }) {
+function PayloadsTableInner({ tableParams, canDownload, onDataLoad }) {
   const toPassTableProps = React.useMemo(
     () => ({ columns: payloadsTableColumns(canDownload), tableEmptyNode }),
     [canDownload],
@@ -67,16 +67,22 @@ function PayloadsTable({ tableParams, canDownload, onDataLoad }) {
   return <>{tableNode}</>;
 }
 
+function PayloadsTable({ pending, ...props }) {
+  return pending ? null : <PayloadsTableInner {...props} />;
+}
+
 function Payloads() {
   const canDownload = useAuthStore(
     React.useCallback((s) => s.canDownloadPayloads, []),
   );
 
   const navigate = useNavigate();
+  const location = useLocation();
   const formikRef = React.useRef(null);
   const [tableState, setTableState] = React.useState({
     tableParams: {},
     tableKey: 0,
+    pending: false,
   });
   const [payloadsData, setPayloadsData] = React.useState(null);
 
@@ -93,16 +99,19 @@ function Payloads() {
     [honeypots],
   );
 
-  const onSubmit = React.useCallback(
-    (values) => {
-      navigate({ search: "" }, { replace: true });
-      setTableState((prev) => ({
-        tableParams: buildParams(values),
-        tableKey: prev.tableKey + 1,
-      }));
-    },
-    [navigate],
-  );
+  const onSubmit = React.useCallback((values) => {
+    setTableState((prev) => ({
+      tableParams: buildParams(values),
+      tableKey: prev.tableKey + 1,
+      pending: true,
+    }));
+  }, []);
+
+  React.useEffect(() => {
+    if (!tableState.pending) return;
+    if (location.search) navigate({ search: "" }, { replace: true });
+    else setTableState((prev) => ({ ...prev, pending: false }));
+  }, [tableState.pending, location.search, navigate]);
 
   const isDefault = Object.keys(tableState.tableParams).length === 0;
 
@@ -208,6 +217,7 @@ function Payloads() {
         </Row>
         <PayloadsTable
           key={tableState.tableKey}
+          pending={tableState.pending}
           tableParams={tableState.tableParams}
           canDownload={canDownload}
           onDataLoad={setPayloadsData}

@@ -131,4 +131,19 @@ describe("Payloads", () => {
       expect(allRequests().some((r) => r.includes("Cowrie"))).toBe(true),
     );
   });
+
+  test("searching from page 3 drops page from the URL and request", async () => {
+    window.history.replaceState({}, "", "/?page=3");
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText(SHA);
+    await user.type(screen.getByLabelText("Hash:"), "abc123");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() =>
+      expect(allRequests().some((r) => r.includes("abc123"))).toBe(true),
+    );
+    expect(window.location.search).not.toContain("page=3");
+    const last = JSON.parse(allRequests().at(-1));
+    expect(String(last.params.page)).toBe("1");
+  });
 });
