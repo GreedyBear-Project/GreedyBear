@@ -7,7 +7,7 @@ from elasticsearch import ConnectionTimeout as ElasticConnectionTimeout
 from elasticsearch.dsl import Q, Search
 
 from greedybear.consts import FIELDS_TO_EXTRACT
-from greedybear.cronjobs.exceptions import ElasticServerDownError
+from greedybear.cronjobs.exceptions import ElasticSearchError, ElasticServerDownError
 from greedybear.utils import get_time_window
 
 
@@ -62,6 +62,9 @@ class ElasticRepository:
         Callers keep the window short (one extraction interval) so the result fits in memory.
         Returns an empty list when Elasticsearch is not configured.
 
+        This method only fetches and sorts the data, so any failure in here is
+        safe to retry and raised as a RecoverableError.
+
         Args:
             window_start: Start of the time window (inclusive).
             window_end: End of the time window (exclusive).
@@ -71,21 +74,24 @@ class ElasticRepository:
 
         Raises:
             ElasticServerDownError: If Elasticsearch is unreachable.
+            ElasticSearchError: If the search fails for any other reason.
         """
         if not self.is_available:
             return []
         self._healthcheck()
         self.log.debug(f"querying elastic, time window: {window_start} - {window_end}")
-        search = Search(using=self.elastic_client, index="logstash-*")
-        q = Q("range", **{"@timestamp": {"gte": window_start, "lt": window_end}})
-        search = search.query(q)
-        search = search.source([*FIELDS_TO_EXTRACT])
         try:
+            search = Search(using=self.elastic_client, index="logstash-*")
+            q = Q("range", **{"@timestamp": {"gte": window_start, "lt": window_end}})
+            search = search.query(q)
+            search = search.source([*FIELDS_TO_EXTRACT])
             result = list(search.scan())
+            result.sort(key=lambda hit: hit["@timestamp"])
         except (ElasticConnectionError, ElasticConnectionTimeout) as exc:
             raise ElasticServerDownError("lost connection to elastic server during search") from exc
+        except Exception as exc:
+            raise ElasticSearchError(f"search for {window_start} - {window_end} failed: {type(exc).__name__}: {exc}") from exc
         self.log.debug(f"found {len(result)} hits")
-        result.sort(key=lambda hit: hit["@timestamp"])
         return result
 
     def _healthcheck(self):

@@ -6,7 +6,7 @@ from elasticsearch import ConnectionError as ElasticConnectionError
 from elasticsearch import ConnectionTimeout as ElasticConnectionTimeout
 
 from greedybear.consts import FIELDS_TO_EXTRACT
-from greedybear.cronjobs.exceptions import ElasticServerDownError, RecoverableError
+from greedybear.cronjobs.exceptions import ElasticSearchError, ElasticServerDownError, RecoverableError
 from greedybear.cronjobs.repositories import ElasticRepository
 
 from . import CustomTestCase
@@ -143,13 +143,27 @@ class TestElasticRepository(CustomTestCase):
                     self.repo.search(datetime(2025, 1, 1, 12, 0), datetime(2025, 1, 1, 12, 10))
 
     @patch("greedybear.cronjobs.repositories.elastic.Search")
-    def test_search_does_not_mask_other_errors(self, mock_search_class):
-        """Errors other than a lost connection are not marked as recoverable."""
+    def test_search_raises_recoverable_error_on_any_other_failure(self, mock_search_class):
+        """search() only fetches and sorts the data, so any other failure is worth retrying too."""
         mock_search = self._mock_search(mock_search_class, [])
         mock_search.scan.side_effect = ValueError("malformed response")
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ElasticSearchError) as ctx:
             self.repo.search(datetime(2025, 1, 1, 12, 0), datetime(2025, 1, 1, 12, 10))
+        self.assertIsInstance(ctx.exception.__cause__, ValueError)
+        self.assertIn("ValueError: malformed response", str(ctx.exception))
+
+    @patch("greedybear.cronjobs.repositories.elastic.Search")
+    def test_search_raises_recoverable_error_when_sorting_fails(self, mock_search_class):
+        """A hit without a timestamp cannot be sorted, which is retried like any other failure in search()."""
+        self._mock_search(mock_search_class, [{"name": "hit1", "@timestamp": 1}, {"name": "hit2"}])
+
+        with self.assertRaises(ElasticSearchError) as ctx:
+            self.repo.search(datetime(2025, 1, 1, 12, 0), datetime(2025, 1, 1, 12, 10))
+        self.assertIsInstance(ctx.exception.__cause__, KeyError)
+
+    def test_elastic_search_error_is_recoverable(self):
+        self.assertTrue(issubclass(ElasticSearchError, RecoverableError))
 
     def test_fields_to_extract_include_type_for_trending_bucketing(self):
         self.assertIn("type", FIELDS_TO_EXTRACT)

@@ -17,5 +17,14 @@ class ElasticServerDownError(RecoverableError):
     """Raised when the Elasticsearch server is unreachable."""
 
 
+class ElasticSearchError(RecoverableError):
+    """
+    Raised when a search on the Elasticsearch server fails for any other reason.
+
+    A search only fetches and sorts the data, so it is safe to repeat, and errors
+    like an overloaded cluster are usually temporary.
+    """
+
+
 class PayloadServerError(RecoverableError):
     """Raised when the tpot-payload-server cannot be reached."""
