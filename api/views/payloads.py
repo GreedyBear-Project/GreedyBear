@@ -4,6 +4,7 @@ import logging
 
 from django.db.models import QuerySet
 from django.http import FileResponse
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status, viewsets
@@ -12,6 +13,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from api.filters import HoneypotPayloadFilterSet
 from api.mixins import QueryParamValidationMixin
 from api.permissions import IsThreatResearcherOrAdmin
 from api.serializers.payloads import HoneypotPayloadSerializer
@@ -58,15 +60,17 @@ class HoneypotPayloadViewSet(QueryParamValidationMixin, viewsets.ReadOnlyModelVi
     serializer_class = HoneypotPayloadSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "sha256"
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = HoneypotPayloadFilterSet
 
     def get_allowed_query_params(self) -> set[str]:
         """
-        Only the list action reads query params: the page params, plus `paginate`,
-        which the default CustomPageNumberPagination reads to turn pagination off.
+        Only the list action reads query params: the page params, `paginate` (which the default
+        CustomPageNumberPagination reads to turn pagination off) and the filterset params.
         serializer_class is the response serializer here, so its fields are not query params.
         """
         if getattr(self, "action", None) == "list":
-            return self.get_page_query_params() | {"paginate"}
+            return self.get_page_query_params() | {"paginate"} | set(HoneypotPayloadFilterSet.Meta.fields)
         return set()
 
     def get_queryset(self) -> QuerySet:
