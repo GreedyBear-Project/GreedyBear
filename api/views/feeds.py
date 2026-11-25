@@ -152,9 +152,9 @@ class BaseFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRespons
             type_filter = Q()
             for ft in self.request_params["feed_type"]:
                 type_filter |= Q(honeypots__name__iexact=ft)
-            iocs = iocs.filter(type_filter)
-
-        iocs = iocs.filter(honeypots__active=True)
+            iocs = iocs.filter(type_filter, honeypots__active=True)
+         else:
+            iocs = iocs.filter(honeypots__active=True)
 
         if self.is_aggregated:
             return iocs
