@@ -9,7 +9,7 @@ from typing import cast
 from certego_saas.ext.pagination import CustomPageNumberPagination
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core import signing
-from django.db.models import Count, F, Q, QuerySet, Value
+from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import JSONObject
 from django.http import HttpResponseBase, StreamingHttpResponse
 from django.utils import timezone
@@ -54,7 +54,7 @@ from api.views.utils import (
 from greedybear.consts import TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.repositories import PayloadRepository, TrendingBucketRepository
 from greedybear.cronjobs.trending import build_ranked_attackers
-from greedybear.models import IOC, ShareToken, ViewType
+from greedybear.models import IOC, Honeypot, ShareToken, ViewType
 
 RENDERERS_BY_FORMAT = {
     "json": FeedJSONRenderer,
@@ -151,11 +151,10 @@ class BaseFeedView(RequestLoggingMixin, QueryParamValidationMixin, CachedRespons
         if "all" not in self.request_params["feed_type"]:
             type_filter = Q()
             for ft in self.request_params["feed_type"]:
-                type_filter |= Q(honeypots__name__iexact=ft)
-            iocs = iocs.filter(type_filter, honeypots__active=True)
-        else:
-            iocs = iocs.filter(honeypots__active=True)
+                type_filter |= Q(name__iexact=ft)
+            iocs = iocs.filter(Exists(Honeypot.objects.filter(type_filter, ioc=OuterRef("pk"))))
 
+        iocs = iocs.filter(honeypots__active=True)
         if self.is_aggregated:
             return iocs
 
