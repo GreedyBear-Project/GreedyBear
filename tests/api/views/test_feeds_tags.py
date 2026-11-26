@@ -92,6 +92,12 @@ class FeedsTagsTestCase(CustomTestCase):
         values = {i["value"] for i in iocs}
         self.assertIn(self.ioc.name, values)
 
+    def test_tag_key_and_value_must_match_the_same_tag(self):
+        response = self.client.get("/api/feeds/advanced/?tag_key=malware&tag_value=botnet_cc")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["iocs"], [])
+
     def test_200_filter_by_tag_key_case_insensitive(self):
         """tag_key filtering must match regardless of the key's case in the DB or the query."""
         Tag.objects.create(ioc=self.ioc_2, key="Campaign", value="emotet", source="threatfox")
