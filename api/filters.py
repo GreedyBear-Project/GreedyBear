@@ -13,8 +13,6 @@ class FeedsFilterSet(django_filters.FilterSet):
     min_expected_interactions = django_filters.NumberFilter(field_name="expected_interactions", lookup_expr="gte")
     start_date = django_filters.DateFilter(field_name="last_seen", lookup_expr="gte")
     end_date = django_filters.DateFilter(method="filter_end_date")
-    tag_key = django_filters.CharFilter(field_name="tags__key", lookup_expr="iexact")
-    tag_value = django_filters.CharFilter(field_name="tags__value", lookup_expr="icontains")
 
     attack_type = django_filters.CharFilter(method="filter_attack_type")
     ioc_type = django_filters.CharFilter(method="filter_ioc_type")
@@ -30,7 +28,17 @@ class FeedsFilterSet(django_filters.FilterSet):
 
     class Meta:
         model = IOC
-        fields = []  # all filters are declared explicitly above
+        fields = []
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        """Apply both tag lookups in one join so they match the same tag."""
+        queryset = super().filter_queryset(queryset)
+        tag_filters = {}
+        if key := self.data.get("tag_key"):
+            tag_filters["tags__key__iexact"] = key
+        if value := self.data.get("tag_value"):
+            tag_filters["tags__value__icontains"] = value
+        return queryset.filter(**tag_filters) if tag_filters else queryset
 
     def filter_attack_type(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         if value and value != "all":
