@@ -39,7 +39,7 @@ class TestCowrieE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [cowrie_hits]
+        self._mock_chunks(pipeline, [cowrie_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None  # New IOC
@@ -77,7 +77,7 @@ class TestCowrieE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [cowrie_hits]
+        self._mock_chunks(pipeline, [cowrie_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -111,7 +111,7 @@ class TestGenericE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [unknown_hits]
+        self._mock_chunks(pipeline, [unknown_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -157,7 +157,7 @@ class TestMixedHoneypotE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [mixed_hits]
+        self._mock_chunks(pipeline, [mixed_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -194,7 +194,7 @@ class TestStrategyExceptionHandling(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -228,7 +228,7 @@ class TestScoringIntegration(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -248,7 +248,7 @@ class TestScoringIntegration(E2ETestCase):
         E2E: No IOCs extracted → UpdateScores NOT called.
         """
         pipeline = self._create_pipeline_with_real_factory()
-        pipeline.elastic_repo.search.return_value = []
+        self._mock_chunks(pipeline, [])
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -282,7 +282,7 @@ class TestIocContentVerification(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -345,7 +345,7 @@ class TestIocContentVerification(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -404,7 +404,7 @@ class TestIocContentVerification(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -460,7 +460,7 @@ class TestGeoIPEnrichmentE2E(E2ETestCase):
             ),
         ]
 
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -511,7 +511,7 @@ class TestTannerE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [tanner_hits]
+        self._mock_chunks(pipeline, [tanner_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -542,7 +542,7 @@ class TestTannerE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [tanner_hits]
+        self._mock_chunks(pipeline, [tanner_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None
@@ -582,7 +582,7 @@ class TestTannerE2E(E2ETestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [mixed_hits]
+        self._mock_chunks(pipeline, [mixed_hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
         pipeline.ioc_repo.get_ioc_by_name.return_value = None

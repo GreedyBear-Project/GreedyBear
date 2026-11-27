@@ -36,6 +36,18 @@ class EventStatusType(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class ExtractionJobName(models.TextChoices):
+    EXTRACTION = "extraction", "Extraction"
+    PAYLOAD_EXTRACTION = "payload_extraction", "Payload extraction"
+
+
+class ExtractionRunStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED_RETRYABLE = "failed_retryable", "Failed (retryable)"
+    FAILED_PERMANENT = "failed_permanent", "Failed (permanent)"
+
+
 class APISource(models.Model):
     user = models.OneToOneField(AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_source")
     name = models.CharField(max_length=128, unique=True)
@@ -456,6 +468,43 @@ class EventStatus(models.Model):
 
     def __str__(self):
         return f"Batch {self.pk} — {self.status} (task: {self.task_id})"
+
+
+class ExtractionRun(models.Model):
+    """
+    One run of a windowed extraction job.
+
+    window_end only ever moves past chunks that were fully processed (or failed
+    permanently and were skipped), so the latest window_end of a job and source
+    is its watermark: the point the next run resumes from. For payload extraction,
+    ioc_count holds the number of payloads stored.
+    """
+
+    job_name = models.CharField(max_length=32, choices=ExtractionJobName.choices)
+    # What the job reads from, for a job with several sources that each keep their
+    # own watermark, like the URL of a payload server. Empty for a single source.
+    source = models.CharField(max_length=512, blank=True, default="")
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    status = models.CharField(
+        max_length=20,
+        choices=ExtractionRunStatus.choices,
+        default=ExtractionRunStatus.RUNNING,
+    )
+    ioc_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["job_name", "source", "window_end"]),
+        ]
+
+    def __str__(self):
+        source = f" {self.source}" if self.source else ""
+        return f"{self.job_name}{source} {self.window_start} - {self.window_end} ({self.status})"
 
 
 class RawEvent(models.Model):

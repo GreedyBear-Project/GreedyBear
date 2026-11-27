@@ -17,6 +17,7 @@ from greedybear.models import (
     Credential,
     DashboardConfig,
     EventStatus,
+    ExtractionRun,
     FireHolList,
     Honeypot,
     HoneypotPayload,
@@ -366,6 +367,45 @@ class EventStatusAdmin(GreedyBearModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ExtractionRun)
+class ExtractionRunAdmin(GreedyBearModelAdmin):
+    list_display = [
+        "id",
+        "job_name",
+        "source",
+        "window_start",
+        "window_end",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "finished_at",
+    ]
+    list_filter = ["job_name", "status"]
+    readonly_fields = [
+        "job_name",
+        "source",
+        "window_start",
+        "window_end",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "finished_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # The latest run of a job holds its watermark: deleting it would extract
+        # that window again and count its IOCs twice. The cleanup job removes old runs.
         return False
 
 

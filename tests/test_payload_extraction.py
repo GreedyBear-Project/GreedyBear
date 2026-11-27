@@ -8,8 +8,16 @@ from django.test import override_settings
 from django.utils import timezone
 
 from greedybear.cronjobs.payload_extraction import PayloadExtractionJob, PayloadSource
-from greedybear.cronjobs.repositories import PayloadRepository
-from greedybear.models import CowrieFileTransfer, HoneypotPayload, PayloadObservation, Sensor
+from greedybear.cronjobs.repositories import ExtractionRunRepository, PayloadRepository
+from greedybear.models import (
+    CowrieFileTransfer,
+    ExtractionJobName,
+    ExtractionRun,
+    ExtractionRunStatus,
+    HoneypotPayload,
+    PayloadObservation,
+    Sensor,
+)
 
 from . import CustomTestCase, make_api_source, make_sensor
 
@@ -34,16 +42,19 @@ class TestPayloadExtractionJob(CustomTestCase):
         # No exception, no payloads created.
         self.assertEqual(HoneypotPayload.objects.count(), 0)
 
+    def test_payload_source_key_ignores_trailing_slash(self):
+        """The run history identifies a server by its URL, with or without a trailing slash."""
+        self.assertEqual(PayloadSource(url="https://tpot-a:64445/").key, "https://tpot-a:64445")
+        self.assertEqual(PayloadSource(url="https://tpot-a:64445").key, "https://tpot-a:64445")
+
     @override_settings(EXTRACTION_INTERVAL=10)
-    @patch("greedybear.cronjobs.payload_extraction.datetime")
-    def test_fetch_metadata_uses_aligned_time_window(self, mock_datetime):
-        """Metadata lookup should use the last completed extraction interval."""
-        reference_time = datetime(2026, 1, 1, 8, 12, 37)
-        mock_datetime.now.return_value = reference_time
+    def test_fetch_metadata_uses_aligned_time_window(self):
+        """Without a previous run, the metadata lookup uses the last completed extraction interval."""
         client = MagicMock()
         client.get.return_value.json.return_value = []
 
-        self.job._fetch_metadata(client, self.legacy_source, self.job._extraction_window())
+        window = self.job._extraction_window(self.legacy_source, datetime(2026, 1, 1, 8, 12, 37))
+        self.job._fetch_metadata(client, self.legacy_source, window)
 
         params = client.get.call_args.kwargs["params"]
         self.assertEqual(params["start_ts"], datetime(2026, 1, 1, 8, 0).timestamp())
@@ -1070,7 +1081,9 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
 
         self.assertEqual(self._sensors(ONLY_A), [SENSOR_A])
         self.assertEqual(self._sensors(SHARED), [SENSOR_A])
-        self.assertIn(f"Payload extraction from {SERVER_B} (sensor {SENSOR_B}) failed, continuing", "\n".join(logs.output))
+        output = "\n".join(logs.output)
+        self.assertIn(f"Payload extraction from {SERVER_B} (sensor {SENSOR_B}) failed for", output)
+        self.assertIn("skipping it", output)
 
     def _assert_all_failed_logged(self, logs, count: int):
         self.assertIn(f"Payload extraction failed for all {count} payload server(s).", "\n".join(logs.output))
@@ -1157,7 +1170,9 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.assertEqual(HoneypotPayload.objects.filter(sha256=sha256_of(SHARED)).count(), 1)
         self.assertEqual(self.server_b.downloads, ["cowrie/downloads/only-b"])
 
-    def test_quota_reached_records_every_sensors_observation(self):
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_quota_reached_records_every_sensors_observation(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 5)
         self.mock_usage.return_value = 10 * 1024**3
 
         self._run()
@@ -1168,8 +1183,12 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         self.assertEqual(self._sensors(SHARED), [SENSOR_A, SENSOR_B])
         self.assertEqual(self._locator(SHARED, SENSOR_B), "dionaea/binaries/shared")
 
-        # Once there is space again, every metadata-only row is upgraded in place.
+        # Once there is space again, every metadata-only row is upgraded in place
+        # when the files show up again. The interval of the first run is done,
+        # so this happens in the next one (the fake servers list every file in
+        # every interval).
         self.mock_usage.return_value = 0
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 15)
         self._run()
 
         self._assert_fleet_extracted()
@@ -1208,6 +1227,89 @@ class TestMultiSourcePayloadExtraction(CustomTestCase):
         expected = {"start_ts": datetime(2026, 1, 1, 7, 50).timestamp(), "end_ts": datetime(2026, 1, 1, 8, 0).timestamp()}
         self.assertEqual(self.server_a.recent_params, [expected])
         self.assertEqual(self.server_b.recent_params, [expected])
+
+    def _payload_runs(self, server: str) -> list[ExtractionRun]:
+        return list(ExtractionRun.objects.filter(job_name=ExtractionJobName.PAYLOAD_EXTRACTION, source=server).order_by("id"))
+
+    def _watermark(self, server: str) -> datetime | None:
+        return ExtractionRunRepository().get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION, server)
+
+    @staticmethod
+    def _windows(params: list[dict]) -> list[tuple[datetime, datetime]]:
+        return [(datetime.fromtimestamp(p["start_ts"]), datetime.fromtimestamp(p["end_ts"])) for p in params]
+
+    @override_settings(EXTRACTION_INTERVAL=10)
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_every_source_keeps_its_own_watermark(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 5)
+        self.server_b.recent_error = requests.ConnectionError("connection refused")
+
+        self._run()
+
+        # A moved on, B stayed where it was, so the next run fetches B's interval again.
+        self.assertEqual(self._watermark(SERVER_A), datetime(2026, 1, 1, 8, 0))
+        self.assertEqual(self._watermark(SERVER_B), datetime(2026, 1, 1, 7, 50))
+        self.assertEqual(self._payload_runs(SERVER_A)[-1].status, ExtractionRunStatus.SUCCESS)
+        run_b = self._payload_runs(SERVER_B)[-1]
+        self.assertEqual(run_b.status, ExtractionRunStatus.FAILED_RETRYABLE)
+        self.assertIn("connection refused", run_b.last_error)
+
+    @override_settings(EXTRACTION_INTERVAL=10)
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_unreachable_source_catches_up_after_it_recovers(self, mock_datetime):
+        self.server_b.recent_error = requests.ConnectionError("connection refused")
+        for now in (datetime(2026, 1, 1, 8, 5), datetime(2026, 1, 1, 8, 15)):
+            mock_datetime.now.return_value = now
+            self._run()
+
+        self.server_b.recent_error = None
+        self.server_a.recent_params.clear()
+        self.server_b.recent_params.clear()
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 25)
+        self._run()
+
+        # B fetches every interval it missed, A only the new one.
+        self.assertEqual(
+            self._windows(self.server_b.recent_params),
+            [
+                (datetime(2026, 1, 1, 7, 50), datetime(2026, 1, 1, 8, 0)),
+                (datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10)),
+                (datetime(2026, 1, 1, 8, 10), datetime(2026, 1, 1, 8, 20)),
+            ],
+        )
+        self.assertEqual(self._windows(self.server_a.recent_params), [(datetime(2026, 1, 1, 8, 10), datetime(2026, 1, 1, 8, 20))])
+        self.assertEqual(self._watermark(SERVER_B), datetime(2026, 1, 1, 8, 20))
+        self._assert_fleet_extracted()
+
+    @override_settings(EXTRACTION_INTERVAL=10)
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_malformed_response_is_skipped_and_not_fetched_again(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 5)
+        self.server_a.recent_body = {"detail": "Internal Server Error"}
+
+        self._run()
+
+        run_a = self._payload_runs(SERVER_A)[-1]
+        self.assertEqual(run_a.status, ExtractionRunStatus.FAILED_PERMANENT)
+        self.assertIn("not a list", run_a.last_error)
+        self.assertEqual(self._watermark(SERVER_A), datetime(2026, 1, 1, 8, 0))
+
+        self.server_a.recent_body = None
+        self.server_a.recent_params.clear()
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 15)
+        self._run()
+
+        self.assertEqual(self._windows(self.server_a.recent_params), [(datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10))])
+
+    @patch("greedybear.cronjobs.payload_extraction.datetime")
+    def test_runs_count_the_payloads_stored_from_each_source(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2026, 1, 1, 8, 5)
+
+        self._run()
+
+        # The shared binary is stored from A, which comes first, so B only adds its own one.
+        self.assertEqual(self._payload_runs(SERVER_A)[-1].ioc_count, 2)
+        self.assertEqual(self._payload_runs(SERVER_B)[-1].ioc_count, 1)
 
     def test_existing_sensor_is_reused(self):
         sensor = Sensor.objects.create(address=SENSOR_A, label="tpot-a")
@@ -1281,37 +1383,170 @@ class TestExtractAllPayloadIntegration(CustomTestCase):
 
     @patch("greedybear.tasks.extract_honeypot_payloads")
     @patch("greedybear.cronjobs.extract.ExtractionJob")
-    @patch("greedybear.tasks.datetime")
-    def test_extract_all_calls_payload_extraction(self, mock_datetime, mock_job, mock_payload_extract):
+    def test_extract_all_calls_payload_extraction(self, mock_job, mock_payload_extract):
         """extract_all should always call extract_honeypot_payloads."""
-        from datetime import datetime as real_datetime
-
-        mock_datetime.now.return_value = real_datetime(2026, 1, 1, 10, 30)
+        mock_job.return_value.pipeline.day_completed = False
 
         from greedybear.tasks import extract_all
 
         extract_all()
 
-        mock_job().execute.assert_called_once()
+        mock_job.return_value.execute.assert_called_once()
         mock_payload_extract.assert_called_once()
 
     @patch("greedybear.tasks.train_and_update")
     @patch("greedybear.tasks.extract_honeypot_payloads")
     @patch("greedybear.cronjobs.extract.ExtractionJob")
-    @patch("greedybear.tasks.datetime")
-    def test_extract_all_calls_both_at_midnight(self, mock_datetime, mock_job, mock_payload, mock_train):
-        """At midnight, extract_all should call both train_and_update and extract_honeypot_payloads."""
-        from datetime import datetime as real_datetime
-
-        mock_datetime.now.return_value = real_datetime(2026, 1, 1, 0, 0)
+    def test_extract_all_calls_both_when_day_completed(self, mock_job, mock_payload, mock_train):
+        """When the extraction completes a day, extract_all should call both train_and_update and extract_honeypot_payloads."""
+        mock_job.return_value.pipeline.day_completed = True
 
         from greedybear.tasks import extract_all
 
         extract_all()
 
-        mock_job().execute.assert_called_once()
+        mock_job.return_value.execute.assert_called_once()
         mock_train.assert_called_once()
         mock_payload.assert_called_once()
+
+
+@override_settings(
+    TPOT_PAYLOAD_SERVERS=[],
+    TPOT_PAYLOAD_SERVER_URL="http://payload-server:8000/",
+    TPOT_PAYLOAD_SERVER_API_KEY="",
+    EXTRACTION_INTERVAL=10,
+    INITIAL_EXTRACTION_TIMESPAN=60 * 24 * 3,
+)
+@patch("greedybear.cronjobs.payload_extraction.datetime")
+@patch("greedybear.cronjobs.payload_extraction.HttpClient")
+class TestPayloadExtractionWatermark(CustomTestCase):
+    """Tests for how PayloadExtractionJob tracks the progress of a payload server across runs."""
+
+    NOW = datetime(2026, 1, 1, 8, 12, 37)
+    # The run history identifies the server by its URL, without the trailing slash.
+    SOURCE = "http://payload-server:8000"
+
+    def setUp(self):
+        super().setUp()
+        self.mock_client = MagicMock()
+
+    def _run(self, mock_http_class, mock_datetime, responses):
+        mock_datetime.now.return_value = self.NOW
+        mock_http_class.return_value.__enter__ = Mock(return_value=self.mock_client)
+        mock_http_class.return_value.__exit__ = Mock(return_value=False)
+        self.mock_client.get.reset_mock()
+        self.mock_client.get.side_effect = responses
+        PayloadExtractionJob().run()
+
+    def _metadata_response(self, payloads=None):
+        response = Mock()
+        response.json.return_value = payloads if payloads is not None else []
+        return response
+
+    def _requested_windows(self):
+        return [
+            (datetime.fromtimestamp(c.kwargs["params"]["start_ts"]), datetime.fromtimestamp(c.kwargs["params"]["end_ts"]))
+            for c in self.mock_client.get.call_args_list
+            if c.args[0].endswith("/api/v1/payloads/recent")
+        ]
+
+    def _set_watermark(self, watermark, source=SOURCE):
+        ExtractionRun.objects.create(
+            job_name=ExtractionJobName.PAYLOAD_EXTRACTION,
+            source=source,
+            window_start=watermark,
+            window_end=watermark,
+            status=ExtractionRunStatus.SUCCESS,
+        )
+
+    def _watermark(self):
+        return ExtractionRunRepository().get_watermark(ExtractionJobName.PAYLOAD_EXTRACTION, self.SOURCE)
+
+    def _last_run(self):
+        return ExtractionRun.objects.filter(job_name=ExtractionJobName.PAYLOAD_EXTRACTION).latest("id")
+
+    def test_first_run_fetches_last_interval(self, mock_http_class, mock_datetime):
+        """Without a previous run, only the last completed interval is fetched, as before."""
+        self._run(mock_http_class, mock_datetime, [self._metadata_response()])
+
+        self.assertEqual(self._requested_windows(), [(datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10))])
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 8, 10))
+        self.assertEqual(self._last_run().source, self.SOURCE)
+
+    def test_catches_up_from_watermark_one_interval_at_a_time(self, mock_http_class, mock_datetime):
+        self._set_watermark(datetime(2026, 1, 1, 7, 40))
+
+        self._run(mock_http_class, mock_datetime, [self._metadata_response()] * 3)
+
+        self.assertEqual(
+            self._requested_windows(),
+            [
+                (datetime(2026, 1, 1, 7, 40), datetime(2026, 1, 1, 7, 50)),
+                (datetime(2026, 1, 1, 7, 50), datetime(2026, 1, 1, 8, 0)),
+                (datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10)),
+            ],
+        )
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 8, 10))
+        self.assertEqual(self._last_run().status, ExtractionRunStatus.SUCCESS)
+
+    def test_catch_up_is_capped(self, mock_http_class, mock_datetime):
+        self._set_watermark(datetime(2025, 11, 1, 0, 0))
+
+        self._run(mock_http_class, mock_datetime, [self._metadata_response()] * (6 * 24 * 3))
+
+        self.assertEqual(self._requested_windows()[0][0], datetime(2025, 12, 29, 8, 10))
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 8, 10))
+
+    def test_server_outage_keeps_processed_intervals_and_retries_the_rest(self, mock_http_class, mock_datetime):
+        self._set_watermark(datetime(2026, 1, 1, 7, 40))
+
+        self._run(mock_http_class, mock_datetime, [self._metadata_response(), requests.ConnectionError("connection refused")])
+
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 7, 50))
+        self.assertEqual(self._last_run().status, ExtractionRunStatus.FAILED_RETRYABLE)
+
+        self._run(mock_http_class, mock_datetime, [self._metadata_response()] * 2)
+
+        self.assertEqual(
+            self._requested_windows(),
+            [
+                (datetime(2026, 1, 1, 7, 50), datetime(2026, 1, 1, 8, 0)),
+                (datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10)),
+            ],
+        )
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 8, 10))
+
+    def test_http_error_is_retried(self, mock_http_class, mock_datetime):
+        """An error status from the server (raised by HttpClient), like a rejected API key, is retried like an outage."""
+        self._run(mock_http_class, mock_datetime, [requests.HTTPError("403 Client Error: Forbidden")])
+
+        self.assertEqual(self._last_run().status, ExtractionRunStatus.FAILED_RETRYABLE)
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 8, 0))
+
+    def test_response_that_is_not_a_list_is_skipped(self, mock_http_class, mock_datetime):
+        self._set_watermark(datetime(2026, 1, 1, 7, 50))
+
+        self._run(mock_http_class, mock_datetime, [self._metadata_response({"error": "unexpected"}), self._metadata_response()])
+
+        self.assertEqual(self._watermark(), datetime(2026, 1, 1, 8, 10))
+        run = self._last_run()
+        self.assertEqual(run.status, ExtractionRunStatus.FAILED_PERMANENT)
+        self.assertIn("not a list", run.last_error)
+
+    def test_up_to_date_watermark_does_nothing(self, mock_http_class, mock_datetime):
+        self._set_watermark(datetime(2026, 1, 1, 8, 10))
+
+        self._run(mock_http_class, mock_datetime, [])
+
+        self.mock_client.get.assert_not_called()
+        self.assertEqual(ExtractionRun.objects.count(), 1)
+
+    def test_watermark_of_another_server_is_not_used(self, mock_http_class, mock_datetime):
+        self._set_watermark(datetime(2026, 1, 1, 8, 10), source="https://tpot-b:64445")
+
+        self._run(mock_http_class, mock_datetime, [self._metadata_response()])
+
+        self.assertEqual(self._requested_windows(), [(datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10))])
 
 
 class TestExtractHoneypotPayloadsTask(CustomTestCase):

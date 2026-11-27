@@ -2,21 +2,17 @@
 # See the file 'LICENSE' for copying permission.
 
 
-from datetime import datetime
-
-from greedybear.settings import CLUSTER_COWRIE_COMMAND_SEQUENCES, EXTRACTION_INTERVAL
+from greedybear.settings import CLUSTER_COWRIE_COMMAND_SEQUENCES
 
 
 def extract_all():
     from greedybear.cronjobs.extract import ExtractionJob
 
-    # Check if this is the extraction run immediately after midnight
-    midnight_extraction = datetime.now().hour == 0 and datetime.now().minute < EXTRACTION_INTERVAL
+    extraction_job = ExtractionJob()
+    extraction_job.execute()
 
-    ExtractionJob().execute()
-
-    # If so, execute the training task
-    if midnight_extraction:
+    # Train once all data up to today's midnight has been extracted
+    if extraction_job.pipeline.day_completed:
         train_and_update()
 
     # After every extraction, attempt to fetch new payloads from
