@@ -403,6 +403,11 @@ class ExtractionRunAdmin(GreedyBearModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
+    def has_delete_permission(self, request, obj=None):
+        # The latest run of a job holds its watermark: deleting it would extract
+        # that window again and count its IOCs twice. The cleanup job removes old runs.
+        return False
+
 
 @admin.register(RawEvent)
 class RawEventAdmin(GreedyBearModelAdmin):
