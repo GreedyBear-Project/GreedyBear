@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 from unittest.mock import Mock
 
@@ -207,6 +207,51 @@ class CustomTestCase(TestCase):
         cls.cowrie_session_2.credentials.add(credential_2)
         cls.cowrie_session_2.save()
 
+        cls.cmd_seq_3 = ["cat /etc/os-release", "whoami"]
+        cls.command_sequence_3 = CommandSequence.objects.create(
+            first_seen=cls.current_time,
+            last_seen=cls.current_time,
+            commands=cls.cmd_seq_3,
+            commands_hash=sha256("\n".join(cls.cmd_seq_3).encode()).hexdigest(),
+            cluster=12,
+        )
+
+        cls.session_early = CowrieSession.objects.create(
+            session_id=101,
+            source=cls.ioc_3,
+            start_time=datetime(2026, 1, 10, 12, 0, 0),
+            duration=15.0,
+            login_attempt=True,
+            commands=cls.command_sequence_3,
+        )
+
+        cls.session_target = CowrieSession.objects.create(
+            session_id=102,
+            source=cls.ioc_3,
+            start_time=datetime(2026, 1, 20, 12, 0, 0),
+            duration=20.0,
+            login_attempt=True,
+            commands=cls.command_sequence_3,
+        )
+
+        cls.session_late = CowrieSession.objects.create(
+            session_id=103,
+            source=cls.ioc_3,
+            start_time=datetime(2026, 1, 30, 12, 0, 0),
+            duration=25.0,
+            login_attempt=True,
+            commands=cls.command_sequence_3,
+        )
+
+        cls.cmd_seq_4 = ["cat /etc/passwd"]
+        cls.command_sequence_not_used = CommandSequence.objects.create(
+            first_seen=cls.current_time,
+            last_seen=cls.current_time,
+            commands=cls.cmd_seq_4,
+            commands_hash=sha256("\n".join(cls.cmd_seq_4).encode()).hexdigest(),
+            cluster=13,
+        )
+
         try:
             cls.superuser = User.objects.get(is_superuser=True)
         except User.DoesNotExist:
@@ -230,6 +275,28 @@ class ExtractionTestCase(CustomTestCase):
         self.mock_sensor_repo.cache = {}  # Initialize cache as empty dict for sensor filtering
         self.mock_session_repo = Mock()
 
+    # Start of the fixed time window used by _mock_chunks, far from midnight
+    # so the midnight cut-off of the extraction window never applies.
+    MOCK_WINDOW_START = datetime(2025, 1, 1, 12, 0)
+
+    def _mock_chunks(self, pipeline, chunks):
+        """
+        Make an ExtractionPipeline process the given chunks of hits.
+
+        The pipeline gets a fixed time window of one extraction interval per
+        chunk, independent of the current time, and its mocked ElasticRepository
+        returns one chunk per search() call.
+
+        Args:
+            pipeline: ExtractionPipeline with a mocked elastic_repo.
+            chunks: List of chunks, each a list of hits.
+        """
+        from greedybear.cronjobs.extraction import pipeline as pipeline_module
+
+        window_end = self.MOCK_WINDOW_START + timedelta(minutes=pipeline_module.EXTRACTION_INTERVAL * len(chunks))
+        pipeline._extraction_window = Mock(return_value=(self.MOCK_WINDOW_START, window_end))
+        pipeline.elastic_repo.search.side_effect = list(chunks)
+
     def _create_mock_ioc(
         self,
         name="1.2.3.4",
@@ -244,11 +311,12 @@ class ExtractionTestCase(CustomTestCase):
         last_seen=None,
         ip_reputation="",
         asn=1234,
-        firehol_categories=None,
         attacker_country="",
         attacker_country_code="",
         protocols=None,
         cves=None,
+        http_attack_types=None,
+        high_credential_reuse=False,
     ):
         mock = Mock(spec=IOC)
         mock.name = name
@@ -264,7 +332,6 @@ class ExtractionTestCase(CustomTestCase):
         mock.first_seen = first_seen if first_seen is not None else datetime.now()
         mock.last_seen = last_seen if last_seen is not None else datetime.now()
         mock.ip_reputation = ip_reputation
-        mock.firehol_categories = firehol_categories if firehol_categories is not None else []
         mock.number_of_days_seen = len(mock.days_seen)
         mock.attacker_country = attacker_country
         mock.attacker_country_code = attacker_country_code
@@ -277,6 +344,8 @@ class ExtractionTestCase(CustomTestCase):
 
         mock.protocols = protocols if protocols is not None else []
         mock.cves = cves if cves is not None else []
+        mock.http_attack_types = http_attack_types if http_attack_types is not None else []
+        mock.high_credential_reuse = high_credential_reuse
 
         return mock
 

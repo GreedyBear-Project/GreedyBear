@@ -2,6 +2,8 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 
 from greedybear.cronjobs.scoring.ml_model import Classifier, Regressor
 from greedybear.cronjobs.scoring.random_forest import RFModel
@@ -268,6 +270,71 @@ class TestClassifierSingleClassSplit(CustomTestCase):
         x_train, x_test, y_train, y_test = classifier.split_train_test(x, y_all_positive)
         self.assertEqual(len(x_train) + len(x_test), len(x))
         self.assertEqual(len(y_train) + len(y_test), len(y_all_positive))
+
+
+class TestRFClassifierInsufficientClasses(CustomTestCase):
+    class RealRFClassifier(RFModel, Classifier):
+        def __init__(self):
+            super().__init__("Real RF Classifier", "mock_score")
+
+        @property
+        def features(self) -> list[str]:
+            return ["feature1", "honeypots"]
+
+        @property
+        def untrained_model(self) -> RandomForestClassifier:
+            return RandomForestClassifier(n_estimators=5, random_state=0)
+
+    def assert_training_skipped(self, target):
+        classifier = self.RealRFClassifier()
+        training_df = pd.DataFrame(
+            {
+                "feature1": range(10),
+                "honeypots": [["cowrie"]] * 10,
+                "interactions_on_eval_day": target,
+            }
+        )
+        previous_model = classifier.untrained_model.fit(
+            pd.DataFrame({"feature1": range(10), "has_cowrie": [1] * 10}),
+            [False, True] * 5,
+        )
+        classifier.model = previous_model
+        classifier.save = Mock()
+
+        with self.assertLogs(classifier.log.name, level="WARNING") as logs:
+            classifier.train(training_df)
+
+        self.assertIn("skipping training", logs.output[0])
+        self.assertIs(classifier.model, previous_model)
+        classifier.save.assert_not_called()
+        predictions = classifier.predict(pd.DataFrame({"feature1": range(10), "has_cowrie": [1] * 10}))
+        self.assertEqual(predictions.shape, (10,))
+
+    def test_training_skipped_for_all_negative_target(self):
+        self.assert_training_skipped([0] * 10)
+
+    def test_training_skipped_for_single_positive_target(self):
+        self.assert_training_skipped([0] * 9 + [1])
+
+    def test_training_succeeds_with_two_samples_per_class(self):
+        classifier = self.RealRFClassifier()
+        training_df = pd.DataFrame(
+            {
+                "feature1": range(10),
+                "honeypots": [["cowrie"]] * 10,
+                "interactions_on_eval_day": [0] * 8 + [1] * 2,
+            }
+        )
+        previous_model = Mock()
+        classifier.model = previous_model
+        classifier.save = Mock()
+
+        with patch("greedybear.cronjobs.scoring.ml_model.train_test_split", wraps=train_test_split) as split:
+            classifier.train(training_df)
+
+        self.assertIn("stratify", split.call_args.kwargs)
+        self.assertIsNot(classifier.model, previous_model)
+        classifier.save.assert_called_once()
 
 
 class TestTrainModelsSaveOnFailure(CustomTestCase):

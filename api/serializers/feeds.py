@@ -1,20 +1,25 @@
 import hashlib
 import logging
+import re
 from collections.abc import Mapping
 
 from django.conf import settings
 from django.core import signing
-from django.core.exceptions import FieldDoesNotExist
 from rest_framework import serializers
 
 from api.serializers.common import SensorSerializer, TagSerializer
 from api.serializers.utils import PresenceFlagField, feed_type_as_list, get_valid_feed_types
-from greedybear.consts import SHARE_TOKEN_MAX_AGE, SHARE_TOKEN_SALT
+from greedybear.consts import SHARE_TOKEN_MAX_AGE
 from greedybear.cronjobs.trending import validate_window_minutes
 from greedybear.enums import IpReputation
 from greedybear.models import IOC, ShareToken
+from greedybear.regex import REGEX_CVE
 
 logger = logging.getLogger(__name__)
+
+CVE_MAX_LENGTH = IOC._meta.get_field("cves").base_field.max_length  # ty: ignore[unresolved-attribute]
+PROTOCOL_MAX_LENGTH = IOC._meta.get_field("protocols").base_field.max_length  # ty: ignore[unresolved-attribute]
+
 
 FEED_DEFAULTS = {
     "max_age": 3,
@@ -42,7 +47,7 @@ class FeedTypeField(serializers.CharField):
     the internal representation is always a list.
     """
 
-    def to_internal_value(self, data: str) -> list[str]:
+    def to_internal_value(self, data: str) -> list[str]:  # ty: ignore[invalid-method-override]
         feed_type_str = super().to_internal_value(data)
         logger.debug(f"Validating feed_type: {feed_type_str}")
         feed_type_list = feed_type_as_list(feed_type_str)
@@ -55,23 +60,24 @@ class FeedTypeField(serializers.CharField):
             raise serializers.ValidationError(f"Invalid feed_type: {', '.join(sorted(invalid_feed_types))} not supported")
         return feed_type_list
 
-    def get_default(self) -> list[str]:
+    def get_default(self) -> list[str]:  # ty: ignore[invalid-method-override]
         """Convert the declared default ("all") to a list ["all"]
         to match internal representaion of other values.
         """
-        return [super().get_default()]
+        return [super().get_default()]  # ty: ignore[invalid-return-type]
 
 
-class ReputationListField(serializers.ListField):
-    """ListField for the include_reputation and exclude_reputation query params.
+class SemicolonListField(serializers.ListField):
+    """ListField for query params that take several ``;``-separated values,
+    like include_reputation, exclude_reputation, cve and protocol.
     Takes a query string that contains ``;``-separated values
     and represents it as a list.
     """
 
-    def to_internal_value(self, data: str) -> list[str]:
-        logger.debug(f"Converting reputation list: {data}")
-        reputations = data.split(";") if data else []
-        return super().to_internal_value(reputations)
+    def to_internal_value(self, data: str) -> list[str]:  # ty: ignore[invalid-method-override]
+        logger.debug(f"Converting semicolon separated list: {data}")
+        values = data.split(";") if data else []
+        return super().to_internal_value(values)
 
 
 ### REQUESTS ###
@@ -82,7 +88,31 @@ class BaseFeedRequestSerializer(serializers.Serializer):
 
     Not used directly as an endpoint serializer;
     subclasses add their own fields and validation logic.
+
+    Ordering is restricted to the single-valued IOC columns in ALLOWED_ORDERING_FIELDS.
     """
+
+    ALLOWED_ORDERING_FIELDS = frozenset(
+        {
+            "name",
+            "type",
+            "first_seen",
+            "last_seen",
+            "number_of_days_seen",
+            "attack_count",
+            "interaction_count",
+            "attacker_country",
+            "attacker_country_code",
+            "autonomous_system",
+            "scanner",
+            "payload_request",
+            "high_credential_reuse",
+            "ip_reputation",
+            "login_attempts",
+            "recurrence_probability",
+            "expected_interactions",
+        }
+    )
 
     feed_type = FeedTypeField(default="all", help_text="Honeypot name (e.g. `cowrie`), a comma-separated list, or `all`.")
     attack_type = serializers.ChoiceField(
@@ -93,28 +123,21 @@ class BaseFeedRequestSerializer(serializers.Serializer):
     format = serializers.ChoiceField(choices=["csv", "json", "txt", "stix21", "ndjson"], default="json", help_text="Output representation.")
 
     def to_internal_value(self, data: Mapping) -> dict:
-        """Normalize raw query params before field validation:
-        - lower-case all string values
-        - accept format_ (legacy name) as an alias for format
-        """
+        """Normalize raw query params before field validation by lower-casing all string values."""
         logger.debug("Normalizing raw query")
         if isinstance(data, Mapping):
             data = {key: value.lower() if isinstance(value, str) else value for key, value in data.items()}
-            if "format_" in data and "format" not in data:
-                data["format"] = data["format_"]
         return super().to_internal_value(data)
 
     def validate_ordering(self, ordering: str) -> str:
-        """Validate ordering against the IOC model fields and return it normalized."""
+        """Validate ordering against ALLOWED_ORDERING_FIELDS and return it normalized."""
         logger.debug(f"Validating ordering: {ordering}")
         if not ordering:
             raise serializers.ValidationError("Invalid ordering: <empty string>")
         normalized_ordering = ordering.lower().replace("value", "name")
         field_name = normalized_ordering.removeprefix("-")
-        try:
-            IOC._meta.get_field(field_name)
-        except FieldDoesNotExist as exc:
-            raise serializers.ValidationError(f"Invalid ordering: {ordering}") from exc
+        if field_name not in self.ALLOWED_ORDERING_FIELDS:
+            raise serializers.ValidationError(f"Invalid ordering: '{field_name}'. Allowed fields: {', '.join(sorted(self.ALLOWED_ORDERING_FIELDS))}")
         return normalized_ordering
 
 
@@ -135,19 +158,19 @@ class SimpleFeedRequestSerializer(BaseFeedRequestSerializer):
     # allows explicit override of the ordering in PRIORITIZATION_PRESETS
     ordering = serializers.CharField(required=False, help_text="Override the preset ordering, e.g. `-attack_count`.")
 
-    def validate(self, data: dict) -> dict:
+    def validate(self, attrs: dict) -> dict:
         logger.debug("Validating simple feed request")
-        data = super().validate(data)
-        prioritization_preset = PRIORITIZATION_PRESETS[data["prioritize"]]
+        attrs = super().validate(attrs)
+        prioritization_preset = PRIORITIZATION_PRESETS[attrs["prioritize"]]
         exclude_reputation = []
-        if not data["include_mass_scanners"]:
+        if not attrs["include_mass_scanners"]:
             exclude_reputation.append(IpReputation.MASS_SCANNER)
-        if not data["include_tor_exit_nodes"]:
+        if not attrs["include_tor_exit_nodes"]:
             exclude_reputation.append(IpReputation.TOR_EXIT_NODE)
         return {
             **FEED_DEFAULTS,
             **prioritization_preset,
-            **data,
+            **attrs,
             "exclude_reputation": exclude_reputation,
         }
 
@@ -160,15 +183,16 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
 
     max_age = serializers.IntegerField(
         min_value=1,
+        max_value=36500,
         default=FEED_DEFAULTS["max_age"],
         help_text="Maximum age in days since an IOC was last seen. Ignored when `start_date` or `end_date` is given.",
     )
     min_days_seen = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["min_days_seen"], help_text="Minimum distinct days an IOC has been seen.")
     feed_size = serializers.IntegerField(min_value=1, default=FEED_DEFAULTS["feed_size"], help_text="Maximum number of IOCs to return.")
-    include_reputation = ReputationListField(
+    include_reputation = SemicolonListField(
         child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["include_reputation"], help_text="`;`-separated reputations to include."
     )
-    exclude_reputation = ReputationListField(
+    exclude_reputation = SemicolonListField(
         child=serializers.CharField(max_length=120), default=FEED_DEFAULTS["exclude_reputation"], help_text="`;`-separated reputations to exclude."
     )
     verbose = serializers.BooleanField(default=FEED_DEFAULTS["verbose"], help_text="Include extended per-IOC fields in JSON output.")
@@ -184,18 +208,47 @@ class AdvancedFeedRequestSerializer(BaseFeedRequestSerializer):
     tag_key = serializers.CharField(max_length=128, required=False, allow_blank=True, help_text="Filter by tag key (case-insensitive exact match).")
     tag_value = serializers.CharField(max_length=256, required=False, allow_blank=True, help_text="Filter by tag value.")
     country_code = serializers.CharField(max_length=2, required=False, allow_blank=True, help_text="Filter by 2-letter attacker country code.")
+    cve = SemicolonListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="`;`-separated CVE IDs (e.g. `CVE-2021-44228`). Only IOCs that were seen exploiting at least one of them.",
+    )
+    protocol = SemicolonListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="`;`-separated protocols (e.g. `ssh;telnet`). Only IOCs that were seen using at least one of them.",
+    )
 
-    def validate(self, data: dict) -> dict:
+    def validate_cve(self, values: list[str]) -> list[str]:
+        """Normalize the CVE IDs to upper case, the way they are stored, and reject malformed ones."""
+        cves = [value.strip().upper() for value in values]
+        invalid = [cve for cve in cves if not re.fullmatch(REGEX_CVE, cve)]
+        if invalid:
+            raise serializers.ValidationError(f"Invalid CVE ID: {', '.join(invalid)}. Expected the format CVE-YYYY-NNNN.")
+        return cves
+
+    def validate_protocol(self, values: list[str]) -> list[str]:
+        """Normalize the protocols to lower case, the way they are stored, and reject empty or over long ones."""
+        protocols = [value.strip().lower() for value in values]
+        if any(not 0 < len(protocol) <= PROTOCOL_MAX_LENGTH for protocol in protocols):
+            raise serializers.ValidationError(f"Invalid protocol: each one must have 1 to {PROTOCOL_MAX_LENGTH} characters.")
+        return protocols
+
+    def validate(self, attrs: dict) -> dict:
         logger.debug("Validating advanced feed request")
-        data = super().validate(data)
+        attrs = super().validate(attrs)
         # .get() instead of [] so subclasses without the paginate field (ASN) can reuse this
-        if data.get("paginate"):
-            data["format"] = "json"
-        min_cc = data.get("min_credential_count")
-        max_cc = data.get("max_credential_count")
+        if attrs.get("paginate"):
+            attrs["format"] = "json"
+        min_cc = attrs.get("min_credential_count")
+        max_cc = attrs.get("max_credential_count")
         if min_cc is not None and max_cc is not None and min_cc > max_cc:
             raise serializers.ValidationError("min_credential_count must be less than or equal to max_credential_count")
-        return data
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError("start_date must be less than or equal to end_date")
+        return attrs
 
 
 class ASNFeedRequestSerializer(AdvancedFeedRequestSerializer):
@@ -275,29 +328,33 @@ class TokenRequestSerializer(serializers.Serializer):
 
     token = serializers.CharField(help_text="A valid and signed share token.")
 
-    def validate(self, data: dict) -> dict:
+    def validate(self, attrs: dict) -> dict:
         logger.debug("Validating share token")
-        token = data["token"]
+        token = attrs["token"]
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         try:
-            data["share_token"] = ShareToken.objects.get(token_hash=token_hash)
+            attrs["share_token"] = ShareToken.objects.get(token_hash=token_hash)
         except ShareToken.DoesNotExist as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
         try:
-            data["feed_params"] = signing.loads(token, salt=SHARE_TOKEN_SALT, max_age=SHARE_TOKEN_MAX_AGE)
+            attrs["feed_params"] = signing.loads(
+                token,
+                salt=attrs["share_token"].signing_salt,
+                max_age=SHARE_TOKEN_MAX_AGE,
+            )
         except signing.BadSignature as exc:
             raise serializers.ValidationError("Invalid or expired token") from exc
-        return data
+        return attrs
 
 
 class TokenConsumeRequestSerializer(TokenRequestSerializer):
     """Consume additionally rejects revoked tokens (a revoked link must not return data)."""
 
-    def validate(self, data: dict) -> dict:
-        data = super().validate(data)
-        if data["share_token"].revoked:
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        if attrs["share_token"].revoked:
             raise serializers.ValidationError("Token has been revoked")
-        return data
+        return attrs
 
 
 ### RESPONSES ###
@@ -347,7 +404,7 @@ class ShareTokenResponseSerializer(serializers.Serializer):
     """Response for the share endpoint: the public consume and revoke URLs."""
 
     url = serializers.URLField(help_text="Public URL that consumes the shared feed.")
-    revoke_url = serializers.URLField(help_text="URL that revokes the share token.")
+    revoke_url = serializers.URLField(help_text="URL to send an authenticated POST request to in order to revoke the share token.")
 
 
 class ShareTokenListItemSerializer(serializers.Serializer):
@@ -391,6 +448,8 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     value = serializers.CharField(max_length=256)
     scanner = serializers.BooleanField()
     payload_request = serializers.BooleanField()
+    http_attack_types = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True)
+    high_credential_reuse = serializers.BooleanField()
     first_seen = serializers.DateField(format="%Y-%m-%d")
     last_seen = serializers.DateField(format="%Y-%m-%d")
     attack_count = serializers.IntegerField(min_value=1)
@@ -403,6 +462,10 @@ class SimpleFeedResponseSerializer(serializers.Serializer):
     expected_interactions = serializers.FloatField(min_value=0)
     attacker_country = serializers.CharField(allow_null=True, allow_blank=True, max_length=120)
     attacker_country_code = serializers.CharField(allow_null=True, allow_blank=True, max_length=2)
+    cves = serializers.ListField(
+        child=serializers.CharField(max_length=CVE_MAX_LENGTH), help_text="CVE IDs this IOC was seen exploiting, e.g. `CVE-2021-44228`."
+    )
+    protocols = serializers.ListField(child=serializers.CharField(max_length=PROTOCOL_MAX_LENGTH), help_text="Protocols this IOC was seen using, e.g. `ssh`.")
     tags = TagSerializer(many=True, required=False, default=list)
 
 
@@ -416,7 +479,6 @@ class AdvancedFeedResponseSerializer(SimpleFeedResponseSerializer):
         default=list,
         help_text="Lowercase SHA256 hashes of the payloads observed from this IOC. Only included when `verbose=true`.",
     )
-    firehol_categories = serializers.ListField(child=serializers.CharField(max_length=64), allow_empty=True, required=False)
     destination_ports = serializers.ListField(child=serializers.IntegerField(min_value=1, max_value=65535), required=False)
     days_seen = serializers.ListField(child=serializers.DateField(format="%Y-%m-%d"), required=False)
 

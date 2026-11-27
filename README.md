@@ -7,6 +7,7 @@
 
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 [![CodeQL](https://github.com/GreedyBear-Project/GreedyBear/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/GreedyBear-Project/GreedyBear/actions/workflows/codeql-analysis.yml)
 [![Dependency Review](https://github.com/GreedyBear-Project/GreedyBear/actions/workflows/dependency_review.yml/badge.svg)](https://github.com/GreedyBear-Project/GreedyBear/actions/workflows/dependency_review.yml)
 [![Pull request automation](https://github.com/GreedyBear-Project/GreedyBear/actions/workflows/pull_request_automation.yml/badge.svg)](https://github.com/GreedyBear-Project/GreedyBear/actions/workflows/pull_request_automation.yml)

@@ -59,7 +59,8 @@ PUBLIC_DEPLOYMENT=False
 # Interval for the honeypot data extraction in minutes (only choose divisors of 60)
 EXTRACTION_INTERVAL=10
 
-# Lookback time for the first extraction run in minutes (default: 1 day)
+# Maximum lookback time in minutes. The first extraction run backfills this much data,
+# and a run that has to catch up after downtime never reaches further back than this.
 INITIAL_EXTRACTION_TIMESPAN = 1440
 
 # Set True to cluster command sequences recorded by Cowrie once a day
@@ -71,6 +72,7 @@ IOC_RETENTION = 3650
 
 # Days to keep Cowrie honeypot sessions with login attempts before deletion
 # Sessions without login attempts are deleted after 30 days regardless of this setting
+# Sessions with login attempts that still reference a command sequence are kept until that sequence expires or its source IOC is deleted
 COWRIE_SESSION_RETENTION = 365
 
 # Days to keep unseen command sequences before deletion
@@ -81,6 +83,9 @@ RAW_EVENT_RETENTION = 7
 
 # Days to keep EventStatus data before deletion
 EVENT_STATUS_RETENTION = 30
+
+# Days to keep the run history of the extraction jobs before deletion
+EXTRACTION_RUN_RETENTION = 30
 
 # ThreatFox API key.
 # Once added, your payload request domains will be submitted to ThreatFox.
@@ -122,6 +127,11 @@ TPOT_PAYLOAD_SERVER_URL=
 # Optional API key for authenticating with the T-Pot Payload Server.
 # When empty, authentication is disabled on both sides.
 TPOT_PAYLOAD_SERVER_API_KEY=
+
+# Payload servers of several T-Pot sensors, as a single-line JSON list (see the wiki for an example):
+# [{"url": ..., "api_key": ..., "sensor": <IP address of the T-Pot>}], "api_key" is optional.
+# When set, TPOT_PAYLOAD_SERVER_URL and TPOT_PAYLOAD_SERVER_API_KEY are ignored.
+TPOT_PAYLOAD_SERVERS=
 
 # Maximum disk usage (in GB) for the quarantine directory.
 # Payload downloads are paused when this limit is reached.

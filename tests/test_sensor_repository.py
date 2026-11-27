@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.db import transaction
+
 from greedybear.cronjobs.repositories import SensorRepository
 from greedybear.models import Sensor
 
@@ -9,6 +11,17 @@ from . import CustomTestCase, make_api_source, make_sensor, make_user
 class TestSensorRepository(CustomTestCase):
     def setUp(self):
         self.repo = SensorRepository()
+
+    def test_refresh_cache_drops_rolled_back_sensors(self):
+        with transaction.atomic():
+            self.repo.get_or_create_sensor("192.168.1.77")
+            transaction.set_rollback(True)
+        self.assertIn("192.168.1.77", self.repo.cache)
+
+        self.repo.refresh_cache()
+
+        self.assertNotIn("192.168.1.77", self.repo.cache)
+        self.assertFalse(Sensor.objects.filter(address="192.168.1.77").exists())
 
     def test_get_or_create_sensor_creates_new_sensor(self):
         result = self.repo.get_or_create_sensor("192.168.1.3")
@@ -58,6 +71,27 @@ class TestSensorRepository(CustomTestCase):
             result = self.repo.get_or_create_sensor(ip)
             self.assertIsNotNone(result)
             self.assertIsInstance(result, Sensor)
+
+    def test_get_or_create_sensor_accepts_valid_ipv6(self):
+        result = self.repo.get_or_create_sensor("2001:db8::1")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, Sensor)
+        self.assertEqual(result.address, "2001:db8::1")
+        self.assertTrue(Sensor.objects.filter(address="2001:db8::1").exists())
+
+    def test_get_or_create_sensor_normalizes_ip(self):
+        """IPv4-mapped IPv6 and plain IPv4 resolve to the same sensor."""
+        mapped = self.repo.get_or_create_sensor("::ffff:8.8.8.8")
+        plain = self.repo.get_or_create_sensor("8.8.8.8")
+        self.assertEqual(mapped.address, "8.8.8.8")
+        self.assertEqual(mapped.pk, plain.pk)
+
+    def test_get_or_create_sensor_normalizes_ipv6(self):
+        """Uppercase and lowercase IPv6 spellings resolve to the same sensor."""
+        upper = self.repo.get_or_create_sensor("2001:DB8::1")
+        lower = self.repo.get_or_create_sensor("2001:db8::1")
+        self.assertEqual(upper.address, "2001:db8::1")
+        self.assertEqual(upper.pk, lower.pk)
 
     def test_get_or_create_sensor_has_empty_label(self):
         """get_or_create_sensor should create a sensor with an empty label."""

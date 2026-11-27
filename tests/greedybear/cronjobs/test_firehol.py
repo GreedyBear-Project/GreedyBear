@@ -44,9 +44,7 @@ class FireHolCronTestCase(CustomTestCase):
         self.assertTrue(FireHolList.objects.filter(ip_address="3.3.3.3", source="greensnow").exists())
         self.assertTrue(FireHolList.objects.filter(ip_address="1.1.1.1", source="bruteforceblocker").exists())
         self.assertTrue(FireHolList.objects.filter(ip_address="4.4.4.0/24", source="dshield").exists())
-
-        # Verify FireHolList data is available for IOC enrichment at creation time
-        # (Note: Enrichment now happens in iocs_from_hits during IOC creation, not here)
+        # Verify FireHolList holds what FireHolBlocklistCron will match against
         firehol_entries = FireHolList.objects.filter(ip_address="1.1.1.1")
         self.assertEqual(firehol_entries.count(), 2)
         sources = list(firehol_entries.values_list("source", flat=True))
@@ -137,8 +135,7 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log = MagicMock()
         cronjob.execute()
 
-        self.assertFalse(FireHolList.objects.filter(ip_address="256.1.1.1", source="blocklist_de").exists())
-        self.assertFalse(FireHolList.objects.filter(ip_address="999.999.999.999", source="blocklist_de").exists())
+        self.assertFalse(FireHolList.objects.filter(source="blocklist_de").exists())
 
     @patch("greedybear.cronjobs.firehol.HttpClient.get")
     def test_run_handles_invalid_cidr(self, mock_get):
@@ -152,7 +149,7 @@ class FireHolCronTestCase(CustomTestCase):
         cronjob.log = MagicMock()
         cronjob.execute()
 
-        self.assertFalse(FireHolList.objects.filter(ip_address="192.168.1.256", source="blocklist_de").exists())
+        self.assertFalse(FireHolList.objects.filter(source="blocklist_de").exists())
 
     def test_cleanup_old_entries(self):
         now = datetime.now()

@@ -23,12 +23,14 @@ const INITIAL_USER = {
 const useAuthStore = create((set, get) => ({
   user: INITIAL_USER,
   isSuperuser: false,
+  canDownloadPayloads: false,
   isAuthenticated: AUTHENTICATION_STATUSES.FALSE,
   reset: () => {
     set({
       isAuthenticated: AUTHENTICATION_STATUSES.FALSE,
       user: INITIAL_USER,
       isSuperuser: false,
+      canDownloadPayloads: false,
     });
   },
   checkAuthentication: async () => {
@@ -59,6 +61,7 @@ const useAuthStore = create((set, get) => ({
         });
         set({
           user: resp.data.user,
+          canDownloadPayloads: Boolean(resp.data.can_download_payloads),
         });
       } catch (err) {
         addToast(

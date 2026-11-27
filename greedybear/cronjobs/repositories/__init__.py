@@ -3,6 +3,7 @@ from greedybear.cronjobs.repositories.autonomous_system import *
 from greedybear.cronjobs.repositories.cowrie_session import *
 from greedybear.cronjobs.repositories.elastic import *
 from greedybear.cronjobs.repositories.event import *
+from greedybear.cronjobs.repositories.extraction_run import *
 from greedybear.cronjobs.repositories.firehol import *
 from greedybear.cronjobs.repositories.ioc import *
 from greedybear.cronjobs.repositories.mass_scanner import *

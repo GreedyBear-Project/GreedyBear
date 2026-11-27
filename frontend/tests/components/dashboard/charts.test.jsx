@@ -40,11 +40,16 @@ vi.mock("recharts", async (importOriginal) => {
         })}
       </div>
     ),
-    ComposedChart: ({ children }) => (
-      <div data-testid="composed-chart">{children}</div>
+    ComposedChart: ({ children, reverseStackOrder }) => (
+      <div
+        data-testid="composed-chart"
+        data-reverse-stack-order={String(Boolean(reverseStackOrder))}
+      >
+        {children}
+      </div>
     ),
     BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
-    Bar: ({ dataKey }) => <div data-testid={`bar-${dataKey}`} />,
+    Bar: ({ dataKey, name }) => <div data-testid={`bar-${name ?? dataKey}`} />,
     Area: ({ dataKey }) => <div data-testid={`area-${dataKey}`} />,
     XAxis: () => null,
     YAxis: () => null,
@@ -56,7 +61,9 @@ vi.mock("recharts", async (importOriginal) => {
 });
 
 const ONE_DAY_FEED = [{ date: "2024-01-01", Sources: 10, Downloads: 5 }];
-const ONE_DAY_TYPES = [{ date: "2024-01-01", cowrie: 100, honeytrap: 50 }];
+const ONE_DAY_TYPES = [
+  { date: "2024-01-01", counts: { cowrie: 100, honeytrap: 50 } },
+];
 const ONE_DAY_ENRICHMENT = [{ date: "2024-01-01", Sources: 3, Requests: 9 }];
 
 describe("Charts Components", () => {
@@ -135,6 +142,28 @@ describe("Charts Components", () => {
     );
   });
 
+  test("FeedsTypesChart reverses stack order so the bar matches the tooltip order", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_TYPES });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composed-chart")).toHaveAttribute(
+        "data-reverse-stack-order",
+        "true",
+      ),
+    );
+  });
+
+  test("FeedsSourcesChart does not reverse stack order", async () => {
+    axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
+    render(<FeedsSourcesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composed-chart")).toHaveAttribute(
+        "data-reverse-stack-order",
+        "false",
+      ),
+    );
+  });
+
   test("FeedsSourcesChart renders an Area for each colorMap key in its slice", async () => {
     axios.get.mockResolvedValue({ data: ONE_DAY_FEED });
     render(<FeedsSourcesChart />);
@@ -172,6 +201,22 @@ describe("Charts Components", () => {
     });
   });
 
+  test("FeedsTypesChart renders bars alphabetically by name", async () => {
+    axios.get.mockResolvedValue({
+      data: [
+        { date: "2024-01-01", counts: { tanner: 1, cowrie: 2, ciscoasa: 3 } },
+      ],
+    });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId(/^bar-/)
+          .map((bar) => bar.getAttribute("data-testid")),
+      ).toEqual(["bar-ciscoasa", "bar-cowrie", "bar-tanner"]),
+    );
+  });
+
   test("FeedsTypesChart renders a chart after data loads", async () => {
     axios.get.mockResolvedValue({ data: ONE_DAY_TYPES });
     render(<FeedsTypesChart />);
@@ -192,11 +237,11 @@ describe("Charts Components", () => {
 
   test("FeedsTypesChart only reads feed types from first element of respData", async () => {
     // Second element introduces a "telnet" key absent from the first element.
-    // The chart must only create Bars for keys found in respData[0] (excluding "date").
+    // The chart must only create Bars for keys found in respData[0].counts.
     axios.get.mockResolvedValue({
       data: [
-        { date: "2024-01-01", ssh: 5 },
-        { date: "2024-01-02", ssh: 8, telnet: 3 },
+        { date: "2024-01-01", counts: { ssh: 5 } },
+        { date: "2024-01-02", counts: { ssh: 8, telnet: 3 } },
       ],
     });
     render(<FeedsTypesChart />);
@@ -204,5 +249,15 @@ describe("Charts Components", () => {
       expect(screen.getByTestId("bar-ssh")).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("bar-telnet")).not.toBeInTheDocument();
+  });
+
+  test("FeedsTypesChart supports a honeypot named date", async () => {
+    axios.get.mockResolvedValue({
+      data: [{ date: "2024-01-01", counts: { date: 7 } }],
+    });
+    render(<FeedsTypesChart />);
+    await waitFor(() =>
+      expect(screen.getByTestId("bar-date")).toBeInTheDocument(),
+    );
   });
 });

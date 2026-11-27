@@ -1,9 +1,12 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
 from django.contrib.postgres import fields as pg_fields
+from django.contrib.postgres.indexes import GistIndex
 from django.db import models
 from django.db.models.functions import Lower, Now
+from netfields import CidrAddressField, NetManager
 
+from greedybear.consts import SHARE_TOKEN_SALT
 from greedybear.enums import IpReputation
 from greedybear.settings import AUTH_USER_MODEL
 from greedybear.storage import QuarantineStorage
@@ -31,6 +34,18 @@ class EventStatusType(models.TextChoices):
     PROCESSING = "processing", "Processing"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
+
+
+class ExtractionJobName(models.TextChoices):
+    EXTRACTION = "extraction", "Extraction"
+    PAYLOAD_EXTRACTION = "payload_extraction", "Payload extraction"
+
+
+class ExtractionRunStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED_RETRYABLE = "failed_retryable", "Failed (retryable)"
+    FAILED_PERMANENT = "failed_permanent", "Failed (permanent)"
 
 
 class APISource(models.Model):
@@ -122,13 +137,24 @@ class Honeypot(models.Model):
 
 
 class FireHolList(models.Model):
-    ip_address = models.CharField(max_length=256)
+    ip_address = CidrAddressField()
     added = models.DateTimeField(db_default=Now())
     source = models.CharField(max_length=64, blank=True, default="")
+
+    objects = NetManager()
 
     class Meta:
         indexes = [
             models.Index(fields=["ip_address"]),
+            GistIndex(
+                fields=["ip_address"],
+                opclasses=["inet_ops"],
+                condition=models.Q(ip_address__prefixlen__lte=31),
+                name="firehollist_cidr_gist",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["ip_address", "source"], name="unique_firehollist_identity"),
         ]
 
     def __str__(self):
@@ -169,8 +195,9 @@ class IOC(models.Model):
     payload_request = models.BooleanField(default=False)
     related_ioc = models.ManyToManyField("self", blank=True, symmetrical=True)
     related_urls = pg_fields.ArrayField(models.CharField(max_length=900, blank=True), blank=True, default=list)
+    http_attack_types = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
+    high_credential_reuse = models.BooleanField(default=False)
     ip_reputation = models.CharField(max_length=32, blank=True)
-    firehol_categories = pg_fields.ArrayField(models.CharField(max_length=64, blank=True), blank=True, default=list)
     destination_ports = pg_fields.ArrayField(models.IntegerField(), default=list)
     protocols = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
     cves = pg_fields.ArrayField(models.CharField(max_length=50), default=list)
@@ -178,6 +205,9 @@ class IOC(models.Model):
     # SCORES
     recurrence_probability = models.FloatField(null=True, default=0)
     expected_interactions = models.FloatField(null=True, default=0)
+    # helper attributes, not DB fields
+    _sensors_to_add: list[Sensor]
+    _seen_honeypots: list[str]
 
     class Meta:
         indexes = [
@@ -205,9 +235,9 @@ class CommandSequence(models.Model):
 
 
 class Credential(models.Model):
-    username = models.CharField(max_length=256, blank=False)
-    password = models.CharField(max_length=256, blank=False)
-    protocol = models.CharField(max_length=32, blank=True, default="")
+    username = models.CharField(max_length=256, blank=True)
+    password = models.CharField(max_length=256, blank=True)
+    protocol = models.CharField(max_length=50, blank=True, default="")
     sources = models.ManyToManyField(
         "IOC",
         blank=True,
@@ -267,7 +297,7 @@ class CowrieFileTransfer(models.Model):
         constraints = [models.UniqueConstraint(fields=["shasum", "session"], name="unique_download_per_session")]
 
     def __str__(self):
-        return f"{self.shasum[:8]} from session {self.session_id}"
+        return f"{self.shasum[:8]} from session {self.session_id}"  # ty: ignore[unresolved-attribute]
 
 
 class Statistics(models.Model):
@@ -376,6 +406,16 @@ class ShareToken(models.Model):
         status = "revoked" if self.revoked else "active"
         return f"ShareToken({self.token_hash[:12]}… [{status}])"
 
+    @staticmethod
+    def salt_for_user(user_id: int) -> str:
+        """Derive a signing salt scoped to the user who creates a share token."""
+        return f"{SHARE_TOKEN_SALT}:{user_id}"
+
+    @property
+    def signing_salt(self) -> str:
+        """Salt this token was signed with, derived from its owner's ID."""
+        return self.salt_for_user(self.user_id)  # ty: ignore[unresolved-attribute]
+
 
 class AttackerActivityBucket(models.Model):
     attacker_ip = models.GenericIPAddressField()
@@ -427,7 +467,44 @@ class EventStatus(models.Model):
         ]
 
     def __str__(self):
-        return f"Batch {self.id} — {self.status} (task: {self.task_id})"
+        return f"Batch {self.pk} — {self.status} (task: {self.task_id})"
+
+
+class ExtractionRun(models.Model):
+    """
+    One run of a windowed extraction job.
+
+    window_end only ever moves past chunks that were fully processed (or failed
+    permanently and were skipped), so the latest window_end of a job and source
+    is its watermark: the point the next run resumes from. For payload extraction,
+    ioc_count holds the number of payloads stored.
+    """
+
+    job_name = models.CharField(max_length=32, choices=ExtractionJobName.choices)
+    # What the job reads from, for a job with several sources that each keep their
+    # own watermark, like the URL of a payload server. Empty for a single source.
+    source = models.CharField(max_length=512, blank=True, default="")
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    status = models.CharField(
+        max_length=20,
+        choices=ExtractionRunStatus.choices,
+        default=ExtractionRunStatus.RUNNING,
+    )
+    ioc_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["job_name", "source", "window_end"]),
+        ]
+
+    def __str__(self):
+        source = f" {self.source}" if self.source else ""
+        return f"{self.job_name}{source} {self.window_start} - {self.window_end} ({self.status})"
 
 
 class RawEvent(models.Model):
@@ -501,9 +578,8 @@ class HoneypotPayload(models.Model):
     sha256 = models.CharField(max_length=64)
     mime_type = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveIntegerField(null=True, blank=True)
-    locator = models.CharField(max_length=1024, blank=True, default="")
-    mtime = models.FloatField(blank=True, null=True)
     source_honeypots = models.ManyToManyField("Honeypot", blank=True)
+    sensors = models.ManyToManyField("Sensor", through="PayloadObservation", blank=True, related_name="payloads")
     iocs = models.ManyToManyField("IOC", blank=True, related_name="payloads")
     cowrie_sessions = models.ManyToManyField("CowrieSession", blank=True, related_name="payloads")
     is_uploaded_mb = models.BooleanField(
@@ -522,6 +598,35 @@ class HoneypotPayload(models.Model):
 
     def __str__(self):
         return f"Payload {self.sha256}"
+
+
+class PayloadObservation(models.Model):
+    """
+    A sighting of a HoneypotPayload on one tpot-payload-server.
+
+    The same binary can be captured by several T-Pot sensors. It is stored once
+    as a HoneypotPayload, while each sensor that reported it gets its own
+    observation holding where the file lives on that sensor's payload server.
+    The sensor is empty for the legacy single-server configuration, which does
+    not say which sensor the server belongs to.
+    """
+
+    payload = models.ForeignKey(HoneypotPayload, on_delete=models.CASCADE, related_name="observations")
+    sensor = models.ForeignKey(Sensor, on_delete=models.CASCADE, related_name="payload_observations", null=True, blank=True)
+    locator = models.CharField(
+        max_length=1024,
+        help_text="Path of the file on the sensor's payload server, used to download it from there.",
+    )
+    mtime = models.FloatField(blank=True, null=True, help_text="Modification time of the file on the sensor, as a Unix timestamp.")
+
+    class Meta:
+        constraints = [
+            # An empty sensor counts as a value too, so the legacy server also gets one observation per payload.
+            models.UniqueConstraint(fields=["payload", "sensor"], nulls_distinct=False, name="unique_payload_observation_per_sensor"),
+        ]
+
+    def __str__(self):
+        return f"{self.payload} on {self.sensor or 'unknown sensor'}"
 
 
 class DashboardConfig(models.Model):

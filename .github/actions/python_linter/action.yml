@@ -29,6 +29,10 @@ inputs:
   use_ruff_linter:
     description: Use ruff linter
     required: true
+  use_ty:
+    description: Use ty type checker
+    required: false
+    default: 'false'
 
 runs:
   using: "composite"
@@ -111,6 +115,16 @@ runs:
           ruff check .
         else
           echo "Skipping ruff linter"
+        fi
+      working-directory: ${{ inputs.working_directory }}
+      shell: bash
+
+    - name: ty type checker
+      run: |
+        if [[ ${{ inputs.use_ty }} != 'false' ]]; then
+          ty check --output-format github
+        else
+          echo "Skipping ty type checker"
         fi
       working-directory: ${{ inputs.working_directory }}
       shell: bash

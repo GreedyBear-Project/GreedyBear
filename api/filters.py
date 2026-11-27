@@ -1,10 +1,10 @@
 from datetime import date, timedelta
 
 import django_filters
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
-from greedybear.models import IOC
+from greedybear.models import IOC, HoneypotPayload
 
 
 class FeedsFilterSet(django_filters.FilterSet):
@@ -25,6 +25,8 @@ class FeedsFilterSet(django_filters.FilterSet):
     include_reputation = django_filters.Filter(method="filter_include_reputation")
     min_credential_count = django_filters.NumberFilter(method="filter_min_credential_count")
     max_credential_count = django_filters.NumberFilter(method="filter_max_credential_count")
+    cve = django_filters.Filter(method="filter_cve")
+    protocol = django_filters.Filter(method="filter_protocol")
 
     class Meta:
         model = IOC
@@ -42,6 +44,16 @@ class FeedsFilterSet(django_filters.FilterSet):
 
     def filter_port(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
         return queryset.filter(destination_ports__contains=[int(value)])
+
+    def filter_cve(self, queryset: QuerySet, name: str, value: list[str]) -> QuerySet:
+        if value:
+            return queryset.filter(cves__overlap=value)
+        return queryset
+
+    def filter_protocol(self, queryset: QuerySet, name: str, value: list[str]) -> QuerySet:
+        if value:
+            return queryset.filter(protocols__overlap=value)
+        return queryset
 
     def filter_country_code(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
         return queryset.filter(attacker_country_code=value.upper())
@@ -67,6 +79,9 @@ class FeedsFilterSet(django_filters.FilterSet):
         return queryset.filter(id__in=qualifying)
 
     def filter_end_date(self, queryset: QuerySet, name: str, value: date) -> QuerySet:
+        # there is no day after date.max, and nothing can be seen later than it anyway
+        if value == date.max:
+            return queryset
         return queryset.filter(last_seen__lt=value + timedelta(days=1))
 
     def filter_max_age(self, queryset: QuerySet, name: str, value: int) -> QuerySet:
@@ -75,3 +90,24 @@ class FeedsFilterSet(django_filters.FilterSet):
             return queryset
         cutoff = timezone.now() - timedelta(days=int(value))
         return queryset.filter(last_seen__gte=cutoff)
+
+
+class HoneypotPayloadFilterSet(django_filters.FilterSet):
+    """Filter payloads by hash (SHA256, SHA1 or MD5 substring), honeypot name and MIME type."""
+
+    search = django_filters.CharFilter(method="filter_hash")
+    honeypot = django_filters.CharFilter(
+        field_name="source_honeypots__name",
+        lookup_expr="iexact",
+    )
+    mime_type = django_filters.CharFilter(
+        field_name="mime_type",
+        lookup_expr="iexact",
+    )
+
+    def filter_hash(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
+        return queryset.filter(Q(sha256__icontains=value) | Q(sha1__icontains=value) | Q(md5__icontains=value))
+
+    class Meta:
+        model = HoneypotPayload
+        fields = ["search", "honeypot", "mime_type"]

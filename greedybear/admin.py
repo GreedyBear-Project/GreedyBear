@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils.html import format_html
 from django.utils.translation import ngettext
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.models import (
     IOC,
     APISource,
@@ -16,10 +17,12 @@ from greedybear.models import (
     Credential,
     DashboardConfig,
     EventStatus,
+    ExtractionRun,
     FireHolList,
     Honeypot,
     HoneypotPayload,
     MassScanner,
+    PayloadObservation,
     RawEvent,
     Sensor,
     Statistics,
@@ -35,9 +38,26 @@ TITLE_MAX_CHARS = 2000
 
 
 class GreedyBearModelAdmin(admin.ModelAdmin):
-    """Base admin class for all GreedyBear models."""
+    """Base admin class for all GreedyBear models.
+
+    Every admin write invalidates the IOC cache, so feeds and statistics
+    reflect the change on the next request.
+    """
 
     show_facets = admin.ShowFacets.NEVER  # disable facet counts ("Show counts" button)
+
+    def save_related(self, request, form, formsets, change):
+        # runs after save_model, once M2M fields and inlines are saved too
+        super().save_related(request, form, formsets, change)
+        invalidate_ioc_cache()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        invalidate_ioc_cache()
+
+    def delete_queryset(self, request, queryset):
+        super().delete_queryset(request, queryset)
+        invalidate_ioc_cache()
 
 
 def collapsed_list_display(attribute, description=None, max_items=MAX_LISTED_ITEMS):
@@ -199,10 +219,11 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "related_urls_display",
         "scanner",
         "payload_request",
+        "http_attack_types_display",
+        "high_credential_reuse",
         "honeypots_display",
         "sensors_display",
         "ip_reputation",
-        "firehol_categories_display",
         "autonomous_system_display",
         "destination_ports_display",
         "protocols_display",
@@ -215,6 +236,7 @@ class IOCModelAdmin(GreedyBearModelAdmin):
         "type",
         "scanner",
         "payload_request",
+        "high_credential_reuse",
         "ip_reputation",
         "autonomous_system",
     ]
@@ -229,11 +251,12 @@ class IOCModelAdmin(GreedyBearModelAdmin):
     honeypots_display = collapsed_list_display("honeypots")
     sensors_display = collapsed_list_display("sensors")
     related_urls_display = collapsed_list_display("related_urls", description="Related URLs")
-    firehol_categories_display = collapsed_list_display("firehol_categories", description="FireHol Categories")
     destination_ports_display = collapsed_list_display("destination_ports")
     protocols_display = collapsed_list_display("protocols")
     cves_display = collapsed_list_display("cves", description="CVEs")
+    http_attack_types_display = collapsed_list_display("http_attack_types", description="HTTP Attack Types")
 
+    @admin.display(description="Autonomous System", ordering="autonomous_system__asn")
     def autonomous_system_display(self, ioc):
         """
         Shows ASN and AS name neatly in list_display.
@@ -244,16 +267,13 @@ class IOCModelAdmin(GreedyBearModelAdmin):
             return f"{asn} ({name})" if name else str(asn)
         return "-"
 
-    autonomous_system_display.short_description = "Autonomous System"
-    autonomous_system_display.admin_order_field = "autonomous_system__asn"
-
     def get_queryset(self, request):
         """Override to optimize queries and avoid N+1 problems."""
         return super().get_queryset(request).select_related("autonomous_system").prefetch_related("sensors", "honeypots")
 
 
 @admin.register(AttackerActivityBucket)
-class AttackerActivityBucketAdmin(admin.ModelAdmin):
+class AttackerActivityBucketAdmin(GreedyBearModelAdmin):
     list_display = ["attacker_ip", "feed_type", "bucket_start", "interaction_count"]
     list_filter = ["feed_type"]
     search_fields = ["attacker_ip"]
@@ -275,6 +295,9 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         disableable = Q(active=True)
         honeypots = queryset.filter(disableable).all()
         number_updated = honeypots.update(active=False)
+        # update() bypasses save_related, so invalidate explicitly
+        if number_updated:
+            invalidate_ioc_cache()
         self.message_user(
             request,
             ngettext(
@@ -291,6 +314,8 @@ class HoneypotAdmin(GreedyBearModelAdmin):
         enableable = Q(active=False)
         honeypots = queryset.filter(enableable).all()
         number_updated = honeypots.update(active=True)
+        if number_updated:
+            invalidate_ioc_cache()
         self.message_user(
             request,
             ngettext(
@@ -342,6 +367,45 @@ class EventStatusAdmin(GreedyBearModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ExtractionRun)
+class ExtractionRunAdmin(GreedyBearModelAdmin):
+    list_display = [
+        "id",
+        "job_name",
+        "source",
+        "window_start",
+        "window_end",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "finished_at",
+    ]
+    list_filter = ["job_name", "status"]
+    readonly_fields = [
+        "job_name",
+        "source",
+        "window_start",
+        "window_end",
+        "status",
+        "ioc_count",
+        "last_error",
+        "created_at",
+        "finished_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # The latest run of a job holds its watermark: deleting it would extract
+        # that window again and count its IOCs twice. The cleanup job removes old runs.
         return False
 
 
@@ -408,6 +472,20 @@ class RawEventAdmin(GreedyBearModelAdmin):
         )
 
 
+class PayloadObservationInline(admin.TabularInline):
+    model = PayloadObservation
+    fields = ["sensor", "locator", "mtime"]
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
 @admin.register(HoneypotPayload)
 class HoneypotPayloadAdmin(GreedyBearModelAdmin):
     list_display = [
@@ -420,6 +498,7 @@ class HoneypotPayloadAdmin(GreedyBearModelAdmin):
     list_filter = ["source_honeypots", "mime_type"]
     readonly_fields = ["payload_file"]
     raw_id_fields = ["iocs", "cowrie_sessions"]
+    inlines = [PayloadObservationInline]
 
     @admin.display(description="Source Honeypots")
     def get_source_honeypots(self, obj):

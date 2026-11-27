@@ -4,6 +4,7 @@
 Tests for hit filtering, grouping, and sensor extraction in ExtractionPipeline.
 """
 
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from tests import ExtractionTestCase, MockElasticHit
@@ -32,13 +33,16 @@ class TestHitFiltering(ExtractionPipelineTestCase):
     def test_skips_hits_without_src_ip(self, mock_factory, mock_scores):
         """Hits without src_ip should be skipped."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
+        self._mock_chunks(
+            pipeline,
             [
-                MockElasticHit({"type": "Cowrie"}),  # missing src_ip
-                MockElasticHit({"src_ip": "", "type": "Cowrie"}),  # empty src_ip
-                MockElasticHit({"src_ip": "   ", "type": "Cowrie"}),  # whitespace-only src_ip
-            ]
-        ]
+                [
+                    MockElasticHit({"type": "Cowrie"}),  # missing src_ip
+                    MockElasticHit({"src_ip": "", "type": "Cowrie"}),  # empty src_ip
+                    MockElasticHit({"src_ip": "   ", "type": "Cowrie"}),  # whitespace-only src_ip
+                ]
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -51,13 +55,16 @@ class TestHitFiltering(ExtractionPipelineTestCase):
     def test_skips_hits_without_type(self, mock_factory, mock_scores):
         """Hits without type (honeypot) should be skipped."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
+        self._mock_chunks(
+            pipeline,
             [
-                MockElasticHit({"src_ip": "1.2.3.4"}),  # missing type
-                MockElasticHit({"src_ip": "1.2.3.4", "type": ""}),  # empty type
-                MockElasticHit({"src_ip": "1.2.3.4", "type": "   "}),  # whitespace-only type
-            ]
-        ]
+                [
+                    MockElasticHit({"src_ip": "1.2.3.4"}),  # missing type
+                    MockElasticHit({"src_ip": "1.2.3.4", "type": ""}),  # empty type
+                    MockElasticHit({"src_ip": "1.2.3.4", "type": "   "}),  # whitespace-only type
+                ]
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -70,7 +77,7 @@ class TestHitFiltering(ExtractionPipelineTestCase):
     def test_handles_empty_search_result(self, mock_factory, mock_scores):
         """Should handle empty Elasticsearch response gracefully."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = []
+        self._mock_chunks(pipeline, [])
         pipeline.ioc_repo.is_empty.return_value = False
 
         result = pipeline.execute()
@@ -92,16 +99,19 @@ class TestSensorExtraction(ExtractionPipelineTestCase):
         Also verifies correct time window is passed to search().
         """
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
-            [MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1"})],
-        ]
+        self._mock_chunks(
+            pipeline,
+            [
+                [MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1"})],
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = False  # Skip strategy for this test
 
         pipeline.execute()
 
         pipeline.sensor_repo.get_or_create_sensor.assert_called_once_with("10.0.0.1")
-        pipeline.elastic_repo.search.assert_called_once_with(10)
+        pipeline.elastic_repo.search.assert_called_once_with(self.MOCK_WINDOW_START, self.MOCK_WINDOW_START + timedelta(minutes=10))
 
     @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
     @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
@@ -122,7 +132,7 @@ class TestSensorExtraction(ExtractionPipelineTestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
 
         pipeline.execute()
@@ -139,13 +149,16 @@ class TestHitGrouping(ExtractionPipelineTestCase):
     def test_groups_hits_by_honeypot_type(self, mock_factory, mock_scores):
         """Hits should be grouped by honeypot type before extraction."""
         pipeline = self._create_pipeline_with_mocks()
-        pipeline.elastic_repo.search.return_value = [
+        self._mock_chunks(
+            pipeline,
             [
-                MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"}),
-                MockElasticHit({"src_ip": "5.6.7.8", "type": "Cowrie"}),
-                MockElasticHit({"src_ip": "9.10.11.12", "type": "Log4pot"}),
-            ]
-        ]
+                [
+                    MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"}),
+                    MockElasticHit({"src_ip": "5.6.7.8", "type": "Cowrie"}),
+                    MockElasticHit({"src_ip": "9.10.11.12", "type": "Log4pot"}),
+                ]
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -182,7 +195,7 @@ class TestHitGrouping(ExtractionPipelineTestCase):
             MockElasticHit({"src_ip": "2.2.2.2", "type": "Cowrie"}),
             MockElasticHit({"src_ip": "3.3.3.3", "type": "Cowrie"}),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -222,7 +235,7 @@ class TestHitGrouping(ExtractionPipelineTestCase):
                 }
             ),
         ]
-        pipeline.elastic_repo.search.return_value = [hits]
+        self._mock_chunks(pipeline, [hits])
         pipeline.ioc_repo.is_empty.return_value = False
 
         # First honeypot disabled, second enabled
@@ -261,7 +274,7 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
             MockElasticHit({"src_ip": "5.5.5.5", "type": "Cowrie"}),
             MockElasticHit({"src_ip": "6.6.6.6", "type": "Cowrie"}),
         ]
-        pipeline.elastic_repo.search.return_value = [chunk1, chunk2, chunk3]
+        self._mock_chunks(pipeline, [chunk1, chunk2, chunk3])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -288,11 +301,14 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
             MockElasticHit({"src_ip": "1.1.1.1", "type": "Cowrie"}),
         ]
         empty_chunk = []
-        pipeline.elastic_repo.search.return_value = [
-            chunk_with_hits,
-            empty_chunk,
-            chunk_with_hits,
-        ]
+        self._mock_chunks(
+            pipeline,
+            [
+                chunk_with_hits,
+                empty_chunk,
+                chunk_with_hits,
+            ],
+        )
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -311,7 +327,7 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
         pipeline = self._create_pipeline_with_mocks()
 
         chunk = [MockElasticHit({"src_ip": "1.1.1.1", "type": "Cowrie"})]
-        pipeline.elastic_repo.search.return_value = [chunk, chunk, chunk]
+        self._mock_chunks(pipeline, [chunk, chunk, chunk])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -331,7 +347,7 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
 
         chunk1 = [MockElasticHit({"src_ip": "1.1.1.1", "type": "Cowrie"})]
         chunk2 = [MockElasticHit({"src_ip": "2.2.2.2", "type": "Log4pot"})]
-        pipeline.elastic_repo.search.return_value = [chunk1, chunk2]
+        self._mock_chunks(pipeline, [chunk1, chunk2])
         pipeline.ioc_repo.is_empty.return_value = False
         pipeline.ioc_repo.is_ready_for_extraction.return_value = True
 
@@ -345,3 +361,74 @@ class TestMultiChunkProcessing(ExtractionPipelineTestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][0][0], "Cowrie")
         self.assertEqual(calls[1][0][0], "Log4pot")
+
+
+class HitGateTestCase(ExtractionPipelineTestCase):
+    """The required-field gate in execute(), and what a wrapped hit gives the strategies."""
+
+    def _run(self, hits):
+        pipeline = self._create_pipeline_with_mocks()
+        self._mock_chunks(pipeline, [hits])
+        pipeline.ioc_repo.is_empty.return_value = False
+        pipeline.ioc_repo.is_ready_for_extraction.return_value = True
+        return pipeline
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_null_src_ip_is_skipped(self, mock_factory, mock_scores):
+        """A _source filter omits absent fields, but an explicit null can still arrive."""
+        pipeline = self._run([MockElasticHit({"src_ip": None, "type": "Cowrie"})])
+        pipeline.execute()
+        mock_factory.return_value.get_strategy.assert_not_called()
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_non_string_src_ip_does_not_crash_the_chunk(self, mock_factory, mock_scores):
+        """The old check called .strip() directly, which raised on a non-string."""
+        pipeline = self._run(
+            [
+                MockElasticHit({"src_ip": 12345, "type": "Cowrie"}),
+                MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie"}),
+            ]
+        )
+        pipeline.execute()
+        mock_factory.return_value.get_strategy.assert_called_once_with("Cowrie")
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_non_object_geoip_ext_does_not_crash(self, mock_factory, mock_scores):
+        """geoip_ext was read with a .get() chain, which breaks when it is not an object."""
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1", "geoip_ext": "not-an-object"})])
+        pipeline.execute()
+        mock_factory.return_value.get_strategy.assert_called_once_with("Cowrie")
+        pipeline.sensor_repo.update_country.assert_not_called()
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_sensor_country_still_read_from_a_real_object(self, mock_factory, mock_scores):
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1", "geoip_ext": {"country_name": "Testland"}})])
+        pipeline.execute()
+        pipeline.sensor_repo.update_country.assert_called_once()
+        self.assertEqual(pipeline.sensor_repo.update_country.call_args[0][1], "Testland")
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_strategies_receive_hits_with_typed_access(self, mock_factory, mock_scores):
+        """Hits reach the strategies wrapped, so they can use require/get_* from here on."""
+        from greedybear.cronjobs.extraction.hit import Hit
+
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "dest_port": 22})])
+        pipeline.execute()
+        delivered = mock_factory.return_value.get_strategy.return_value.extract_from_hits.call_args[0][0]
+        self.assertIsInstance(delivered[0], Hit)
+        self.assertEqual(delivered[0]["src_ip"], "1.2.3.4")
+        self.assertEqual(delivered[0].get_int("dest_port"), 22)
+
+    @patch("greedybear.cronjobs.extraction.pipeline.UpdateScores")
+    @patch("greedybear.cronjobs.extraction.pipeline.ExtractionStrategyFactory")
+    def test_sensor_is_still_attached_to_the_hit(self, mock_factory, mock_scores):
+        """execute() writes _sensor onto the hit, so the wrapper has to stay mutable."""
+        pipeline = self._run([MockElasticHit({"src_ip": "1.2.3.4", "type": "Cowrie", "t-pot_ip_ext": "10.0.0.1"})])
+        pipeline.execute()
+        delivered = mock_factory.return_value.get_strategy.return_value.extract_from_hits.call_args[0][0]
+        self.assertIn("_sensor", delivered[0])

@@ -46,7 +46,13 @@ const colors = getRandomColorsArray(30, true);
  * Shared chart skeleton: handles loading / empty / error states and renders a
  * ResponsiveContainer
  */
-function ChartSkeleton({ data, loading, error, children }) {
+function ChartSkeleton({
+  data,
+  loading,
+  error,
+  children,
+  reverseStackOrder = false,
+}) {
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center py-4 text-muted">
@@ -68,7 +74,11 @@ function ChartSkeleton({ data, loading, error, children }) {
   }
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <ComposedChart data={data} margin={CHART_MARGIN}>
+      <ComposedChart
+        data={data}
+        margin={CHART_MARGIN}
+        reverseStackOrder={reverseStackOrder}
+      >
         <Legend verticalAlign="top" height={40} />
         <Tooltip contentStyle={TOOLTIP_STYLE} />
         <CartesianGrid stroke="#25404b" strokeDasharray="1 1" />
@@ -181,15 +191,29 @@ export const FeedsTypesChart = React.memo(() => {
 
   const bars = React.useMemo(() => {
     if (!data || data.length === 0) return null;
-    // Extract feed type keys from first data point (everything except "date")
-    const feedsTypes = Object.keys(data[0]).filter((k) => k !== "date");
+    // Honeypot names live under counts so a name such as "date" cannot
+    // overwrite the top-level time-bucket value used by the chart.
+    const feedsTypes = Object.keys(data[0].counts ?? {}).sort();
     return feedsTypes.map((dKey, i) => (
-      <Bar stackId="feedtype" key={dKey} dataKey={dKey} fill={colors[i]} />
+      <Bar
+        stackId="feedtype"
+        key={dKey}
+        dataKey={(row) => row.counts?.[dKey] ?? 0}
+        name={dKey}
+        fill={colors[i]}
+      />
     ));
   }, [data]);
 
+  // Bars and tooltip rows are sorted by name; reverse the stack so the bar
+  // reads in tooltip order (top to bottom).
   return (
-    <ChartSkeleton data={data} loading={loading} error={error}>
+    <ChartSkeleton
+      data={data}
+      loading={loading}
+      error={error}
+      reverseStackOrder
+    >
       {bars}
     </ChartSkeleton>
   );

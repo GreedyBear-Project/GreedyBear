@@ -6,6 +6,7 @@ import pandas as pd
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 
+from greedybear.cache import invalidate_ioc_cache
 from greedybear.cronjobs.base import Cronjob
 from greedybear.cronjobs.repositories import IocRepository
 from greedybear.cronjobs.repositories.ioc import BULK_UPDATE_BATCH_SIZE
@@ -21,10 +22,6 @@ from greedybear.settings import ML_MODEL_DIRECTORY
 
 SCORERS = [RFClassifier(), RFRegressor()]
 TRAINING_DATA_FILENAME = "training_data.json"
-
-
-class TrainingDataError(Exception):
-    """Raised when there are issues with training data validity."""
 
 
 class TrainModels(Cronjob):
@@ -89,9 +86,6 @@ class TrainModels(Cronjob):
         6. Check for correlated features
         7. Train and save each model
         8. Store current data for next training iteration
-
-        Raises:
-            TrainingDataError: If training data is not older than current data.
         """
         self.log.info("fetching current IoC data from DB")
         self.current_data = get_current_data()
@@ -118,8 +112,9 @@ class TrainModels(Cronjob):
         self.log.info(f"training data is from {training_date}, contains {len(training_data)} IoCs")
 
         if not training_date < current_date:
-            self.log.error("training data must be older than current data")
-            raise TrainingDataError()
+            self.log.warning("training data is not older than current data, skip training")
+            self.save_training_data()
+            return
 
         current_ips = defaultdict(
             int,
@@ -242,15 +237,15 @@ class UpdateScores(Cronjob):
         Returns:
             int: Number of objects updated
         """
-        iocs = set(iocs)
-        primary_keys = {ioc.pk for ioc in iocs}
+        unique_iocs = set(iocs)
+        primary_keys = {ioc.pk for ioc in unique_iocs}
         data = get_data_by_pks(primary_keys)
         current_date = str(date.today())
         self.log.info("extracting features: score_only")
         df = get_features(data, current_date)
         for s in SCORERS:
             df = s.score(df)
-        return self.update_db(df, iocs)
+        return self.update_db(df, unique_iocs)
 
     def run(self):
         """
@@ -281,3 +276,4 @@ class UpdateScores(Cronjob):
         for s in SCORERS:
             df = s.score(df)
         self.update_db(df)
+        invalidate_ioc_cache()

@@ -1,3 +1,5 @@
+from typing import cast
+
 from datasketch import MinHash, MinHashLSH
 
 
@@ -150,6 +152,7 @@ class LSHConnectedComponents:
         for idx, min_hash in enumerate(min_hashes):
             for similar_idx in lsh.query(min_hash):
                 if similar_idx != idx:
-                    u.union(idx, similar_idx)
+                    # the only keys inserted above are the int indices
+                    u.union(idx, cast("int", similar_idx))
 
         return self._get_labels(sequences, u)

@@ -6,6 +6,7 @@ docker/env_file.backup.*
 docker/env_file_postgres.backup.*
 .env
 .env.backup.*
+configuration/nginx/ssl.conf
 __pycache__/
 mlmodels/
 # Backups created by gbctl
@@ -23,3 +24,7 @@ coverage.xml
 
 # gbctl configuration file
 .gbctl.conf
+
+# frontend tests
+frontend/test-results/
+frontend/playwright-report/

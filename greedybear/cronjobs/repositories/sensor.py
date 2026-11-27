@@ -30,8 +30,9 @@ class SensorRepository:
         Returns:
             Sensor object if valid, None if invalid IP format.
         """
-        from greedybear.utils import get_ioc_type
+        from greedybear.utils import get_ioc_type, normalize_ip
 
+        ip = normalize_ip(ip)
         if ip in self.cache:
             return self.cache[ip]
         if get_ioc_type(ip) != IP:
@@ -43,13 +44,22 @@ class SensorRepository:
             self.log.info(f"added sensor {ip} to the database")
         return sensor
 
+    def refresh_cache(self) -> None:
+        """
+        Reload the sensor cache from the database.
+
+        Needed after a rolled back transaction, which may have removed
+        sensors that were already added to the cache.
+        """
+        self._fill_cache()
+
     def _fill_cache(self) -> None:
         """Load sensor objects from the database into the cache."""
         self.log.debug("populating sensor cache")
         # sensors registered through the Event Collector API can share an address with a T-Pot sensor
         self.cache = {s.address: s for s in Sensor.objects.filter(api_source__isnull=True)}
 
-    def update_country(self, sensor: Sensor, country: str) -> None:
+    def update_country(self, sensor: Sensor | None, country: str) -> None:
         """
         Update the country of a sensor if it has changed.
 

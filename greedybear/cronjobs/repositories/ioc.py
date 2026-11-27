@@ -1,10 +1,11 @@
 import logging
 
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import F
 
 from greedybear.models import IOC, Honeypot
+from greedybear.utils import normalize_ip
 
 BULK_UPDATE_BATCH_SIZE = 2000
 
@@ -20,6 +21,15 @@ class IocRepository:
     def __init__(self):
         """Initialize the repository and populate the honeypot cache from the database."""
         self.log = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.refresh_cache()
+
+    def refresh_cache(self) -> None:
+        """
+        Reload the honeypot cache from the database.
+
+        Needed after a rolled back transaction, which may have removed
+        honeypots that were already added to the cache.
+        """
         self._honeypot_cache = {self._normalize_name(hp.name): hp for hp in Honeypot.objects.all()}
 
     def _normalize_name(self, name: str) -> str:
@@ -72,10 +82,13 @@ class IocRepository:
         normalized = self._normalize_name(honeypot_name)
 
         try:
-            honeypot = Honeypot.objects.create(
-                name=honeypot_name,
-                active=True,
-            )
+            # A savepoint keeps an enclosing transaction usable if the insert fails,
+            # so the existing honeypot can still be looked up below.
+            with transaction.atomic():
+                honeypot = Honeypot.objects.create(
+                    name=honeypot_name,
+                    active=True,
+                )
         except IntegrityError:
             self.log.exception(f"IntegrityError creating honeypot '{honeypot_name}'")
             honeypot = self.get_hp_by_name(honeypot_name)
@@ -123,8 +136,9 @@ class IocRepository:
         Returns:
             The matching IOC, or None if not found.
         """
+        normalized_name = normalize_ip(name)
         try:
-            return IOC.objects.prefetch_related("honeypots").get(name=name)
+            return IOC.objects.prefetch_related("honeypots").get(name=normalized_name)
         except IOC.DoesNotExist:
             return None
 
@@ -188,6 +202,7 @@ class IocRepository:
         Returns:
             The saved IOC instance.
         """
+        ioc.name = normalize_ip(ioc.name)
         ioc.save()
         return ioc
 
@@ -295,8 +310,9 @@ class IocRepository:
         Returns:
             True if IOC was found and updated, False otherwise.
         """
+        normalized_ip = normalize_ip(ip_address)
         try:
-            ioc = IOC.objects.get(name=ip_address)
+            ioc = IOC.objects.get(name=normalized_ip)
         except IOC.DoesNotExist:
             return False
         else:
@@ -318,4 +334,5 @@ class IocRepository:
         """
         if not ip_addresses:
             return 0
-        return IOC.objects.filter(name__in=ip_addresses).update(ip_reputation=reputation)
+        normalized_ips = [normalize_ip(ip) for ip in ip_addresses]
+        return IOC.objects.filter(name__in=normalized_ips).update(ip_reputation=reputation)

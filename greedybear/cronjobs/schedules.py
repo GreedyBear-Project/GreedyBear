@@ -35,6 +35,7 @@ def setup_schedules():
             "name": "extract_all",
             "func": "greedybear.tasks.extract_all",
             "cron": f"*/{extraction_interval} * * * *",
+            "kwargs": "{'q_options': {'ack_failure': True}}",
         },
         # Monitor Honeypots: Hourly at :07
         {
@@ -108,11 +109,23 @@ def setup_schedules():
             "func": "greedybear.tasks.enrich_abuseipdb",
             "cron": _external_weekly_cron("enrich_abuseipdb"),
         },
+        # FireHol Blocklist Tagging: Daily at 03:07
+        {
+            "name": "enrich_firehol",
+            "func": "greedybear.tasks.enrich_firehol",
+            "cron": "7 3 * * *",
+        },
         # 13. SpamhausDrop Enrichment: Weekly (Sunday) at deterministic time outside 00:00-02:00
         {
             "name": "extract_spamhaus_drop",
             "func": "greedybear.tasks.extract_spamhaus_drop",
             "cron": _external_weekly_cron("extract_spamhaus_drop"),
+        },
+        # Spamhaus DROP Blocklist Tagging: Daily at 03:07
+        {
+            "name": "enrich_spamhaus_drop",
+            "func": "greedybear.tasks.enrich_spamhaus_drop",
+            "cron": "7 3 * * *",
         },
         # 14. Credential_reuse Detection: Daily at 02:07
         {
@@ -137,6 +150,7 @@ def setup_schedules():
                 "schedule_type": Schedule.CRON,
                 "cron": job["cron"],
                 "repeats": -1,
+                "kwargs": job.get("kwargs"),
             },
         )
 

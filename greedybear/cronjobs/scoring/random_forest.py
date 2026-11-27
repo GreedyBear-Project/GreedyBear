@@ -3,7 +3,6 @@ from abc import abstractmethod
 from pathlib import Path
 
 import pandas as pd
-from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 from greedybear.cronjobs.scoring.consts import MULTI_VAL_FEATURES, NUM_FEATURES
@@ -35,7 +34,9 @@ class RFModel(MLModel):
         """
         Preprocesses features, splits data into train/test sets, and
         trains a Random Forest with optimized hyperparameters.
-        Logs model performance using recall AUC score.
+        Logs model performance using recall AUC score. Classifiers are not
+        retrained when any class has fewer than two samples, preserving the
+        previously saved model.
 
         Args:
             df: Training data containing features and
@@ -45,6 +46,12 @@ class RFModel(MLModel):
 
         x = df[self.features].copy()
         y = self.training_target(df).copy()
+
+        if isinstance(self, Classifier):
+            class_counts = y.value_counts()
+            if len(class_counts) < 2 or class_counts.min() < 2:
+                self.log.warning(f"skipping training {self.name}: each class must have at least two samples")
+                return
 
         for feature in MULTI_VAL_FEATURES:
             x = multi_label_encode(x, feature)
@@ -66,12 +73,12 @@ class RFModel(MLModel):
 
     @property
     @abstractmethod
-    def untrained_model(self) -> BaseEstimator:
+    def untrained_model(self) -> RandomForestClassifier | RandomForestRegressor:
         """
         Create and configure an untrained Random Forest model.
 
         Returns:
-            BaseEstimator: Configured but untrained scikit-learn Random Forest
+            RandomForestClassifier | RandomForestRegressor: Configured but untrained scikit-learn Random Forest
                 model with all hyperparameters set
         """
 
@@ -88,13 +95,13 @@ class RFClassifier(RFModel, Classifier):
         super().__init__("Random Forest Classifier", "recurrence_probability")
 
     @property
-    def untrained_model(self) -> BaseEstimator:
+    def untrained_model(self) -> RandomForestClassifier:
         """
         Create and configure an untrained Random Forest Classifier.
         Hyperparameters were found by RandomSearchCV.
 
         Returns:
-            BaseEstimator: Configured but untrained scikit-learn Random Forest
+            RandomForestClassifier: Configured but untrained scikit-learn Random Forest
                 Classifier with all hyperparameters set
         """
         with Path(ML_CONFIG_FILE).open() as f:
@@ -120,13 +127,13 @@ class RFRegressor(RFModel, Regressor):
         super().__init__("Random Forest Regressor", "expected_interactions")
 
     @property
-    def untrained_model(self) -> BaseEstimator:
+    def untrained_model(self) -> RandomForestRegressor:
         """
         Create and configure an untrained Random Forest Regressor.
         Hyperparameters were found by RandomSearchCV.
 
         Returns:
-            BaseEstimator: Configured but untrained scikit-learn Random Forest
+            RandomForestRegressor: Configured but untrained scikit-learn Random Forest
                 Regressor with all hyperparameters set
         """
         with Path(ML_CONFIG_FILE).open() as f:

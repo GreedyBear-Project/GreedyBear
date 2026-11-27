@@ -1,10 +1,12 @@
 # This file is a part of GreedyBear https://github.com/honeynet/GreedyBear
 # See the file 'LICENSE' for copying permission.
+import json
 import logging
 import os
 import sys
 import tomllib
 from datetime import timedelta
+from ipaddress import ip_address
 from pathlib import Path
 
 from django.core.management.utils import get_random_secret_key
@@ -22,6 +24,25 @@ DEBUG = os.environ.get("DEBUG", "False") == "True"
 DJANGO_LOG_DIRECTORY = "/var/log/greedybear/django"
 TPOT_PAYLOAD_SERVER_URL = os.environ.get("TPOT_PAYLOAD_SERVER_URL", "")
 TPOT_PAYLOAD_SERVER_API_KEY = os.environ.get("TPOT_PAYLOAD_SERVER_API_KEY", "")
+# JSON list of payload servers, one per T-Pot sensor: [{"url": ..., "api_key": ..., "sensor": <T-Pot IP>}].
+# Takes precedence over TPOT_PAYLOAD_SERVER_URL / TPOT_PAYLOAD_SERVER_API_KEY when set.
+try:
+    TPOT_PAYLOAD_SERVERS = json.loads(os.environ.get("TPOT_PAYLOAD_SERVERS") or "[]")
+except json.JSONDecodeError as e:
+    # Report only the position: the value holds API keys and must not end up in logs.
+    raise ValueError(f"TPOT_PAYLOAD_SERVERS is not valid JSON ({e.msg} at line {e.lineno}, column {e.colno})") from None
+if not isinstance(TPOT_PAYLOAD_SERVERS, list) or not all(
+    isinstance(server, dict) and isinstance(server.get("url"), str) and isinstance(server.get("sensor"), str) and isinstance(server.get("api_key", ""), str)
+    for server in TPOT_PAYLOAD_SERVERS
+):
+    raise ValueError('TPOT_PAYLOAD_SERVERS must be a JSON list of objects with a "url", a "sensor" and an optional string "api_key"')
+# Only the addresses are looped over, so no module-level name is left holding an API key.
+for sensor_address in [server["sensor"] for server in TPOT_PAYLOAD_SERVERS]:
+    # Checked here, so a label like "tpot-1" is not mistaken for the sensor's address.
+    try:
+        ip_address(sensor_address)
+    except ValueError:
+        raise ValueError(f'TPOT_PAYLOAD_SERVERS: "sensor" must be the IP address of the T-Pot, not {sensor_address!r}') from None
 MAX_QUARANTINE_SIZE_GB = float(os.environ.get("MAX_QUARANTINE_SIZE_GB", "5"))
 ML_MODEL_DIRECTORY = BASE_DIR / "mlmodels"  # "/opt/deploy/greedybear/mlmodels"
 ML_CONFIG_FILE = BASE_DIR / "configuration" / "ml_config.json"
@@ -62,7 +83,10 @@ with (BASE_DIR / "pyproject.toml").open("rb") as f:
     VERSION = tomllib.load(f)["project"]["version"]
 
 CSRF_COOKIE_SAMESITE = "Strict"
-CSRF_COOKIE_HTTPONLY = True
+# Must be readable by the frontend so axios can echo it back as X-CSRFToken.
+# Django's own docs note this adds little protection anyway, since XSS can
+# already make same-domain requests regardless of this flag.
+CSRF_COOKIE_HTTPONLY = False
 
 # Prevent browsers from MIME-sniffing the content type, reducing
 # the risk of drive-by downloads.
@@ -106,6 +130,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
+    "netfields",
     # rest framework libs
     "rest_framework",
     "drf_spectacular",
@@ -135,7 +160,7 @@ REST_FRAMEWORK = {
     # Exception Handling
     "EXCEPTION_HANDLER": "certego_saas.ext.exceptions.custom_exception_handler",
     # Auth
-    "DEFAULT_AUTHENTICATION_CLASSES": ["certego_saas.apps.auth.backend.CookieTokenAuthentication"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["api.authentication.CSRFProtectedCookieTokenAuthentication"],
     # OpenAPI schema generation (drf-spectacular)
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Pagination
@@ -192,6 +217,11 @@ REST_DURIN = {
     "API_ACCESS_RESPONSE_INCLUDE_TOKEN": True,
     # not part of durin but used in data migration
     "API_ACCESS_CLIENT_TOKEN_TTL": timedelta(days=3650),
+}
+
+# certego_saas
+CERTEGO_SAAS = {
+    "USER_ACCESS_SERIALIZER": "api.serializers.user.GreedyBearUserAccessSerializer",
 }
 
 # django-rest-email-auth
@@ -524,6 +554,7 @@ COMMAND_SEQUENCE_RETENTION = int(os.environ.get("COMMAND_SEQUENCE_RETENTION", "3
 STATISTICS_RETENTION = 730
 RAW_EVENT_RETENTION = int(os.environ.get("RAW_EVENT_RETENTION", "7"))
 EVENT_STATUS_RETENTION = int(os.environ.get("EVENT_STATUS_RETENTION", "30"))
+EXTRACTION_RUN_RETENTION = int(os.environ.get("EXTRACTION_RUN_RETENTION", "30"))
 
 
 TRENDING_MAX_WINDOW_MINUTES = int(os.environ.get("TRENDING_MAX_WINDOW_MINUTES", str((24 * 31 * 60) // 2)))

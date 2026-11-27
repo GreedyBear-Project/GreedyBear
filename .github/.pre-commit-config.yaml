@@ -8,6 +8,12 @@ repos:
         args: ["--fix"]
       - id: ruff-format
 
+# Python type checking with ty (keep rev in sync with the ty version in uv.lock)
+-   repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.83
+    hooks:
+      - id: ty
+
 # Frontend formatting with Prettier (using local npm)
 # Skips if frontend/node_modules doesn't exist (for backend-only contributors)
 -   repo: local

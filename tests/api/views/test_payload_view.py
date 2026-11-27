@@ -5,7 +5,7 @@ from django.core.files.base import ContentFile
 from rest_framework.test import APIClient
 
 from api.permissions import THREAT_RESEARCHER_GROUP
-from greedybear.models import Honeypot, HoneypotPayload
+from greedybear.models import Honeypot, HoneypotPayload, PayloadObservation, Sensor
 from tests import CustomTestCase
 
 PAYLOADS_URL = "/api/payloads"
@@ -71,6 +71,44 @@ class TestListPayloads(HoneypotPayloadViewSetTestCase):
         self.assertEqual(item["mime_type"], "application/octet-stream")
         self.assertEqual(item["size"], 0)
         self.assertIn("Dionaea", item["source_honeypots"])
+        self.assertEqual(item["sensors"], [])
+
+    def test_list_contains_sensors_that_observed_the_payload(self):
+        sensor = Sensor.objects.create(address="198.51.100.1", label="tpot-a")
+        PayloadObservation.objects.create(payload=self.payload, sensor=sensor, locator="cowrie/downloads/sample")
+        # An observation from the legacy single-server configuration has no sensor to show.
+        PayloadObservation.objects.create(payload=self.payload, sensor=None, locator="cowrie/downloads/sample")
+
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(PAYLOADS_URL)
+        item = next(r for r in response.json()["results"] if r["sha256"] == SAMPLE_SHA256)
+        self.assertEqual(item["sensors"], [{"address": "198.51.100.1", "label": "tpot-a"}])
+        # Locators are internal to the payload servers and not exposed.
+        self.assertNotIn("locator", item)
+
+    def test_page_params_are_accepted(self):
+        """page and page_size select a page of the list, which is ordered most recent first."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}?page=2&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["sha256"], SAMPLE_SHA256)
+
+    def test_paginate_false_returns_full_list(self):
+        """paginate is read by the paginator rather than a serializer, but it is a documented param."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}?paginate=false")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsInstance(response.json(), list)
+        self.assertEqual(len(response.json()), 2)
+
+    def test_filtering_by_payload_field_is_rejected(self):
+        """Response serializer fields that are not declared filters are unknown query params."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}?size=1234")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"size": ["Unknown query parameter."]})
 
 
 class TestRetrievePayload(HoneypotPayloadViewSetTestCase):
@@ -110,6 +148,13 @@ class TestRetrievePayload(HoneypotPayloadViewSetTestCase):
         response = self.client.get(f"{PAYLOADS_URL}/{'e' * 64}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sha256"], legacy.sha256)
+
+    def test_page_param_is_rejected(self):
+        """Only the list is paginated, so retrieve takes no query params at all."""
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(f"{PAYLOADS_URL}/{SAMPLE_SHA256}?page=1")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
 
 
 class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
@@ -166,3 +211,50 @@ class TestDownloadPayload(HoneypotPayloadViewSetTestCase):
         sha = self.payload_with_file.sha256
         response = self.client.get(f"{PAYLOADS_URL}/{sha.upper()}/download")
         self.assertEqual(response.status_code, 403)
+
+    def test_page_param_is_rejected(self):
+        """Like retrieve, download takes no query params at all."""
+        self.client.force_authenticate(user=self.superuser)
+        sha = self.payload_with_file.sha256
+        response = self.client.get(f"{PAYLOADS_URL}/{sha}/download?page=1")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"], {"page": ["Unknown query parameter."]})
+
+    def test_unknown_param_still_enforces_permissions(self):
+        """The query param check must not replace the RBAC check's 403 with a 400."""
+        self.client.force_authenticate(user=self.regular_user)
+        sha = self.payload_with_file.sha256
+        response = self.client.get(f"{PAYLOADS_URL}/{sha}/download?page=1")
+        self.assertEqual(response.status_code, 403)
+
+
+class TestFilterPayloads(HoneypotPayloadViewSetTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_authenticate(user=self.regular_user)
+
+    def _shas(self, query):
+        response = self.client.get(f"{PAYLOADS_URL}?{query}")
+        self.assertEqual(response.status_code, 200)
+        return {r["sha256"] for r in response.json()["results"]}
+
+    def test_search_by_sha256_partial(self):
+        self.assertEqual(self._shas("search=e3b0c442"), {SAMPLE_SHA256})
+
+    def test_search_by_sha1_is_case_insensitive(self):
+        self.assertEqual(self._shas("search=DA39A3EE"), {SAMPLE_SHA256})
+
+    def test_search_by_md5(self):
+        self.assertEqual(self._shas("search=bbbbbbbb"), {self.payload_with_file.sha256})
+
+    def test_filter_by_mime_type_is_case_insensitive(self):
+        self.assertEqual(self._shas("mime_type=APPLICATION/X-ELF"), {self.payload_with_file.sha256})
+
+    def test_filter_by_honeypot(self):
+        self.assertEqual(len(self._shas("honeypot=dionaea")), 2)
+
+    def test_filter_by_unknown_honeypot_returns_nothing(self):
+        self.assertEqual(self._shas("honeypot=Cowrie"), set())
+
+    def test_filters_combine(self):
+        self.assertEqual(self._shas("honeypot=Dionaea&mime_type=application/octet-stream"), {SAMPLE_SHA256})

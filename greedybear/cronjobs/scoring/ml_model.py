@@ -140,7 +140,7 @@ class MLModel(Scorer):
         result_df[self.score_name] = self.predict(x)
         return result_df
 
-    def recall_auc(self, x: pd.DataFrame, y: pd.DataFrame) -> float:
+    def recall_auc(self, x: pd.DataFrame, y: pd.Series) -> float:
         """
         Calculate the area under the recall curve for top-k predictions.
         Quality metric for both, classification and regression tasks.
@@ -166,7 +166,7 @@ class MLModel(Scorer):
             return 0.0
         max_k = len(x) // 4  # look at the first quater of predictions
         k_values = np.linspace(0, max_k, num=SAMPLE_COUNT, dtype=np.int32, endpoint=True)
-        recalls = [ranked_data.head(k)["target"].sum() / total_positives for k in k_values]
+        recalls = [ranked_data.head(int(k))["target"].sum() / total_positives for k in k_values]
         return np.trapezoid(recalls) / SAMPLE_COUNT
 
     @property
@@ -180,7 +180,7 @@ class MLModel(Scorer):
         """
 
     @abstractmethod
-    def training_target(self, df: pd.DataFrame) -> pd.DataFrame:
+    def training_target(self, df: pd.DataFrame) -> pd.Series:
         """
         Create target variable from input data.
 
@@ -188,11 +188,11 @@ class MLModel(Scorer):
             df: Input data containing target information
 
         Returns:
-            pd.DataFrame: Target values appropriate for the model type
+            pd.Series: Target values appropriate for the model type
         """
 
     @abstractmethod
-    def split_train_test(self, x: pd.DataFrame, y: pd.DataFrame) -> list:
+    def split_train_test(self, x: pd.DataFrame, y: pd.Series) -> list:
         """
         Split data into training and test sets.
 
@@ -234,7 +234,7 @@ class Classifier(MLModel):
     Handles models that implement predict_proba(), returning the probability of the positive class.
     """
 
-    def training_target(self, df: pd.DataFrame) -> pd.DataFrame:
+    def training_target(self, df: pd.DataFrame) -> pd.Series:
         """
         Create binary classification target from interaction data.
 
@@ -242,16 +242,16 @@ class Classifier(MLModel):
             df: Input data containing 'interactions_on_eval_day' column
 
         Returns:
-            pd.DataFrame: Binary target where True indicates at least one interaction
+            pd.Series: Binary target where True indicates at least one interaction
         """
         return df["interactions_on_eval_day"] > 0
 
-    def split_train_test(self, x: pd.DataFrame, y: pd.DataFrame) -> list:
+    def split_train_test(self, x: pd.DataFrame, y: pd.Series) -> list:
         """
         Split data into training and test sets while preserving class distribution.
 
-        Falls back to non-stratified split when the target has fewer than 2
-        distinct classes, which makes stratification impossible.
+        Falls back to non-stratified split when the target is too small to
+        stratify, such as when a split would leave a class out of either set.
 
         Args:
             x: Feature matrix
@@ -260,8 +260,12 @@ class Classifier(MLModel):
         Returns:
             list: (x_train, x_test, y_train, y_test) split datasets
         """
-        if y.nunique() < 2:
-            self.log.warning("only one class present in target — falling back to non-stratified split")
+        class_count = y.nunique()
+        test_count = int(np.ceil(len(y) * 0.2))
+        train_count = len(y) - test_count
+        class_counts = y.value_counts()
+        if class_count < 2 or class_counts.min() < 2 or test_count < class_count or train_count < class_count:
+            self.log.warning("target too small for stratified split — falling back to non-stratified split")
             return train_test_split(x, y, test_size=0.2)
         return train_test_split(x, y, test_size=0.2, stratify=y)
 
@@ -286,7 +290,7 @@ class Regressor(MLModel):
     Handles models that implement predict() for direct value prediction.
     """
 
-    def training_target(self, df: pd.DataFrame) -> pd.DataFrame:
+    def training_target(self, df: pd.DataFrame) -> pd.Series:
         """
         Create regression target from interaction data.
 
@@ -294,11 +298,11 @@ class Regressor(MLModel):
             df: Input data containing 'interactions_on_eval_day' column
 
         Returns:
-            pd.DataFrame: Number of interactions for each instance
+            pd.Series: Number of interactions for each instance
         """
         return df["interactions_on_eval_day"]
 
-    def split_train_test(self, x: pd.DataFrame, y: pd.DataFrame) -> list:
+    def split_train_test(self, x: pd.DataFrame, y: pd.Series) -> list:
         """
         Split data into training and test sets.
 

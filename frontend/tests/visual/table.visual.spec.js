@@ -133,7 +133,6 @@ test.describe("table visual states", () => {
     await expect(section).toHaveScreenshot("table-selected-desktop.png", {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixels: 700,
     });
   });
 
