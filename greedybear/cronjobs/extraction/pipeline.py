@@ -203,7 +203,13 @@ class ExtractionPipeline:
         # 3. Update scores
         self.log.info("Updating scores")
         if ioc_records:
-            UpdateScores().score_only(ioc_records)
+            try:
+                # A failed scoring is not worth losing the chunk's IOCs for: the savepoint
+                # only undoes the score updates, and the next scoring run fixes them.
+                with transaction.atomic():
+                    UpdateScores().score_only(ioc_records)
+            except Exception:
+                self.log.exception("Updating scores failed, keeping the extracted IOCs")
 
         # 4. Update activity buckets
         self.log.info("Updating activity buckets")

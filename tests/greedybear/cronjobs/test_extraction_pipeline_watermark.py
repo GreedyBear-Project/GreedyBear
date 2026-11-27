@@ -8,6 +8,7 @@ rollbacks are checked against the database. Only Elasticsearch, the
 strategies and the scoring are mocked.
 """
 
+import itertools
 from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
 
@@ -43,10 +44,13 @@ class TestExtractionWatermark(ExtractionTestCase):
         pipeline.log = MagicMock()
         return pipeline
 
-    def _mock_strategies(self, mock_factory):
-        """Every strategy call produces one IOC record."""
+    def _mock_strategies(self, mock_factory, failing_chunks=()):
+        """Every strategy call produces one IOC record. The chunks in failing_chunks (0-based) fail."""
+        chunk_index = itertools.count()
 
         def get_strategy(honeypot):
+            if next(chunk_index) in failing_chunks:
+                raise ValueError("corrupted data")
             strategy = Mock()
             strategy.ioc_records = [Mock()]
             return strategy
@@ -121,8 +125,7 @@ class TestExtractionWatermark(ExtractionTestCase):
         self.assertEqual(self._latest_run().status, ExtractionRunStatus.SUCCESS)
 
     def test_permanent_failure_skips_the_chunk_and_continues(self, mock_factory, mock_scores):
-        self._mock_strategies(mock_factory)
-        mock_scores.return_value.score_only.side_effect = [None, ValueError("corrupted data"), None]
+        self._mock_strategies(mock_factory, failing_chunks={1})
         self._set_watermark(datetime(2025, 1, 10, 11, 0))
         pipeline = self._create_pipeline()
         pipeline.elastic_repo.search.side_effect = [cowrie_chunk(), cowrie_chunk(), cowrie_chunk()]
@@ -139,8 +142,7 @@ class TestExtractionWatermark(ExtractionTestCase):
 
     def test_failed_chunk_is_rolled_back_and_caches_are_refreshed(self, mock_factory, mock_scores):
         """Writes of a failed chunk are undone, and no cache keeps objects that only existed in it."""
-        self._mock_strategies(mock_factory)
-        mock_scores.return_value.score_only.side_effect = [None, ValueError("corrupted data"), None]
+        self._mock_strategies(mock_factory, failing_chunks={1})
         self._set_watermark(datetime(2025, 1, 10, 11, 0))
         pipeline = self._create_pipeline()
         pipeline.elastic_repo.search.side_effect = [cowrie_chunk(), cowrie_chunk("10.9.9.9"), []]
@@ -152,8 +154,7 @@ class TestExtractionWatermark(ExtractionTestCase):
         self.assertIn("10.0.0.1", pipeline.sensor_repo.cache)
 
     def test_sensor_from_failed_chunk_can_be_created_again(self, mock_factory, mock_scores):
-        self._mock_strategies(mock_factory)
-        mock_scores.return_value.score_only.side_effect = [ValueError("corrupted data"), None]
+        self._mock_strategies(mock_factory, failing_chunks={0})
         self._set_watermark(datetime(2025, 1, 10, 11, 10))
         pipeline = self._create_pipeline()
         pipeline.elastic_repo.search.side_effect = [cowrie_chunk("10.9.9.9"), cowrie_chunk("10.9.9.9")]
@@ -189,6 +190,30 @@ class TestExtractionWatermark(ExtractionTestCase):
         run = self._latest_run()
         self.assertEqual(run.status, ExtractionRunStatus.SUCCESS)
         self.assertEqual(run.window_end, datetime(2025, 1, 10, 11, 30))
+
+    def test_failed_scoring_keeps_the_chunk(self, mock_factory, mock_scores):
+        """Scoring is rolled back on its own, the chunk's IOCs and sensors are still committed."""
+        self._mock_strategies(mock_factory)
+
+        def failing_scoring(ioc_records):
+            Sensor.objects.create(address="10.8.8.8")
+            raise ValueError("scoring failed")
+
+        mock_scores.return_value.score_only.side_effect = failing_scoring
+        self._set_watermark(datetime(2025, 1, 10, 11, 20))
+        pipeline = self._create_pipeline()
+        pipeline.elastic_repo.search.side_effect = [cowrie_chunk()]
+
+        result = self._execute(pipeline, datetime(2025, 1, 10, 11, 33))
+
+        self.assertEqual(result, 1)
+        self.assertFalse(Sensor.objects.filter(address="10.8.8.8").exists())
+        self.assertTrue(Sensor.objects.filter(address="10.0.0.1").exists())
+        run = self._latest_run()
+        self.assertEqual(run.status, ExtractionRunStatus.SUCCESS)
+        self.assertEqual(run.window_end, datetime(2025, 1, 10, 11, 30))
+        self.assertEqual(run.ioc_count, 1)
+        pipeline.log.exception.assert_called_once()
 
     def test_empty_window_does_nothing(self, mock_factory, mock_scores):
         self._set_watermark(datetime(2025, 1, 10, 11, 30))
@@ -257,8 +282,7 @@ class TestExtractionWatermark(ExtractionTestCase):
         self.assertEqual(self._watermark(), datetime(2025, 1, 10, 0, 0))
 
     def test_day_is_completed_when_the_last_chunk_before_midnight_is_skipped(self, mock_factory, mock_scores):
-        self._mock_strategies(mock_factory)
-        mock_scores.return_value.score_only.side_effect = [None, ValueError("corrupted data")]
+        self._mock_strategies(mock_factory, failing_chunks={1})
         self._set_watermark(datetime(2025, 1, 9, 23, 40))
         pipeline = self._create_pipeline()
         pipeline.elastic_repo.search.side_effect = [cowrie_chunk(), cowrie_chunk()]
