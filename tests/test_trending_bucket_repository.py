@@ -2,7 +2,7 @@ from collections import Counter
 from datetime import datetime
 
 from greedybear.cronjobs.repositories.trending_bucket import TrendingBucketRepository
-from greedybear.models import AttackerActivityBucket
+from greedybear.models import AttackerActivityBucket, Honeypot
 from tests import CustomTestCase
 
 
@@ -106,6 +106,69 @@ class TestTrendingBucketRepository(CustomTestCase):
         )
 
         self.assertEqual(counts, {"1.1.1.1": 6})
+
+    def test_get_counts_in_window_ignores_disabled_honeypots(self):
+        # Ddospot is disabled in the test fixtures
+        AttackerActivityBucket.objects.bulk_create(
+            [
+                AttackerActivityBucket(
+                    attacker_ip="1.1.1.1",
+                    feed_type="cowrie",
+                    bucket_start=datetime(2026, 3, 20, 9, 0),
+                    interaction_count=4,
+                ),
+                AttackerActivityBucket(
+                    attacker_ip="1.1.1.1",
+                    feed_type="ddospot",
+                    bucket_start=datetime(2026, 3, 20, 9, 0),
+                    interaction_count=100,
+                ),
+                AttackerActivityBucket(
+                    attacker_ip="2.2.2.2",
+                    feed_type="ddospot",
+                    bucket_start=datetime(2026, 3, 20, 9, 0),
+                    interaction_count=500,
+                ),
+            ]
+        )
+
+        counts = self.repo.get_counts_in_window(
+            window_start=datetime(2026, 3, 20, 9, 0),
+            window_end=datetime(2026, 3, 20, 10, 0),
+            feed_types="all",
+        )
+
+        self.assertEqual(counts, {"1.1.1.1": 4})
+
+    def test_get_counts_in_window_returns_empty_for_disabled_honeypot_feed_type(self):
+        AttackerActivityBucket.objects.create(
+            attacker_ip="2.2.2.2",
+            feed_type="ddospot",
+            bucket_start=datetime(2026, 3, 20, 9, 0),
+            interaction_count=500,
+        )
+
+        counts = self.repo.get_counts_in_window(
+            window_start=datetime(2026, 3, 20, 9, 0),
+            window_end=datetime(2026, 3, 20, 10, 0),
+            feed_types=["ddospot"],
+        )
+
+        self.assertEqual(counts, {})
+
+    def test_get_counts_in_window_stops_counting_a_honeypot_once_disabled(self):
+        AttackerActivityBucket.objects.create(
+            attacker_ip="1.1.1.1",
+            feed_type="cowrie",
+            bucket_start=datetime(2026, 3, 20, 9, 0),
+            interaction_count=4,
+        )
+        window = {"window_start": datetime(2026, 3, 20, 9, 0), "window_end": datetime(2026, 3, 20, 10, 0), "feed_types": "all"}
+        self.assertEqual(self.repo.get_counts_in_window(**window), {"1.1.1.1": 4})
+
+        Honeypot.objects.filter(name="Cowrie").update(active=False)
+
+        self.assertEqual(self.repo.get_counts_in_window(**window), {})
 
     def test_get_counts_in_window_returns_empty_when_no_matches(self):
         counts = self.repo.get_counts_in_window(

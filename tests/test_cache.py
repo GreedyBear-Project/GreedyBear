@@ -8,8 +8,8 @@ from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory
 
 from api.views.feeds import AdvancedFeedView
-from greedybear.cache import Cache, build_versioned_key, invalidate_ioc_cache
-from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+from greedybear.cache import Cache, build_versioned_key, invalidate_ioc_cache, invalidate_trending_cache
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY, TRENDING_FEEDS_DATA_VERSION_KEY
 from greedybear.cronjobs.enrichment.base_enrichment import BaseEnrichmentJob
 from greedybear.cronjobs.repositories.tag import TagRepository
 from greedybear.models import IOC, IocType, Tag
@@ -112,6 +112,13 @@ class TestCache(CustomTestCase):
         before = self.cache.get_data_version(IOC_DATA_VERSION_KEY)
         invalidate_ioc_cache()
         self.assertEqual(self.cache.get_data_version(IOC_DATA_VERSION_KEY), before + 1)
+
+    def test_invalidate_trending_cache_bumps_only_trending_version(self):
+        ioc_before = self.cache.get_data_version(IOC_DATA_VERSION_KEY)
+        trending_before = self.cache.get_data_version(TRENDING_FEEDS_DATA_VERSION_KEY)
+        invalidate_trending_cache()
+        self.assertEqual(self.cache.get_data_version(TRENDING_FEEDS_DATA_VERSION_KEY), trending_before + 1)
+        self.assertEqual(self.cache.get_data_version(IOC_DATA_VERSION_KEY), ioc_before)
 
 
 @override_settings(CACHES=TEST_CACHES)

@@ -4,8 +4,9 @@ from datetime import datetime
 
 from django.db import connection
 from django.db.models import Sum
+from django.db.models.functions import Lower
 
-from greedybear.models import AttackerActivityBucket
+from greedybear.models import AttackerActivityBucket, Honeypot
 
 BucketKey = tuple[str, str, datetime]
 
@@ -58,12 +59,20 @@ class TrendingBucketRepository:
         return len(counters)
 
     def get_counts_in_window(self, window_start: datetime, window_end: datetime, feed_types: str | Iterable[str]) -> dict[str, int]:
-        """Return summed interaction counts per attacker IP inside the requested time window."""
+        """Return summed interaction counts per attacker IP inside the requested time window.
+
+        Buckets of disabled honeypots are ignored. They may have been stored before
+        the honeypot was disabled, and every other feed hides that data as well.
+        """
         queryset = AttackerActivityBucket.objects.filter(bucket_start__gte=window_start, bucket_start__lt=window_end)
         normalized_feed_types = self._normalize_feed_types(feed_types)
 
         if "all" not in normalized_feed_types:
             queryset = queryset.filter(feed_type__in=normalized_feed_types)
+
+        # buckets store the lower-cased honeypot name
+        active_feed_types = Honeypot.objects.filter(active=True).annotate(lowered_name=Lower("name")).values("lowered_name")
+        queryset = queryset.filter(feed_type__in=active_feed_types)
 
         return dict(queryset.values("attacker_ip").annotate(total=Sum("interaction_count")).values_list("attacker_ip", "total"))
 

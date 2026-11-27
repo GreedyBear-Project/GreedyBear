@@ -1,12 +1,13 @@
-from unittest.mock import Mock
+from datetime import datetime
+from unittest.mock import Mock, patch
 
 from django.contrib import admin
 from django.test import override_settings
 
 from greedybear.admin import IOCModelAdmin
 from greedybear.cache import Cache
-from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
-from greedybear.models import IOC, Honeypot
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY, TRENDING_FEEDS_DATA_VERSION_KEY
+from greedybear.models import IOC, AttackerActivityBucket, Honeypot
 
 from . import CustomTestCase, make_api_source, make_sensor
 from .test_cache import TEST_CACHES
@@ -14,7 +15,7 @@ from .test_cache import TEST_CACHES
 
 @override_settings(CACHES=TEST_CACHES)
 class AdminCacheInvalidationTestCase(CustomTestCase):
-    """Every admin write has to bump the IOC data version."""
+    """Every admin write has to bump the IOC and the trending data version."""
 
     HONEYPOT_CHANGELIST = "/admin/greedybear/honeypot/"
 
@@ -25,6 +26,9 @@ class AdminCacheInvalidationTestCase(CustomTestCase):
 
     def _version(self) -> int:
         return self.cache.get_data_version(IOC_DATA_VERSION_KEY)
+
+    def _trending_version(self) -> int:
+        return self.cache.get_data_version(TRENDING_FEEDS_DATA_VERSION_KEY)
 
     def _run_action(self, action: str, honeypots: list[Honeypot]):
         return self.client.post(
@@ -131,3 +135,32 @@ class AdminCacheInvalidationTestCase(CustomTestCase):
         fresh = self.client.get(url)
         self.assertEqual(fresh.status_code, 200)
         self.assertEqual({ioc["value"] for ioc in fresh.json()["iocs"]}, first_names - {self.ioc_3.name})
+
+    def test_admin_writes_bump_trending_version(self):
+        before = self._trending_version()
+        self._run_action("disable_honeypot", [self.cowrie_hp])
+        self.assertEqual(self._trending_version(), before + 1)
+        self._run_action("enable_honeypot", [self.cowrie_hp])
+        self.assertEqual(self._trending_version(), before + 2)
+        self.client.post(f"{self.HONEYPOT_CHANGELIST}{self.cowrie_hp.pk}/change/", {"name": self.cowrie_hp.name})
+        self.assertEqual(self._trending_version(), before + 3)
+
+    def test_actions_without_updates_keep_trending_version(self):
+        before = self._trending_version()
+        self._run_action("disable_honeypot", [self.ddospot])  # already inactive
+        self._run_action("enable_honeypot", [self.cowrie_hp])  # already active
+        self.assertEqual(self._trending_version(), before)
+
+    def test_cached_trending_feed_reflects_disabled_honeypot(self):
+        AttackerActivityBucket.objects.create(attacker_ip="1.1.1.1", feed_type="cowrie", bucket_start=datetime(2026, 3, 20, 9, 0), interaction_count=5)
+        url = "/api/feeds/trending/?feed_type=all&window_minutes=60&limit=10"
+
+        with patch("api.views.feeds.timezone.now", return_value=datetime(2026, 3, 20, 10, 30, 0)):
+            first = self.client.get(url)
+            self.assertEqual([a["attacker_ip"] for a in first.json()["attackers"]], ["1.1.1.1"])
+
+            self._run_action("disable_honeypot", [self.cowrie_hp])
+
+            fresh = self.client.get(url)
+        self.assertEqual(fresh.status_code, 200)
+        self.assertEqual(fresh.json()["attackers"], [])

@@ -4,7 +4,7 @@ from typing import Any
 from django.core.cache import caches
 from django.core.cache.backends.base import BaseCache
 
-from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY
+from greedybear.consts import API_CACHE_ALIAS, IOC_DATA_VERSION_KEY, TRENDING_FEEDS_DATA_VERSION_KEY
 
 
 def build_versioned_key(namespace: str, version: int, material: str) -> str:
@@ -59,3 +59,14 @@ def invalidate_ioc_cache() -> None:
     creates, updates, or deletes IOCs, tags, or reputations.
     """
     Cache(API_CACHE_ALIAS).bump_data_version(IOC_DATA_VERSION_KEY)
+
+
+def invalidate_trending_cache() -> None:
+    """
+    Invalidate all cached trending feed responses.
+
+    The trending feed has its own version key, so invalidate_ioc_cache() does not touch it.
+    Call this after a change that alters what the trending feed returns,
+    such as enabling or disabling a honeypot.
+    """
+    Cache(API_CACHE_ALIAS).bump_data_version(TRENDING_FEEDS_DATA_VERSION_KEY)
