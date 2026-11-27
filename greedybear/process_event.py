@@ -139,10 +139,10 @@ def _process_commands(ip_hits: list[Hit]) -> None:
     seen: set[str] = set()
     unique_commands: list[str] = []
     for hit in ip_hits:
-        cmd = hit.get("_command")
-        if cmd and cmd.strip() and cmd not in seen:
+        cmd = (hit.get("_command") or "").strip()
+        if cmd and cmd not in seen:
             seen.add(cmd)
-            unique_commands.append(cmd.strip())
+            unique_commands.append(cmd)
 
     if not unique_commands:
         return
@@ -301,7 +301,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
 
     try:
         # fetching RawEvents
-        raw_events = list(RawEvent.objects.filter(batch=batch, processed=False).select_related("sensor"))
+        raw_events = list(RawEvent.objects.filter(batch=batch, processed=False).select_related("sensor").order_by("timestamp", "pk"))
 
         if not raw_events:
             logger.warning(f"[task_id={task_id}] No unprocessed RawEvents — completing")

