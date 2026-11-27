@@ -3,6 +3,7 @@
 
 from django.urls import include, path
 from rest_framework import routers
+from rest_framework.permissions import IsAuthenticated
 
 from .views import (
     APIAccessTokenView,
@@ -46,12 +47,11 @@ urlpatterns = [
     ),
     path("reset-password", PasswordResetView.as_view(), name="auth_reset-password"),
     path("login", LoginView.as_view(), name="auth_login"),
-    path("logout", LogoutView.as_view(), name="auth_logout"),
+    path("logout", LogoutView.as_view(permission_classes=[IsAuthenticated]), name="auth_logout"),
     path("change-password", ChangePasswordView.as_view(), name="auth_change-password"),
     path("configuration", check_configuration),
     # auth
-    path("", include("certego_saas.apps.auth.urls")),
-    path("apiaccess", APIAccessTokenView.as_view(), name="auth_apiaccess"),
+    path("apiaccess", APIAccessTokenView.as_view(permission_classes=[IsAuthenticated]), name="auth_apiaccess"),
     path("authentication", check_authentication),
     path("", include(router.urls)),
 ]
