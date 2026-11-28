@@ -5,7 +5,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import CharField, Q
+from django.db.models import CharField, Q, QuerySet
 from django.utils import timezone
 
 from greedybear.cache import invalidate_ioc_cache
@@ -140,9 +140,13 @@ def _process_commands(ip_hits: list[Hit]) -> None:
     unique_commands: list[str] = []
     for hit in ip_hits:
         cmd = hit.get("_command")
-        if cmd and cmd.strip() and cmd not in seen:
-            seen.add(cmd)
-            unique_commands.append(cmd.strip())
+        # Compare the stripped value, not the raw string: the same command can
+        # arrive with different surrounding whitespace, and an unstripped
+        # comparison stores it twice and changes the order-sensitive hash.
+        stripped = cmd.strip() if cmd else ""
+        if stripped and stripped not in seen:
+            seen.add(stripped)
+            unique_commands.append(stripped)
 
     if not unique_commands:
         return
@@ -268,6 +272,18 @@ def _claim_batch(task_id: str) -> bool:
     )
 
 
+def _unprocessed_events(batch) -> QuerySet:
+    """
+    Raw events of a batch that still need processing, oldest first.
+
+    RawEvent.Meta.ordering is newest-first and command chains are order
+    sensitive: _process_commands hashes them in the order it receives them. So
+    the order is stated here rather than inherited, and pk breaks ties between
+    events that share a timestamp.
+    """
+    return RawEvent.objects.filter(batch=batch, processed=False).select_related("sensor").order_by("timestamp", "pk")
+
+
 def process_incoming_event(source_id: int, task_id: str) -> None:
     """
     Asynchronously processes a tracked batch of RawEvents into refined IOCs.
@@ -300,8 +316,7 @@ def process_incoming_event(source_id: int, task_id: str) -> None:
     processed_iocs = []
 
     try:
-        # fetching RawEvents
-        raw_events = list(RawEvent.objects.filter(batch=batch, processed=False).select_related("sensor"))
+        raw_events = list(_unprocessed_events(batch))
 
         if not raw_events:
             logger.warning(f"[task_id={task_id}] No unprocessed RawEvents — completing")
