@@ -706,6 +706,7 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.assertIn("invalid after normalization", self.batch.last_error)
 
         self.assertEqual(self.batch.ioc_count, 0)
+
     @patch(PATCH_UPDATE_SCORES)
     @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
     @patch(PATCH_IOC_PROCESSOR)
