@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from greedybear.cronjobs.enrichment.contract_validators import AbuseIPDBContractValidator
 from greedybear.cronjobs.enrichment.http_enrichment import HttpEnrichmentJob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.utils import is_valid_ipv4
@@ -35,6 +36,9 @@ class AbuseIPDBCron(HttpEnrichmentJob):
             response = client.get(url, headers=headers, params=params, timeout=30)
 
         json_data = response.json()
+        if not AbuseIPDBContractValidator.validate_response(json_data):
+            self.log.error(f"AbuseIPDB API contract validation failed for response: {json_data}")
+            return None
         return json_data.get("data", [])
 
     def _parse_feed(self, blocklist_data: list) -> dict[str, int]:
@@ -50,6 +54,10 @@ class AbuseIPDBCron(HttpEnrichmentJob):
         score_by_ip: dict[str, int] = {}
 
         for entry in blocklist_data:
+            if not AbuseIPDBContractValidator.validate_item(entry):
+                self.log.warning(f"AbuseIPDB item violates contract schema: {entry}")
+                continue
+
             ip_addr = entry.get("ipAddress")
             if not ip_addr:
                 continue
