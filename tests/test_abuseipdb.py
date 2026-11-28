@@ -205,3 +205,46 @@ class TestAbuseIPDBCron(CustomTestCase):
 
         ioc2_confidence = Tag.objects.get(source="abuseipdb", ioc=self.ioc_2, key="confidence_of_abuse")
         self.assertEqual(ioc2_confidence.value, "92%")
+
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
+    def test_handles_contract_drift_missing_data_field(self, mock_settings, mock_get):
+        """Should preserve existing tags when response structure changes unexpectedly."""
+        mock_settings.ABUSEIPDB_API_KEY = "test_key"
+        Tag.objects.create(ioc=self.ioc, key="confidence_of_abuse", value="75%", source="abuseipdb")
+
+        mock_response = Mock()
+        mock_response.json.return_value = {"error": "unexpected format"}
+        mock_get.return_value = mock_response
+
+        self.cron.run()
+
+        # Existing tags should not be wiped
+        self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="abuseipdb").first().value, "75%")
+
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.HttpClient.get")
+    @patch("greedybear.cronjobs.enrichment.abuseipdb_feed.settings")
+    def test_handles_contract_drift_invalid_items(self, mock_settings, mock_get):
+        """Should skip entries missing required ipAddress or with non-numeric score."""
+        mock_settings.ABUSEIPDB_API_KEY = "test_key"
+
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "data": [
+                {"bad": "entry"},
+                {"ipAddress": self.ioc.name, "abuseConfidenceScore": "not_a_number"},
+                {"ipAddress": self.ioc_2.name, "abuseConfidenceScore": 95},
+            ]
+        }
+        mock_get.return_value = mock_response
+
+        self.cron.run()
+
+        self.assertFalse(Tag.objects.filter(source="abuseipdb", ioc=self.ioc).exists())
+        self.assertTrue(Tag.objects.filter(source="abuseipdb", ioc=self.ioc_2).exists())
+        self.assertEqual(
+            Tag.objects.get(source="abuseipdb", ioc=self.ioc_2, key="confidence_of_abuse").value,
+            "95%",
+        )
+

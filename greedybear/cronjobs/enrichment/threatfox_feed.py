@@ -3,6 +3,7 @@ from ipaddress import ip_address
 
 from django.conf import settings
 
+from greedybear.cronjobs.enrichment.contract_validators import ThreatFoxContractValidator
 from greedybear.cronjobs.enrichment.http_enrichment import HttpEnrichmentJob
 from greedybear.cronjobs.http_client import HttpClient
 from greedybear.utils import is_valid_ipv4
@@ -38,6 +39,10 @@ class ThreatFoxCron(HttpEnrichmentJob):
 
         json_data = response.json()
 
+        if not ThreatFoxContractValidator.validate_response(json_data):
+            self.log.error(f"ThreatFox API contract validation failed for response: {json_data}")
+            return None
+
         if json_data.get("query_status") != "ok":
             self.log.warning(f"ThreatFox API returned non-OK status: {json_data.get('query_status')}")
             return None
@@ -57,6 +62,10 @@ class ThreatFoxCron(HttpEnrichmentJob):
         feed_by_ip: dict[str, list[dict]] = {}
 
         for ioc_data in iocs_data:
+            if not ThreatFoxContractValidator.validate_item(ioc_data):
+                self.log.warning(f"ThreatFox item violates contract schema: {ioc_data}")
+                continue
+
             ioc_value = ioc_data.get("ioc", "")
             ioc_type = ioc_data.get("ioc_type", "")
 

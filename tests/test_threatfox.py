@@ -257,3 +257,47 @@ class TestThreatFoxCron(CustomTestCase):
 
         # AbuseIPDB tag should still exist
         self.assertEqual(Tag.objects.filter(source="abuseipdb").count(), 1)
+
+    @patch("greedybear.cronjobs.enrichment.threatfox_feed.HttpClient.post")
+    @patch("greedybear.cronjobs.enrichment.threatfox_feed.settings")
+    def test_handles_contract_drift_missing_query_status(self, mock_settings, mock_post):
+        """Should preserve existing tags and log error if schema drifts (missing query_status)."""
+        mock_settings.THREATFOX_API_KEY = "test_key"
+        Tag.objects.create(ioc=self.ioc, key="malware", value="ExistingMalware", source="threatfox")
+
+        mock_response = Mock()
+        mock_response.json.return_value = {"unexpected_key": "unexpected_val"}
+        mock_post.return_value = mock_response
+
+        self.cron.run()
+
+        # Existing tags should be preserved
+        self.assertEqual(Tag.objects.filter(source="threatfox").count(), 1)
+        self.assertEqual(Tag.objects.filter(source="threatfox").first().value, "ExistingMalware")
+
+    @patch("greedybear.cronjobs.enrichment.threatfox_feed.HttpClient.post")
+    @patch("greedybear.cronjobs.enrichment.threatfox_feed.settings")
+    def test_handles_contract_drift_invalid_item_schema(self, mock_settings, mock_post):
+        """Should skip items that violate contract without crashing."""
+        mock_settings.THREATFOX_API_KEY = "test_key"
+
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "query_status": "ok",
+            "data": [
+                {"malformed": "entry_missing_ioc"},
+                {
+                    "ioc": f"{self.ioc.name}:4444",
+                    "ioc_type": "ip:port",
+                    "malware_printable": "Mirai",
+                },
+            ],
+        }
+        mock_post.return_value = mock_response
+
+        self.cron.run()
+
+        tags = Tag.objects.filter(source="threatfox", ioc=self.ioc)
+        self.assertTrue(tags.exists())
+        self.assertEqual(tags.get(key="malware").value, "Mirai")
+
