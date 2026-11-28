@@ -749,10 +749,11 @@ class TestProcessIncomingEvent(CustomTestCase):
             self.batch.task_id,
         )
 
-        sequence = CommandSequence.objects.get()
+        expected_hash = hash_command_sequence(commands)
+        sequence = CommandSequence.objects.get(commands_hash=expected_hash)
 
         self.assertEqual(sequence.commands, commands)
-        self.assertEqual(sequence.commands_hash, hash_command_sequence(commands))
+        self.assertEqual(sequence.commands_hash, expected_hash)
 
         self.batch.refresh_from_db()
         self.assertEqual(self.batch.status, "completed")
